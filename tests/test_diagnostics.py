@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, patch
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.openems_zero_injection import async_setup_entry
 from custom_components.openems_zero_injection.const import (
     CONF_DTU_HOST,
     CONF_DTU_PORT,
@@ -27,7 +26,7 @@ async def test_diagnostics_include_connection_state(hass) -> None:
         "custom_components.openems_zero_injection.coordinator.DtuProSModbusClient"
     ) as client_class:
         client_class.return_value.async_check_connectivity = AsyncMock(return_value=True)
-        assert await async_setup_entry(hass, entry)
+        assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
