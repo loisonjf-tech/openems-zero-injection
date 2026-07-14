@@ -1,2 +1,2 @@
-# openems-zero-injection
+# openEMS-zero-injection
 Home Assistant Zero Injection Controller for Hoymiles DTU Pro-S
