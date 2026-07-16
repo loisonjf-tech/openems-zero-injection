@@ -35,4 +35,4 @@ async def test_diagnostics_include_connection_state(hass) -> None:
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
     assert diagnostics["dtu_ip"] == "192.0.2.10"
     assert diagnostics["device_id"] == 1
-    assert diagnostics["measurements"]["serial_number"] is None
+    assert diagnostics["measurements"]["serial_number"] == "redacted"

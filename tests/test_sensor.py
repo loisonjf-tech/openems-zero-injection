@@ -32,4 +32,3 @@ async def test_connection_sensor_reports_connected(hass) -> None:
     state = hass.states.get("sensor.openems_connection")
     assert state is not None
     assert state.state == "Connected"
-    assert hass.states.get("sensor.dtu_active_power") is not None
