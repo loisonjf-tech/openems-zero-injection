@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, patch
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+from homeassistant.helpers import entity_registry as er
 
 from custom_components.openems_zero_injection.const import (
     CONF_DTU_HOST,
@@ -29,6 +30,11 @@ async def test_connection_sensor_reports_connected(hass) -> None:
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
-    state = hass.states.get("sensor.openems_connection")
+    registry = er.async_get(hass)
+    registry_entry = registry.async_get_entity_id(
+        "sensor", DOMAIN, f"{entry.entry_id}_connection_status"
+    )
+    assert registry_entry is not None
+    state = hass.states.get(registry_entry)
     assert state is not None
     assert state.state == "Connected"
