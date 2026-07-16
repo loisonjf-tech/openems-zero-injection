@@ -2,6 +2,20 @@
 
 Toutes les évolutions notables sont documentées dans ce fichier.
 
+## [0.3.0-alpha.1] - 2026-07-16 — Build003 RC1
+
+### Added
+
+- Lecture diagnostique `0x03` des limites de puissance temporaire et permanente des ports 1 à 3.
+- Interrupteur local **Enable Manual DTU Writes**, désactivé à chaque démarrage.
+- Entités Number seulement pour les ports temporaires dont la valeur est valide.
+
+### Safety
+
+- La seule écriture est `0x06` vers `0xD007`, `0xD00D` ou `0xD013`, avec une valeur entière de 2 à 100 %.
+- Chaque écriture est suivie d'un contrôle de l'écho puis d'une relecture `0x03` identique.
+- Les registres globaux et permanents ne peuvent pas être écrits. Aucune récupération par écriture automatique n'est effectuée après un échec.
+
 ### Changed
 - Remplacement de pymodbus par un client Modbus TCP interne, limité à la fonction 0x04.
 

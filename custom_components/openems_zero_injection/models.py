@@ -21,3 +21,9 @@ class DtuMeasurements:
     response_time_ms: float | None
     last_success: datetime | None
     last_error: str | None
+    port_1_temporary_power_limit_percent: int | None = None
+    port_1_permanent_power_limit_percent: int | None = None
+    port_2_temporary_power_limit_percent: int | None = None
+    port_2_permanent_power_limit_percent: int | None = None
+    port_3_temporary_power_limit_percent: int | None = None
+    port_3_permanent_power_limit_percent: int | None = None

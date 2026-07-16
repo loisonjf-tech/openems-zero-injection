@@ -28,9 +28,18 @@ async def async_get_config_entry_diagnostics(
             "last_success": data.last_success.isoformat() if data and data.last_success else None,
             "response_time_ms": data.response_time_ms if data else None,
         },
+        "manual_writes_enabled": coordinator.manual_writes_enabled,
         "measurements": {
             "inverter_count": data.inverter_count if data else None,
             "meter_count": data.meter_count if data else None,
             "serial_number": "redacted" if data and data.serial_number else None,
+            "power_limit_registers": {
+                "port_1_temporary": data.port_1_temporary_power_limit_percent if data else None,
+                "port_1_permanent": data.port_1_permanent_power_limit_percent if data else None,
+                "port_2_temporary": data.port_2_temporary_power_limit_percent if data else None,
+                "port_2_permanent": data.port_2_permanent_power_limit_percent if data else None,
+                "port_3_temporary": data.port_3_temporary_power_limit_percent if data else None,
+                "port_3_permanent": data.port_3_permanent_power_limit_percent if data else None,
+            },
         },
     }

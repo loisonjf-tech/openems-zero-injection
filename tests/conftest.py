@@ -23,5 +23,9 @@ def mock_coordinator_dtu_client():
         client_class.return_value.async_read_input_registers = AsyncMock(
             side_effect=lambda _address, count: [0] * count
         )
+        client_class.return_value.async_read_power_limit_register = AsyncMock(
+            return_value=0
+        )
+        client_class.return_value.async_write_temporary_power_limit = AsyncMock()
         client_class.return_value.async_disconnect = AsyncMock()
         yield

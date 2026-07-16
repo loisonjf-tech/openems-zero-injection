@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "OpenEMS Zero Injection",
-        "description": "Configurez la connexion Modbus TCP du DTU Hoymiles Pro-S. Build001 vérifie uniquement la connectivité.",
+        "description": "Configurez la connexion Modbus TCP du DTU Hoymiles Pro-S. Build003 fournit la télémétrie et des limites temporaires manuelles verrouillées.",
         "data": {
           "dtu_host": "Adresse IP ou nom du DTU",
           "dtu_port": "Port Modbus TCP"

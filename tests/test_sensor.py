@@ -27,6 +27,10 @@ async def test_connection_sensor_reports_connected(hass) -> None:
         client_class.return_value.async_read_input_registers = AsyncMock(
             side_effect=lambda _address, count: [0] * count
         )
+        client_class.return_value.async_read_power_limit_register = AsyncMock(
+            return_value=50
+        )
+        client_class.return_value.async_write_temporary_power_limit = AsyncMock()
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
@@ -38,3 +42,15 @@ async def test_connection_sensor_reports_connected(hass) -> None:
     state = hass.states.get(registry_entry)
     assert state is not None
     assert state.state == "Connected"
+
+    power_limit_entity = registry.async_get_entity_id(
+        "number", DOMAIN, f"{entry.entry_id}_port_1_temporary_power_limit"
+    )
+    assert power_limit_entity is not None
+    assert hass.states.get(power_limit_entity).state == "50.0"
+
+    safety_switch = registry.async_get_entity_id(
+        "switch", DOMAIN, f"{entry.entry_id}_enable_manual_dtu_writes"
+    )
+    assert safety_switch is not None
+    assert hass.states.get(safety_switch).state == "off"

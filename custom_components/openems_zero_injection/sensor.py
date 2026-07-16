@@ -34,6 +34,12 @@ async def async_setup_entry(
             DtuValueSensor(coordinator, entry, "total_energy_wh", "DTU Total Energy", device_class=SensorDeviceClass.ENERGY, state_class=SensorStateClass.TOTAL_INCREASING, unit=UnitOfEnergy.WATT_HOUR),
             DtuValueSensor(coordinator, entry, "response_time_ms", "DTU Response Time", EntityCategory.DIAGNOSTIC, device_class=SensorDeviceClass.DURATION, state_class=SensorStateClass.MEASUREMENT, unit=UnitOfTime.MILLISECONDS),
             DtuValueSensor(coordinator, entry, "last_success", "DTU Last Communication", EntityCategory.DIAGNOSTIC, device_class=SensorDeviceClass.TIMESTAMP),
+            DtuValueSensor(coordinator, entry, "port_1_temporary_power_limit_percent", "DTU Port 1 Temporary Power Limit", EntityCategory.DIAGNOSTIC, unit="%"),
+            DtuValueSensor(coordinator, entry, "port_1_permanent_power_limit_percent", "DTU Port 1 Permanent Power Limit", EntityCategory.DIAGNOSTIC, unit="%"),
+            DtuValueSensor(coordinator, entry, "port_2_temporary_power_limit_percent", "DTU Port 2 Temporary Power Limit", EntityCategory.DIAGNOSTIC, unit="%"),
+            DtuValueSensor(coordinator, entry, "port_2_permanent_power_limit_percent", "DTU Port 2 Permanent Power Limit", EntityCategory.DIAGNOSTIC, unit="%"),
+            DtuValueSensor(coordinator, entry, "port_3_temporary_power_limit_percent", "DTU Port 3 Temporary Power Limit", EntityCategory.DIAGNOSTIC, unit="%"),
+            DtuValueSensor(coordinator, entry, "port_3_permanent_power_limit_percent", "DTU Port 3 Permanent Power Limit", EntityCategory.DIAGNOSTIC, unit="%"),
         ]
     )
 

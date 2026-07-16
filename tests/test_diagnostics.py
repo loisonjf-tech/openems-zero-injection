@@ -29,6 +29,9 @@ async def test_diagnostics_include_connection_state(hass) -> None:
         client_class.return_value.async_read_input_registers = AsyncMock(
             side_effect=lambda _address, count: [0] * count
         )
+        client_class.return_value.async_read_power_limit_register = AsyncMock(
+            return_value=50
+        )
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 

@@ -4,9 +4,9 @@ Intégration Home Assistant locale destinée à piloter un Hoymiles DTU Pro-S af
 
 ## État du projet
 
-**Build002 — télémétrie Modbus en lecture seule.** Le projet lit un ensemble limité de registres documentés du DTU Pro-S et expose les premières mesures. Il ne contient aucune logique de régulation ni aucune écriture Modbus.
+**Build003 RC1 — lecture diagnostique et pilotage manuel temporaire par port.** Le projet lit les registres de télémétrie et les six limites de puissance documentées. Une écriture temporaire est possible uniquement après activation explicite de l'interrupteur de sécurité local.
 
-Version actuelle : **V0.2.0-alpha.1 / Build002**.
+Version actuelle : **V0.3.0-alpha.1 / Build003 RC1**.
 
 ## Matériel de référence
 
@@ -24,9 +24,15 @@ Copiez `custom_components/openems_zero_injection` dans le répertoire `custom_co
 
 Dans l'assistant d'ajout de l'intégration, indiquez l'adresse IP du Hoymiles DTU Pro-S et le port TCP. Le port par défaut est `502`. Le capteur de diagnostic **OpenEMS Connection** affiche `Connected` lorsque le port TCP est joignable, sinon `Disconnected`.
 
+## Limite de puissance manuelle (Build003 RC1)
+
+Les capteurs diagnostiques affichent les limites temporaire et permanente des ports 1 à 3. Les entités Number ne sont créées que pour les ports dont la limite temporaire retourne une valeur valide lors du démarrage.
+
+Avant une modification manuelle, activez **Enable Manual DTU Writes**. Il est toujours désactivé après un redémarrage. Les seules écritures possibles sont des limites **temporaires** `2–100 %` vers `0xD007`, `0xD00D` ou `0xD013`. Chaque écriture `0x06` doit être confirmée par son écho Modbus, puis par une relecture immédiate `0x03` du même registre. Une erreur conserve la dernière valeur confirmée et ne déclenche aucune nouvelle écriture.
+
 ## Sécurité
 
-Le Build002 utilise un client Modbus TCP interne minimal, exclusivement avec la fonction `0x04` (lecture de registres d'entrée), avec un délai maximal de cinq secondes. Il n'a aucune dépendance externe et ne contient aucune méthode d'écriture.
+Le client interne utilise uniquement les fonctions Modbus TCP `0x03`, `0x04` et, exclusivement derrière l'interrupteur de sécurité, `0x06`. Il n'implémente pas `0x10`, aucune écriture permanente, aucune écriture globale et aucune fonction de régulation automatique.
 
 ## Tests
 
@@ -34,5 +40,5 @@ Dans un environnement de développement Home Assistant 2026.7.2 compatible avec 
 
 ## Feuille de route
 
-1. **Build002** : lecture seule des registres DTU documentés (en validation réelle).
-2. **Build003** : diagnostic enrichi et tests d'intégration après validation réelle.
+1. **Build003 RC1** : valider les ports actifs et la limite temporaire sur le DTU réel.
+2. **Build004** : uniquement après validation explicite du matériel et d'une spécification approuvée.
