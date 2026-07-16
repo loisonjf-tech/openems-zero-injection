@@ -4,7 +4,7 @@ Intégration Home Assistant locale destinée à piloter un Hoymiles DTU Pro-S af
 
 ## État du projet
 
-**Build001 — connectivité uniquement.** Le projet fournit une intégration Home Assistant installable, la configuration Modbus TCP du DTU Pro-S et un capteur de diagnostic de connexion. Il ne contient aucune logique de régulation, aucune lecture métier et aucune écriture Modbus.
+**Build001 — connectivité uniquement.** Le projet fournit une intégration Home Assistant installable, la configuration TCP du DTU Pro-S et un capteur de diagnostic de connexion. Il ne contient aucune logique de régulation, aucune lecture métier et aucune écriture Modbus.
 
 Version actuelle : **V0.1-alpha / Build001**.
 
@@ -22,11 +22,11 @@ Copiez `custom_components/openems_zero_injection` dans le répertoire `custom_co
 
 ## Configuration
 
-Dans l'assistant d'ajout de l'intégration, indiquez l'adresse IP du Hoymiles DTU Pro-S et le port Modbus TCP. Le port par défaut est `502`. Le capteur de diagnostic **OpenEMS Connection** affiche `Connected` lorsque la session TCP est établie, sinon `Disconnected`.
+Dans l'assistant d'ajout de l'intégration, indiquez l'adresse IP du Hoymiles DTU Pro-S et le port TCP. Le port par défaut est `502`. Le capteur de diagnostic **OpenEMS Connection** affiche `Connected` lorsque le port TCP est joignable, sinon `Disconnected`.
 
 ## Sécurité
 
-Le Build001 se limite à l'établissement de la session TCP. Il ne lit ni n'écrit de registre Modbus et ne pilote aucun onduleur.
+Le Build001 se limite à l'ouverture du port TCP du DTU, avec un délai maximal de cinq secondes. Il ne dépend pas encore de `pymodbus`, ne lit ni n'écrit de registre Modbus et ne pilote aucun onduleur.
 
 ## Tests
 

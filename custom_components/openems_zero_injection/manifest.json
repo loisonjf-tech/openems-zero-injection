@@ -7,6 +7,5 @@
   "integration_type": "hub",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/loisonjf-tech/openems-zero-injection/issues",
-  "requirements": ["pymodbus==3.11.3"],
   "version": "0.1.0"
 }

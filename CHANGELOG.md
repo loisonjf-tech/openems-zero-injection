@@ -2,6 +2,13 @@
 
 Toutes les évolutions notables sont documentées dans ce fichier.
 
+## [0.1.0] - 2026-07-16 — Build001 RC1
+
+### Changed
+
+- Remplacement de la dépendance `pymodbus` par une simple ouverture du port TCP du DTU avec un délai de cinq secondes.
+- Aucune trame Modbus, lecture de registre ou écriture de registre n'est effectuée.
+
 ## [0.1.0] - 2026-07-14 — Build001
 
 ### Added
