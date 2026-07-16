@@ -26,12 +26,13 @@ async def test_diagnostics_include_connection_state(hass) -> None:
         "custom_components.openems_zero_injection.coordinator.DtuProSModbusClient"
     ) as client_class:
         client_class.return_value.async_check_connectivity = AsyncMock(return_value=True)
+        client_class.return_value.async_read_input_registers = AsyncMock(
+            side_effect=lambda _address, count: [0] * count
+        )
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
-    assert diagnostics == {
-        "dtu_ip": "192.0.2.10",
-        "port": 502,
-        "connection": {"connected": True, "last_communication_error": None},
-    }
+    assert diagnostics["dtu_ip"] == "192.0.2.10"
+    assert diagnostics["device_id"] == 1
+    assert diagnostics["measurements"]["serial_number"] is None

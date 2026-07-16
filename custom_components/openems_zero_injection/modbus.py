@@ -1,64 +1,81 @@
-"""TCP connectivity check for the Hoymiles DTU Pro-S."""
+"""Asynchronous, read-only Modbus TCP client for the Hoymiles DTU Pro-S."""
 
 from __future__ import annotations
 
-import asyncio
 import logging
+
+from pymodbus.client import AsyncModbusTcpClient
+from pymodbus.exceptions import ModbusException
+
+from .const import DEFAULT_DEVICE_ID, MODBUS_TIMEOUT_SECONDS
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class DtuConnectionError(Exception):
-    """Raised when the DTU TCP service cannot be reached."""
+    """Raised when the DTU cannot be connected to or read safely."""
 
 
 class DtuProSModbusClient:
-    """Own a TCP connection to the DTU without exchanging Modbus data."""
+    """Read documented DTU input registers; this class has no write methods."""
 
-    def __init__(self, host: str, port: int) -> None:
+    def __init__(
+        self, host: str, port: int, device_id: int = DEFAULT_DEVICE_ID
+    ) -> None:
         self.host = host
         self.port = port
-        self._writer: asyncio.StreamWriter | None = None
+        self.device_id = device_id
+        self._client = AsyncModbusTcpClient(
+            host,
+            port=port,
+            timeout=MODBUS_TIMEOUT_SECONDS,
+            retries=0,
+            reconnect_delay=0.1,
+        )
 
     @property
     def connected(self) -> bool:
-        """Return whether the TCP transport is connected."""
-        return self._writer is not None and not self._writer.is_closing()
+        """Return the transport's current connection state."""
+        return self._client.connected
 
     async def async_connect(self) -> bool:
-        """Open the DTU TCP port without issuing a request."""
+        """Connect to the DTU without blocking Home Assistant's event loop."""
         if self.connected:
             return True
-
         _LOGGER.debug("Connecting to DTU at %s:%s...", self.host, self.port)
         try:
-            async with asyncio.timeout(5):
-                _, self._writer = await asyncio.open_connection(self.host, self.port)
-        except (OSError, TimeoutError) as err:
+            connected = await self._client.connect()
+        except (ModbusException, OSError, TimeoutError) as err:
             raise DtuConnectionError(str(err)) from err
-
-        _LOGGER.debug("Connected to DTU at %s:%s.", self.host, self.port)
+        if not connected:
+            raise DtuConnectionError("Connection failed")
+        _LOGGER.info("Connected to DTU Modbus TCP service.")
         return True
 
     async def async_check_connectivity(self) -> bool:
-        """Perform the Build001 connectivity check.
-
-        This check only opens the DTU TCP port. No Modbus frame, register read,
-        or register write is performed.
-        """
+        """Verify that a Modbus TCP session can be established."""
         return await self.async_connect()
 
-    async def async_disconnect(self) -> None:
-        """Close the TCP transport."""
-        writer = self._writer
-        self._writer = None
-        if writer is None:
-            return
-
-        if not writer.is_closing():
-            _LOGGER.debug("Closing DTU connection at %s:%s.", self.host, self.port)
-        writer.close()
+    async def async_read_input_registers(self, address: int, count: int) -> list[int]:
+        """Read one documented input-register range using Modbus function 0x04."""
+        await self.async_connect()
+        _LOGGER.debug("Reading %s input registers at 0x%04X.", count, address)
         try:
-            await writer.wait_closed()
-        except OSError:
-            _LOGGER.debug("DTU TCP connection closed with a transport error.")
+            response = await self._client.read_input_registers(
+                address, count=count, device_id=self.device_id
+            )
+        except (ModbusException, OSError, TimeoutError) as err:
+            raise DtuConnectionError(str(err)) from err
+        if response.isError():
+            raise DtuConnectionError(f"Modbus exception response at 0x{address:04X}")
+        registers = getattr(response, "registers", None)
+        if not isinstance(registers, list) or len(registers) != count:
+            raise DtuConnectionError(f"Invalid register response at 0x{address:04X}")
+        _LOGGER.debug("Raw registers at 0x%04X: %s", address, registers)
+        return registers
+
+    async def async_disconnect(self) -> None:
+        """Close the Modbus TCP connection cleanly."""
+        if self.connected:
+            _LOGGER.debug("Closing DTU connection at %s:%s.", self.host, self.port)
+        self._client.close()

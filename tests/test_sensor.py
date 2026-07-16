@@ -23,9 +23,13 @@ async def test_connection_sensor_reports_connected(hass) -> None:
         "custom_components.openems_zero_injection.coordinator.DtuProSModbusClient"
     ) as client_class:
         client_class.return_value.async_check_connectivity = AsyncMock(return_value=True)
+        client_class.return_value.async_read_input_registers = AsyncMock(
+            side_effect=lambda _address, count: [0] * count
+        )
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
     state = hass.states.get("sensor.openems_connection")
     assert state is not None
     assert state.state == "Connected"
+    assert hass.states.get("sensor.dtu_active_power") is not None

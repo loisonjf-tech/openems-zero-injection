@@ -20,5 +20,8 @@ def mock_coordinator_dtu_client():
         "custom_components.openems_zero_injection.coordinator.DtuProSModbusClient"
     ) as client_class:
         client_class.return_value.async_check_connectivity = AsyncMock(return_value=True)
+        client_class.return_value.async_read_input_registers = AsyncMock(
+            side_effect=lambda _address, count: [0] * count
+        )
         client_class.return_value.async_disconnect = AsyncMock()
         yield

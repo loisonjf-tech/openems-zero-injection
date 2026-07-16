@@ -1,54 +1,53 @@
-"""Tests for the DTU TCP connectivity check."""
+"""Tests for the read-only DTU Modbus client."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from custom_components.openems_zero_injection.modbus import (
-    DtuConnectionError,
-    DtuProSModbusClient,
-)
+from custom_components.openems_zero_injection.modbus import DtuConnectionError, DtuProSModbusClient
 
 
-async def test_connectivity_check_opens_tcp_connection() -> None:
-    """A successful TCP handshake reports the DTU as connected."""
-    with patch(
-        "custom_components.openems_zero_injection.modbus.asyncio.open_connection",
-        new_callable=AsyncMock,
-    ) as open_connection:
-        writer = MagicMock()
-        writer.wait_closed = AsyncMock()
-        writer.is_closing.return_value = False
-        open_connection.return_value = (MagicMock(), writer)
+def _client_mock() -> MagicMock:
+    client = MagicMock()
+    client.connected = False
+    client.connect = AsyncMock(return_value=True)
+    client.read_input_registers = AsyncMock(return_value=MagicMock(isError=lambda: False, registers=[2]))
+    return client
+
+
+async def test_connection_and_read_are_successful() -> None:
+    with patch("custom_components.openems_zero_injection.modbus.AsyncModbusTcpClient") as cls:
+        client = _client_mock()
+        cls.return_value = client
         modbus = DtuProSModbusClient("192.0.2.10", 502)
-        assert await modbus.async_check_connectivity() is True
-        open_connection.assert_awaited_once_with("192.0.2.10", 502)
+        assert await modbus.async_read_input_registers(0x3004, 1) == [2]
+        client.read_input_registers.assert_awaited_once_with(0x3004, count=1, device_id=1)
 
 
-async def test_connectivity_check_raises_on_failed_connection() -> None:
-    """A refused transport is exposed as a dedicated connection error."""
-    with patch(
-        "custom_components.openems_zero_injection.modbus.asyncio.open_connection",
-        new_callable=AsyncMock,
-        side_effect=OSError("Connection refused"),
-    ):
+@pytest.mark.parametrize("side_effect", [OSError("refused"), TimeoutError()])
+async def test_connection_errors_are_wrapped(side_effect: Exception) -> None:
+    with patch("custom_components.openems_zero_injection.modbus.AsyncModbusTcpClient") as cls:
+        client = _client_mock()
+        client.connect = AsyncMock(side_effect=side_effect)
+        cls.return_value = client
+        with pytest.raises(DtuConnectionError):
+            await DtuProSModbusClient("192.0.2.10", 502).async_connect()
+
+
+async def test_modbus_error_response_is_wrapped() -> None:
+    with patch("custom_components.openems_zero_injection.modbus.AsyncModbusTcpClient") as cls:
+        client = _client_mock()
+        client.read_input_registers = AsyncMock(return_value=MagicMock(isError=lambda: True))
+        cls.return_value = client
+        with pytest.raises(DtuConnectionError, match="exception response"):
+            await DtuProSModbusClient("192.0.2.10", 502).async_read_input_registers(0x3004, 1)
+
+
+async def test_disconnect_closes_client_and_no_write_api_exists() -> None:
+    with patch("custom_components.openems_zero_injection.modbus.AsyncModbusTcpClient") as cls:
+        client = _client_mock()
+        cls.return_value = client
         modbus = DtuProSModbusClient("192.0.2.10", 502)
-        with pytest.raises(DtuConnectionError, match="Connection refused"):
-            await modbus.async_check_connectivity()
-
-
-async def test_disconnect_closes_client() -> None:
-    """Unloading the integration closes the TCP connection."""
-    with patch(
-        "custom_components.openems_zero_injection.modbus.asyncio.open_connection",
-        new_callable=AsyncMock,
-    ) as open_connection:
-        writer = MagicMock()
-        writer.wait_closed = AsyncMock()
-        writer.is_closing.return_value = False
-        open_connection.return_value = (MagicMock(), writer)
-        modbus = DtuProSModbusClient("192.0.2.10", 502)
-        await modbus.async_connect()
         await modbus.async_disconnect()
-        writer.close.assert_called_once()
-        writer.wait_closed.assert_awaited_once()
+        client.close.assert_called_once()
+        assert not any(name.startswith("async_write") for name in dir(modbus))

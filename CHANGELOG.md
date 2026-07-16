@@ -2,6 +2,17 @@
 
 Toutes les évolutions notables sont documentées dans ce fichier.
 
+## [0.2.0-alpha.1] - 2026-07-16 — Build002
+
+### Added
+
+- Télémétrie Modbus TCP asynchrone exclusivement en lecture (fonction `0x04`).
+- Mesures agrégées DTU, capteurs Home Assistant, diagnostics et décodage explicite des registres.
+
+### Safety
+
+- Aucune fonction ou méthode d'écriture Modbus n'est présente.
+
 ## [0.1.0] - 2026-07-16 — Build001 RC1
 
 ### Changed

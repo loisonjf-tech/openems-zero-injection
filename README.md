@@ -4,9 +4,9 @@ Intégration Home Assistant locale destinée à piloter un Hoymiles DTU Pro-S af
 
 ## État du projet
 
-**Build001 — connectivité uniquement.** Le projet fournit une intégration Home Assistant installable, la configuration TCP du DTU Pro-S et un capteur de diagnostic de connexion. Il ne contient aucune logique de régulation, aucune lecture métier et aucune écriture Modbus.
+**Build002 — télémétrie Modbus en lecture seule.** Le projet lit un ensemble limité de registres documentés du DTU Pro-S et expose les premières mesures. Il ne contient aucune logique de régulation ni aucune écriture Modbus.
 
-Version actuelle : **V0.1-alpha / Build001**.
+Version actuelle : **V0.2.0-alpha.1 / Build002**.
 
 ## Matériel de référence
 
@@ -26,7 +26,7 @@ Dans l'assistant d'ajout de l'intégration, indiquez l'adresse IP du Hoymiles DT
 
 ## Sécurité
 
-Le Build001 se limite à l'ouverture du port TCP du DTU, avec un délai maximal de cinq secondes. Il ne dépend pas encore de `pymodbus`, ne lit ni n'écrit de registre Modbus et ne pilote aucun onduleur.
+Le Build002 utilise `pymodbus==3.11.4` uniquement avec la fonction Modbus `0x04` (lecture de registres d'entrée), avec un délai maximal de cinq secondes. Il ne contient aucune méthode d'écriture et ne pilote aucun onduleur. Consultez `docs/Modbus.md` avant toute validation réelle.
 
 ## Tests
 
@@ -34,5 +34,5 @@ Dans un environnement de développement Home Assistant 2026.7.2 compatible avec 
 
 ## Feuille de route
 
-1. **Build002** : lecture seule après validation du profil Modbus DTU Pro-S.
-2. **Build003** : diagnostic enrichi et tests d'intégration.
+1. **Build002** : lecture seule des registres DTU documentés (en validation réelle).
+2. **Build003** : diagnostic enrichi et tests d'intégration après validation réelle.
