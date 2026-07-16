@@ -26,7 +26,9 @@ async def test_invalid_responses_raise(parts) -> None:
         with pytest.raises(DtuConnectionError): await DtuProSModbusClient("x", 502).async_read_input_registers(0, 1)
 
 async def test_truncated_timeout_refused_and_reconnect() -> None:
-    reader, writer = streams([b"x"])
+    reader, writer = streams(
+        [asyncio.IncompleteReadError(partial=b"x", expected=7)]
+    )
     open_connection = AsyncMock(side_effect=[(reader, writer), OSError("refused")])
     with patch("custom_components.openems_zero_injection.modbus.asyncio.open_connection", open_connection):
         client = DtuProSModbusClient("x", 502)
