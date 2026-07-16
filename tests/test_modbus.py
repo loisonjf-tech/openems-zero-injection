@@ -1,53 +1,41 @@
-"""Tests for the read-only DTU Modbus client."""
-
+"""Tests for the internal read-only Modbus TCP client."""
+import asyncio
+import struct
 from unittest.mock import AsyncMock, MagicMock, patch
-
 import pytest
-
 from custom_components.openems_zero_injection.modbus import DtuConnectionError, DtuProSModbusClient
 
+def response(tid: int = 1, device: int = 1, function: int = 4, payload: bytes = b"\x00\x02") -> list[bytes]:
+    pdu = bytes([function, len(payload)]) + payload
+    return [struct.pack(">HHHB", tid, 0, len(pdu) + 1, device), pdu]
 
-def _client_mock() -> MagicMock:
-    client = MagicMock()
-    client.connected = False
-    client.connect = AsyncMock(return_value=True)
-    client.read_input_registers = AsyncMock(return_value=MagicMock(isError=lambda: False, registers=[2]))
-    return client
+def streams(parts: list[bytes]):
+    reader = MagicMock(); reader.readexactly = AsyncMock(side_effect=parts)
+    writer = MagicMock(); writer.drain = AsyncMock(); writer.wait_closed = AsyncMock(); writer.is_closing.return_value = False
+    return reader, writer
 
+async def test_valid_response() -> None:
+    reader, writer = streams(response())
+    with patch("custom_components.openems_zero_injection.modbus.asyncio.open_connection", AsyncMock(return_value=(reader, writer))):
+        assert await DtuProSModbusClient("x", 502).async_read_input_registers(0x3004, 1) == [2]
 
-async def test_connection_and_read_are_successful() -> None:
-    with patch("custom_components.openems_zero_injection.modbus.AsyncModbusTcpClient") as cls:
-        client = _client_mock()
-        cls.return_value = client
-        modbus = DtuProSModbusClient("192.0.2.10", 502)
-        assert await modbus.async_read_input_registers(0x3004, 1) == [2]
-        client.read_input_registers.assert_awaited_once_with(0x3004, count=1, device_id=1)
+@pytest.mark.parametrize("parts", [response(tid=2), response(device=2), response(function=3), response(function=0x84, payload=b"\x02"), response(payload=b"\x00")])
+async def test_invalid_responses_raise(parts) -> None:
+    reader, writer = streams(parts)
+    with patch("custom_components.openems_zero_injection.modbus.asyncio.open_connection", AsyncMock(return_value=(reader, writer))):
+        with pytest.raises(DtuConnectionError): await DtuProSModbusClient("x", 502).async_read_input_registers(0, 1)
 
+async def test_truncated_timeout_refused_and_reconnect() -> None:
+    reader, writer = streams([b"x"])
+    open_connection = AsyncMock(side_effect=[(reader, writer), OSError("refused")])
+    with patch("custom_components.openems_zero_injection.modbus.asyncio.open_connection", open_connection):
+        client = DtuProSModbusClient("x", 502)
+        with pytest.raises(DtuConnectionError): await client.async_read_input_registers(0, 1)
+        with pytest.raises(DtuConnectionError): await client.async_read_input_registers(0, 1)
 
-@pytest.mark.parametrize("side_effect", [OSError("refused"), TimeoutError()])
-async def test_connection_errors_are_wrapped(side_effect: Exception) -> None:
-    with patch("custom_components.openems_zero_injection.modbus.AsyncModbusTcpClient") as cls:
-        client = _client_mock()
-        client.connect = AsyncMock(side_effect=side_effect)
-        cls.return_value = client
-        with pytest.raises(DtuConnectionError):
-            await DtuProSModbusClient("192.0.2.10", 502).async_connect()
-
-
-async def test_modbus_error_response_is_wrapped() -> None:
-    with patch("custom_components.openems_zero_injection.modbus.AsyncModbusTcpClient") as cls:
-        client = _client_mock()
-        client.read_input_registers = AsyncMock(return_value=MagicMock(isError=lambda: True))
-        cls.return_value = client
-        with pytest.raises(DtuConnectionError, match="exception response"):
-            await DtuProSModbusClient("192.0.2.10", 502).async_read_input_registers(0x3004, 1)
-
-
-async def test_disconnect_closes_client_and_no_write_api_exists() -> None:
-    with patch("custom_components.openems_zero_injection.modbus.AsyncModbusTcpClient") as cls:
-        client = _client_mock()
-        cls.return_value = client
-        modbus = DtuProSModbusClient("192.0.2.10", 502)
-        await modbus.async_disconnect()
-        client.close.assert_called_once()
-        assert not any(name.startswith("async_write") for name in dir(modbus))
+async def test_no_write_method_and_clean_disconnect() -> None:
+    reader, writer = streams(response())
+    with patch("custom_components.openems_zero_injection.modbus.asyncio.open_connection", AsyncMock(return_value=(reader, writer))):
+        client = DtuProSModbusClient("x", 502); await client.async_connect(); await client.async_disconnect()
+    writer.close.assert_called_once(); writer.wait_closed.assert_awaited_once()
+    assert not any("write" in name for name in dir(client) if name.startswith("async_"))

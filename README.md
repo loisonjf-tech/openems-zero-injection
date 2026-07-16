@@ -26,7 +26,7 @@ Dans l'assistant d'ajout de l'intégration, indiquez l'adresse IP du Hoymiles DT
 
 ## Sécurité
 
-Le Build002 utilise `pymodbus==3.11.4` uniquement avec la fonction Modbus `0x04` (lecture de registres d'entrée), avec un délai maximal de cinq secondes. Il ne contient aucune méthode d'écriture et ne pilote aucun onduleur. Consultez `docs/Modbus.md` avant toute validation réelle.
+Le Build002 utilise un client Modbus TCP interne minimal, exclusivement avec la fonction `0x04` (lecture de registres d'entrée), avec un délai maximal de cinq secondes. Il n'a aucune dépendance externe et ne contient aucune méthode d'écriture.
 
 ## Tests
 

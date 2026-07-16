@@ -2,7 +2,7 @@
 
 Source : *Technical Note — Hoymiles Modbus Protocol for DTU-Pro / DTU-Pro-S*, REV1.2, 2024-05-09. La note indique un firmware DTU Pro-S minimal **V2.22**. La validation sur le matériel réel `192.168.1.37:502` reste à effectuer.
 
-Build002 utilise uniquement Modbus TCP fonction **0x04 — Read Input Registers**, Device ID `1`, timeout de cinq secondes. Aucune fonction d'écriture n'est implémentée.
+Build002 utilise un client Modbus TCP interne basé uniquement sur la bibliothèque standard Python, fonction **0x04 — Read Input Registers**, Device ID `1`, timeout de cinq secondes. Aucune dépendance externe ni fonction d'écriture n'est implémentée.
 
 Les mots de 16 bits et les octets sont décodés dans l'ordre big-endian documenté. Les nombres multi-mots sont assemblés du mot le plus significatif vers le moins significatif.
 

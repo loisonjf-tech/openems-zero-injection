@@ -2,6 +2,9 @@
 
 Toutes les évolutions notables sont documentées dans ce fichier.
 
+### Changed
+- Remplacement de pymodbus par un client Modbus TCP interne, limité à la fonction 0x04.
+
 ## [0.2.0-alpha.1] - 2026-07-16 — Build002
 
 ### Added
