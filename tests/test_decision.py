@@ -47,7 +47,7 @@ def test_limit_saturates_at_minimum_and_maximum() -> None:
 
 
 def test_small_correction_and_unchanged_limit_are_not_sent() -> None:
-    decision = decide(-45)
+    decision = decide(-45, deadband_w=0)
     assert decision.applied_limit_percent == 50
     assert not decision.command_needed
     assert decision.reason is DecisionReason.LIMIT_UNCHANGED
