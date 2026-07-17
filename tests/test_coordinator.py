@@ -57,11 +57,12 @@ async def test_telemetry_failure_keeps_last_value_stale_then_recovers(hass) -> N
         client.async_read_power_limit_register = AsyncMock(return_value=50)
         coordinator = DtuProSCoordinator(hass, entry)
         await coordinator.async_refresh()
-        client.async_read_input_registers.side_effect = (
-            lambda address, _count: DtuConnectionError("0 bytes read")
-            if address == 0x3108
-            else values[address]
-        )
+        def fail_active_power(address: int, _count: int) -> list[int]:
+            if address == 0x3108:
+                raise DtuConnectionError("0 bytes read")
+            return values[address]
+
+        client.async_read_input_registers.side_effect = fail_active_power
         await coordinator.async_refresh()
 
         assert coordinator.last_update_success is True
@@ -86,11 +87,12 @@ async def test_telemetry_failures_rate_limit_warnings(hass, caplog) -> None:
     )
     with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
         client = cls.return_value
-        client.async_read_input_registers = AsyncMock(
-            side_effect=lambda address, count: DtuConnectionError("failed")
-            if address == 0x3108
-            else [0] * count
-        )
+        def fail_active_power(address: int, count: int) -> list[int]:
+            if address == 0x3108:
+                raise DtuConnectionError("failed")
+            return [0] * count
+
+        client.async_read_input_registers = AsyncMock(side_effect=fail_active_power)
         client.async_read_power_limit_register = AsyncMock(return_value=50)
         coordinator = DtuProSCoordinator(hass, entry)
         await coordinator.async_refresh()
