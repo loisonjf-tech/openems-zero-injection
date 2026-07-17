@@ -15,6 +15,8 @@ Toutes les évolutions notables sont documentées dans ce fichier.
 - Production exige trois mesures réseau valides, des limites temporaires cohérentes et l'interrupteur Build003 activé.
 - Les seules écritures automatiques sont les limites temporaires des trois ports, suivies d'une relecture complète.
 - Aucune intégration Zendure/SolarFlow, aucune écriture permanente, aucun PID ni retry automatique.
+- Une erreur isolée d'une limite temporaire conserve la dernière valeur avec un état périmé et suspend les commandes Production jusqu'à trois lectures temporaires fraîches et cohérentes.
+- Les limites permanentes sont strictement diagnostiques, lues au démarrage puis toutes les cinq minutes ; leur indisponibilité n'interrompt pas le contrôleur.
 
 ## [0.3.0-alpha.1] - 2026-07-16 — Build003 RC1
 

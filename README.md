@@ -28,13 +28,13 @@ Dans l'assistant d'ajout de l'intégration, indiquez l'adresse IP du Hoymiles DT
 
 Configurez l'entité Home Assistant de puissance réseau dans les options de l'intégration. La convention par défaut est positive = consommation réseau et négative = injection. La cible par défaut est `-40 W`, avec une zone morte de `±30 W`.
 
-Le mode du contrôleur est **Disabled** après chaque démarrage. **Simulation** calcule et explique les décisions sans écrire. **Production** reste verrouillé tant que **Enable Manual DTU Writes** est désactivé. Il exige trois mesures réseau valides et trois limites temporaires identiques avant une éventuelle écriture. La consigne est limitée à 5 % par commande et espacée de 12 secondes par défaut.
+Le mode du contrôleur est **Disabled** après chaque démarrage. **Simulation** calcule et explique les décisions sans écrire. **Production** reste verrouillé tant que **Enable Manual DTU Writes** est désactivé. Il exige trois mesures réseau valides et trois limites temporaires identiques, fraîches et cohérentes avant une éventuelle écriture. En cas de lecture isolée échouée, la dernière valeur est conservée avec l'attribut `fresh: false`, mais elle ne peut pas autoriser une commande Production. La consigne est limitée à 5 % par commande et espacée de 12 secondes par défaut.
 
 > **Avertissement :** Build004 est expérimental. Le mode Production peut modifier la puissance photovoltaïque réelle. Les premiers essais doivent être réalisés sous surveillance.
 
 ## Sécurité
 
-Le client interne utilise uniquement les fonctions Modbus TCP `0x03`, `0x04` et `0x06`. Les écritures Build004 sont exclusivement temporaires vers `0xD007`, `0xD00D` et `0xD013`, vérifiées par relecture. Il n'implémente pas `0x10`, aucune écriture permanente ou globale, aucun PID ni aucune logique batterie.
+Le client interne utilise uniquement les fonctions Modbus TCP `0x03`, `0x04` et `0x06`. Les écritures Build004 sont exclusivement temporaires vers `0xD007`, `0xD00D` et `0xD013`, vérifiées par relecture. Les registres permanents (`0xD008`, `0xD00E`, `0xD014`) sont seulement diagnostiques et lus toutes les cinq minutes, jamais écrits. Il n'implémente pas `0x10`, aucune écriture permanente ou globale, aucun PID ni aucune logique batterie.
 
 ## Tests
 

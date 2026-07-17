@@ -11,6 +11,7 @@ from custom_components.openems_zero_injection.controller import ZeroInjectionCon
 def fake_coordinator(*, writes_enabled: bool = True):
     coordinator = SimpleNamespace(
         manual_writes_enabled=writes_enabled,
+        temporary_limits_ready=True,
         data=SimpleNamespace(
             connected=True,
             active_power_w=900.0,
@@ -79,4 +80,21 @@ async def test_inconsistent_limits_pause_without_a_command(hass) -> None:
     for _ in range(3):
         await controller.async_tick()
     assert controller.status.state == "Paused"
+    coordinator.async_set_all_temporary_power_limits.assert_not_awaited()
+
+
+async def test_stale_temporary_limits_pause_production_without_a_command(hass) -> None:
+    """Cached limits must not authorize an automatic production command."""
+    hass.states.async_set("sensor.grid", "-220")
+    coordinator = fake_coordinator()
+    coordinator.temporary_limits_ready = False
+    controller = ZeroInjectionController(
+        hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
+    )
+    await controller.async_set_mode(ControllerMode.PRODUCTION.value)
+    for _ in range(3):
+        await controller.async_tick()
+
+    assert controller.status.state == "Paused"
+    assert controller.status.last_error == "Temporary limits are stale or inconsistent"
     coordinator.async_set_all_temporary_power_limits.assert_not_awaited()

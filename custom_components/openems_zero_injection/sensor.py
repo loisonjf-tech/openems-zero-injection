@@ -17,6 +17,10 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import CONF_DTU_HOST, CONF_DTU_PORT, DOMAIN
 from .coordinator import DtuProSCoordinator
 from .models import DtuMeasurements
+from .registers import (
+    PORT_PERMANENT_POWER_LIMIT_REGISTERS,
+    PORT_TEMPORARY_POWER_LIMIT_REGISTERS,
+)
 
 
 async def async_setup_entry(
@@ -126,6 +130,26 @@ class DtuValueSensor(_DtuSensorBase):
     def native_value(self) -> Any:
         data: DtuMeasurements | None = self.coordinator.data
         return getattr(data, self._field) if data else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Mark cached power-limit values that were not refreshed this cycle."""
+        if not self._field.startswith("port_") or "power_limit" not in self._field:
+            return {}
+        parts = self._field.split("_")
+        port = int(parts[1])
+        temporary = parts[2] == "temporary"
+        registers = (
+            PORT_TEMPORARY_POWER_LIMIT_REGISTERS
+            if temporary
+            else PORT_PERMANENT_POWER_LIMIT_REGISTERS
+        )
+        health = self.coordinator.power_limit_health(registers[port])
+        return {
+            "fresh": health["available"],
+            "last_success": health["last_success"],
+            "last_error": health["last_error"],
+        }
 
 
 class OpenEMSControllerSensor(_DtuSensorBase):

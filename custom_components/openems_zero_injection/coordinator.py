@@ -12,7 +12,14 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import CONF_DTU_HOST, CONF_DTU_PORT, DOMAIN, SCAN_INTERVAL
+from .const import (
+    CONF_DTU_HOST,
+    CONF_DTU_PORT,
+    DOMAIN,
+    PERMANENT_LIMIT_SCAN_INTERVAL,
+    POWER_LIMIT_FAILURE_LOG_INTERVAL_SECONDS,
+    SCAN_INTERVAL,
+)
 from .acquisition import AcquisitionEngine
 from .controller import ZeroInjectionController
 from .const import (
@@ -53,6 +60,17 @@ from .registers import (
 _LOGGER = logging.getLogger(__name__)
 
 
+class _PowerLimitHealth:
+    """Last known value and freshness of one independently-read register."""
+
+    def __init__(self) -> None:
+        self.value: int | None = None
+        self.last_success: datetime | None = None
+        self.available = False
+        self.error: str | None = None
+        self.last_failure_log_time: float | None = None
+
+
 class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
     """Periodically obtain documented, read-only DTU telemetry."""
 
@@ -71,6 +89,14 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         # Deliberately reset on every integration startup. The switch is a
         # physical safety interlock, never an automation setting.
         self._manual_writes_enabled = False
+        self._limit_health = {
+            address: _PowerLimitHealth()
+            for address in (
+                *PORT_TEMPORARY_POWER_LIMIT_REGISTERS.values(),
+                *PORT_PERMANENT_POWER_LIMIT_REGISTERS.values(),
+            )
+        }
+        self._last_permanent_limit_read: datetime | None = None
         self.controller = ZeroInjectionController(
             hass,
             self,
@@ -88,15 +114,40 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             _LOGGER.warning("DTU register 0x%04X unavailable: %s", address, err)
             return None
 
-    async def _optional_power_limit_read(self, address: int) -> int | None:
-        """Read one limit without allowing a bad port to fail the integration."""
+    async def _async_refresh_power_limit(self, address: int) -> None:
+        """Refresh one register while retaining its last valid value on failure."""
+        health = self._limit_health[address]
         try:
-            return decode_power_limit_percent(
+            value = decode_power_limit_percent(
                 [await self._modbus.async_read_power_limit_register(address)]
             )
         except (DtuConnectionError, RegisterDecodeError) as err:
-            _LOGGER.warning("DTU power-limit register 0x%04X unavailable: %s", address, err)
-            return None
+            self._mark_power_limit_failure(address, str(err))
+            return
+
+        recovered = health.error is not None
+        health.value = value
+        health.last_success = datetime.now(UTC)
+        health.available = True
+        health.error = None
+        health.last_failure_log_time = None
+        if recovered:
+            _LOGGER.info("DTU power-limit register 0x%04X communication restored", address)
+
+    def _mark_power_limit_failure(self, address: int, error: str) -> None:
+        """Mark only one register stale and rate-limit repeated warnings."""
+        health = self._limit_health[address]
+        now = monotonic()
+        changed = health.available or health.error != error
+        if (
+            changed
+            or health.last_failure_log_time is None
+            or now - health.last_failure_log_time >= POWER_LIMIT_FAILURE_LOG_INTERVAL_SECONDS
+        ):
+            _LOGGER.warning("DTU power-limit register 0x%04X unavailable: %s", address, error)
+            health.last_failure_log_time = now
+        health.available = False
+        health.error = error
 
     async def _async_update_data(self) -> DtuMeasurements:
         """Read the approved registers and decode only confirmed value types."""
@@ -121,7 +172,7 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             REG_TOTAL_REACTIVE_POWER, REG_TOTAL_REACTIVE_POWER_COUNT
         )
 
-        power_limit_values = await self._async_read_all_power_limits()
+        power_limit_values = await self._async_refresh_power_limits()
         try:
             return DtuMeasurements(
                 connected=True,
@@ -143,18 +194,57 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             _LOGGER.warning("DTU response could not be decoded: %s", err)
             raise UpdateFailed(str(err)) from err
 
-    async def _async_read_all_power_limits(self) -> dict[str, int | None]:
-        """Read each approved register independently for Phase A diagnostics."""
-        fields: dict[str, int | None] = {}
-        for port, address in PORT_TEMPORARY_POWER_LIMIT_REGISTERS.items():
-            fields[f"port_{port}_temporary_power_limit_percent"] = (
-                await self._optional_power_limit_read(address)
+    async def _async_refresh_power_limits(self) -> dict[str, int | None]:
+        """Read temporary limits each normal scan and permanent limits slowly."""
+        for address in PORT_TEMPORARY_POWER_LIMIT_REGISTERS.values():
+            await self._async_refresh_power_limit(address)
+
+        now = datetime.now(UTC)
+        if (
+            self._last_permanent_limit_read is None
+            or now - self._last_permanent_limit_read >= PERMANENT_LIMIT_SCAN_INTERVAL
+        ):
+            for address in PORT_PERMANENT_POWER_LIMIT_REGISTERS.values():
+                await self._async_refresh_power_limit(address)
+            self._last_permanent_limit_read = now
+
+        return {
+            f"port_{port}_temporary_power_limit_percent": self._limit_health[
+                address
+            ].value
+            for port, address in PORT_TEMPORARY_POWER_LIMIT_REGISTERS.items()
+        } | {
+            f"port_{port}_permanent_power_limit_percent": self._limit_health[
+                address
+            ].value
+            for port, address in PORT_PERMANENT_POWER_LIMIT_REGISTERS.items()
+        }
+
+    @property
+    def temporary_limits_ready(self) -> bool:
+        """Return whether all three temporary limits are fresh and coherent."""
+        values = [
+            self._limit_health[address].value
+            for address in PORT_TEMPORARY_POWER_LIMIT_REGISTERS.values()
+        ]
+        return (
+            all(
+                self._limit_health[address].available
+                for address in PORT_TEMPORARY_POWER_LIMIT_REGISTERS.values()
             )
-        for port, address in PORT_PERMANENT_POWER_LIMIT_REGISTERS.items():
-            fields[f"port_{port}_permanent_power_limit_percent"] = (
-                await self._optional_power_limit_read(address)
-            )
-        return fields
+            and all(value is not None for value in values)
+            and len(set(values)) == 1
+        )
+
+    def power_limit_health(self, address: int) -> dict[str, str | int | None | bool]:
+        """Return diagnostics-safe state for a documented power-limit register."""
+        health = self._limit_health[address]
+        return {
+            "value": health.value,
+            "available": health.available,
+            "last_success": health.last_success.isoformat() if health.last_success else None,
+            "last_error": health.error,
+        }
 
     @property
     def manual_writes_enabled(self) -> bool:
@@ -223,6 +313,12 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
                     **{f"port_{port}_temporary_power_limit_percent": confirmed},
                 )
             )
+        health = self._limit_health[address]
+        health.value = confirmed
+        health.last_success = datetime.now(UTC)
+        health.available = True
+        health.error = None
+        health.last_failure_log_time = None
         _LOGGER.info(
             "Manual temporary DTU power limit confirmed: port %s, %s%%", port, value
         )
@@ -239,6 +335,8 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             raise HomeAssistantError("DTU power limit must be between 2 and 100%")
 
         addresses = tuple(PORT_TEMPORARY_POWER_LIMIT_REGISTERS.values())
+        if not self.temporary_limits_ready:
+            raise HomeAssistantError("DTU temporary power limits are stale or inconsistent")
         _LOGGER.warning(
             "Automatic temporary DTU power-limit request: all ports, %s%%", value
         )
@@ -280,6 +378,14 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
                     ],
                 )
             )
+        now = datetime.now(UTC)
+        for address in addresses:
+            health = self._limit_health[address]
+            health.value = value
+            health.last_success = now
+            health.available = True
+            health.error = None
+            health.last_failure_log_time = None
         _LOGGER.warning(
             "Automatic temporary DTU power limit confirmed on all ports: %s%%", value
         )

@@ -19,6 +19,10 @@ from .const import (
     VERSION,
 )
 from .coordinator import DtuProSCoordinator
+from .registers import (
+    PORT_PERMANENT_POWER_LIMIT_REGISTERS,
+    PORT_TEMPORARY_POWER_LIMIT_REGISTERS,
+)
 
 
 async def async_get_config_entry_diagnostics(
@@ -28,6 +32,14 @@ async def async_get_config_entry_diagnostics(
     coordinator: DtuProSCoordinator = hass.data[DOMAIN][entry.entry_id]
     data = coordinator.data
     controller = coordinator.controller
+    power_limit_addresses = (
+        *PORT_TEMPORARY_POWER_LIMIT_REGISTERS.values(),
+        *PORT_PERMANENT_POWER_LIMIT_REGISTERS.values(),
+    )
+    power_limit_health = {
+        f"0x{address:04X}": coordinator.power_limit_health(address)
+        for address in power_limit_addresses
+    }
     return {
         "dtu_ip": entry.data[CONF_DTU_HOST],
         "port": entry.data[CONF_DTU_PORT],
@@ -52,6 +64,7 @@ async def async_get_config_entry_diagnostics(
             "scheduler_state": controller.scheduler.state.value,
             "next_command_allowed_in_seconds": controller.scheduler.remaining_seconds(),
             "last_error": controller.status.last_error,
+            "temporary_limits_ready": coordinator.temporary_limits_ready,
             "counters": {
                 "decisions": controller.history.count,
                 "commands_sent": controller.commands_sent,
@@ -73,5 +86,11 @@ async def async_get_config_entry_diagnostics(
                 "port_3_temporary": data.port_3_temporary_power_limit_percent if data else None,
                 "port_3_permanent": data.port_3_permanent_power_limit_percent if data else None,
             },
+            "power_limit_health": power_limit_health,
+            "unavailable_power_limit_registers": [
+                address
+                for address, health in power_limit_health.items()
+                if not health["available"]
+            ],
         },
     }

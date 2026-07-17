@@ -39,3 +39,6 @@ async def test_diagnostics_include_connection_state(hass) -> None:
     assert diagnostics["dtu_ip"] == "192.0.2.10"
     assert diagnostics["device_id"] == 1
     assert diagnostics["measurements"]["serial_number"] == "redacted"
+    assert diagnostics["controller"]["temporary_limits_ready"] is True
+    assert diagnostics["measurements"]["power_limit_health"]["0xD00D"]["available"] is True
+    assert diagnostics["measurements"]["unavailable_power_limit_registers"] == []

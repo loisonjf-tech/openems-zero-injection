@@ -199,15 +199,30 @@ class ZeroInjectionController:
             if self._valid_grid_measurements == VALID_GRID_MEASUREMENTS_REQUIRED:
                 self._scheduler.reset()
 
-            current_limit = self._current_consistent_limit()
+            current_limit = self._current_consistent_limit(
+                require_fresh=self._mode is ControllerMode.PRODUCTION
+            )
             if current_limit is None:
+                limit_error = (
+                    "Temporary limits are stale or inconsistent"
+                    if self._mode is ControllerMode.PRODUCTION
+                    else "Temporary limits are unavailable or inconsistent"
+                )
                 self._scheduler.pause()
-                self._record(measurement.power_w, None, None, "DTU unavailable", False, False, "Temporary limits are unavailable or inconsistent")
+                self._record(
+                    measurement.power_w,
+                    None,
+                    None,
+                    "DTU unavailable",
+                    False,
+                    False,
+                    limit_error,
+                )
                 self._set_status(
                     state="Paused",
                     grid_power_w=measurement.power_w,
                     last_decision="DTU unavailable",
-                    last_error="Temporary limits are unavailable or inconsistent",
+                    last_error=limit_error,
                 )
                 return
 
@@ -281,9 +296,11 @@ class ZeroInjectionController:
                 last_error=None if success else result,
             )
 
-    def _current_consistent_limit(self) -> int | None:
+    def _current_consistent_limit(self, *, require_fresh: bool) -> int | None:
         data = self._coordinator.data
         if data is None or not data.connected:
+            return None
+        if require_fresh and not self._coordinator.temporary_limits_ready:
             return None
         limits = [
             data.port_1_temporary_power_limit_percent,
