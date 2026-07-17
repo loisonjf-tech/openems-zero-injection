@@ -8,12 +8,17 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
+from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .const import (
     CONF_DTU_HOST,
     CONF_DTU_PORT,
+    CONF_GRID_POWER_ENTITY_ID,
+    CONF_GRID_POWER_INVERTED,
     DEFAULT_DTU_PORT,
+    DEFAULT_GRID_POWER_ENTITY_ID,
+    DEFAULT_GRID_POWER_INVERTED,
     DOMAIN,
 )
 from .modbus import DtuConnectionError, DtuProSModbusClient
@@ -23,6 +28,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle the UI configuration flow."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> OpenEMSOptionsFlow:
+        """Provide the Build004 local grid-sensor selection."""
+        return OpenEMSOptionsFlow()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -69,3 +82,37 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             await client.async_check_connectivity()
         finally:
             await client.async_disconnect()
+
+
+class OpenEMSOptionsFlow(config_entries.OptionsFlow):
+    """Configure local acquisition without storing any cloud credentials."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        options = self.config_entry.options
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_GRID_POWER_ENTITY_ID,
+                        default=options.get(
+                            CONF_GRID_POWER_ENTITY_ID, DEFAULT_GRID_POWER_ENTITY_ID
+                        ),
+                    ): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="sensor")
+                    ),
+                    vol.Required(
+                        CONF_GRID_POWER_INVERTED,
+                        default=options.get(
+                            CONF_GRID_POWER_INVERTED,
+                            DEFAULT_GRID_POWER_INVERTED,
+                        ),
+                    ): selector.BooleanSelector(),
+                }
+            ),
+        )

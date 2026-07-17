@@ -40,6 +40,23 @@ async def async_setup_entry(
             DtuValueSensor(coordinator, entry, "port_2_permanent_power_limit_percent", "DTU Port 2 Permanent Power Limit", EntityCategory.DIAGNOSTIC, unit="%"),
             DtuValueSensor(coordinator, entry, "port_3_temporary_power_limit_percent", "DTU Port 3 Temporary Power Limit", EntityCategory.DIAGNOSTIC, unit="%"),
             DtuValueSensor(coordinator, entry, "port_3_permanent_power_limit_percent", "DTU Port 3 Permanent Power Limit", EntityCategory.DIAGNOSTIC, unit="%"),
+            OpenEMSControllerSensor(coordinator, entry, "controller_state", "OpenEMS Controller State"),
+            OpenEMSControllerSensor(coordinator, entry, "scheduler_state", "OpenEMS Scheduler State"),
+            OpenEMSControllerSensor(coordinator, entry, "current_limit", "OpenEMS Current DTU Limit", unit="%"),
+            OpenEMSControllerSensor(coordinator, entry, "calculated_limit", "OpenEMS Calculated DTU Limit", unit="%"),
+            OpenEMSControllerSensor(coordinator, entry, "grid_power", "OpenEMS Grid Power", unit=UnitOfPower.WATT),
+            OpenEMSControllerSensor(coordinator, entry, "grid_error", "OpenEMS Grid Error", unit=UnitOfPower.WATT),
+            OpenEMSControllerSensor(coordinator, entry, "next_command", "OpenEMS Next Command Allowed In", EntityCategory.DIAGNOSTIC, unit=UnitOfTime.SECONDS),
+            OpenEMSControllerSensor(coordinator, entry, "last_decision", "OpenEMS Last Decision", EntityCategory.DIAGNOSTIC),
+            OpenEMSControllerSensor(coordinator, entry, "last_decision_time", "OpenEMS Last Decision Time", EntityCategory.DIAGNOSTIC, device_class=SensorDeviceClass.TIMESTAMP),
+            OpenEMSControllerSensor(coordinator, entry, "last_command_result", "OpenEMS Last Command Result", EntityCategory.DIAGNOSTIC),
+            OpenEMSControllerSensor(coordinator, entry, "last_command_time", "OpenEMS Last Command Time", EntityCategory.DIAGNOSTIC, device_class=SensorDeviceClass.TIMESTAMP),
+            OpenEMSControllerSensor(coordinator, entry, "decision_count", "OpenEMS Decision Count", EntityCategory.DIAGNOSTIC),
+            OpenEMSControllerSensor(coordinator, entry, "commands_sent", "OpenEMS Commands Sent", EntityCategory.DIAGNOSTIC),
+            OpenEMSControllerSensor(coordinator, entry, "commands_succeeded", "OpenEMS Commands Succeeded", EntityCategory.DIAGNOSTIC),
+            OpenEMSControllerSensor(coordinator, entry, "commands_failed", "OpenEMS Commands Failed", EntityCategory.DIAGNOSTIC),
+            OpenEMSControllerSensor(coordinator, entry, "commands_simulated", "OpenEMS Commands Simulated", EntityCategory.DIAGNOSTIC),
+            OpenEMSControllerSensor(coordinator, entry, "last_error", "OpenEMS Last Controller Error", EntityCategory.DIAGNOSTIC),
         ]
     )
 
@@ -109,3 +126,50 @@ class DtuValueSensor(_DtuSensorBase):
     def native_value(self) -> Any:
         data: DtuMeasurements | None = self.coordinator.data
         return getattr(data, self._field) if data else None
+
+
+class OpenEMSControllerSensor(_DtuSensorBase):
+    """Expose local controller status; it does not trigger Modbus I/O."""
+
+    def __init__(
+        self,
+        coordinator: DtuProSCoordinator,
+        entry: ConfigEntry,
+        field: str,
+        name: str,
+        category: EntityCategory | None = None,
+        *,
+        unit: str | None = None,
+        device_class: SensorDeviceClass | None = None,
+    ) -> None:
+        super().__init__(coordinator, entry, field)
+        self._field = field
+        self._attr_name = name
+        self._attr_entity_category = category
+        self._attr_native_unit_of_measurement = unit
+        self._attr_device_class = device_class
+
+    @property
+    def native_value(self) -> Any:
+        controller = self.coordinator.controller
+        status = controller.status
+        fields: dict[str, Any] = {
+            "controller_state": status.state,
+            "scheduler_state": controller.scheduler.state.value,
+            "current_limit": status.current_limit_percent,
+            "calculated_limit": status.calculated_limit_percent,
+            "grid_power": status.grid_power_w,
+            "grid_error": status.grid_error_w,
+            "next_command": controller.scheduler.remaining_seconds(),
+            "last_decision": status.last_decision,
+            "last_decision_time": status.last_decision_time,
+            "last_command_result": status.last_command_result,
+            "last_command_time": status.last_command_time,
+            "decision_count": controller.history.count,
+            "commands_sent": controller.commands_sent,
+            "commands_succeeded": controller.commands_succeeded,
+            "commands_failed": controller.commands_failed,
+            "commands_simulated": controller.commands_simulated,
+            "last_error": status.last_error,
+        }
+        return fields[self._field]

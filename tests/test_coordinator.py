@@ -1,6 +1,6 @@
 """Tests for Build002 read-only telemetry coordination."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, call, patch
 
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -119,5 +119,51 @@ async def test_manual_write_different_readback_preserves_last_confirmed_value(ha
 
         with pytest.raises(HomeAssistantError, match="did not confirm"):
             await coordinator.async_set_temporary_power_limit(1, 60)
+
+    assert coordinator.data.port_1_temporary_power_limit_percent == 50
+
+
+async def test_automatic_write_updates_all_three_temporary_ports_only(hass) -> None:
+    """Build004 writes and verifies exactly the three approved temporary ports."""
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502})
+    with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
+        client = cls.return_value
+        client.async_read_input_registers = AsyncMock(
+            side_effect=lambda _address, count: [0] * count
+        )
+        client.async_read_power_limit_register = AsyncMock(return_value=50)
+        client.async_write_temporary_power_limit = AsyncMock()
+        coordinator = DtuProSCoordinator(hass, entry)
+        await coordinator.async_refresh()
+        await coordinator.async_set_manual_writes_enabled(True)
+        client.async_read_power_limit_register.side_effect = [55, 55, 55]
+        await coordinator.async_set_all_temporary_power_limits(55)
+
+    assert client.async_write_temporary_power_limit.await_args_list == [
+        call(0xD007, 55), call(0xD00D, 55), call(0xD013, 55)
+    ]
+    assert coordinator.data.port_1_temporary_power_limit_percent == 55
+    assert coordinator.data.port_2_temporary_power_limit_percent == 55
+    assert coordinator.data.port_3_temporary_power_limit_percent == 55
+
+
+async def test_automatic_write_readback_mismatch_keeps_last_confirmed_values(hass) -> None:
+    """A partial or inconsistent command is never treated as confirmed."""
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502})
+    with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
+        client = cls.return_value
+        client.async_read_input_registers = AsyncMock(
+            side_effect=lambda _address, count: [0] * count
+        )
+        client.async_read_power_limit_register = AsyncMock(return_value=50)
+        client.async_write_temporary_power_limit = AsyncMock()
+        coordinator = DtuProSCoordinator(hass, entry)
+        await coordinator.async_refresh()
+        await coordinator.async_set_manual_writes_enabled(True)
+        client.async_read_power_limit_register.side_effect = [55, 54, 55]
+        from homeassistant.exceptions import HomeAssistantError
+
+        with pytest.raises(HomeAssistantError, match="mismatch"):
+            await coordinator.async_set_all_temporary_power_limits(55)
 
     assert coordinator.data.port_1_temporary_power_limit_percent == 50

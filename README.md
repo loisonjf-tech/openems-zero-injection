@@ -4,9 +4,9 @@ Intégration Home Assistant locale destinée à piloter un Hoymiles DTU Pro-S af
 
 ## État du projet
 
-**Build003 RC1 — lecture diagnostique et pilotage manuel temporaire par port.** Le projet lit les registres de télémétrie et les six limites de puissance documentées. Une écriture temporaire est possible uniquement après activation explicite de l'interrupteur de sécurité local.
+**Build004 — fondation expérimentale du contrôleur de zéro injection.** Le projet acquiert une puissance réseau locale, calcule une consigne DTU déterministe, et applique un scheduler de sécurité. Il n'intègre pas encore SolarFlow, Zendure ou une logique de batterie.
 
-Version actuelle : **V0.3.0-alpha.1 / Build003 RC1**.
+Version actuelle : **V0.4.0-alpha.1 / Build004**.
 
 ## Matériel de référence
 
@@ -24,15 +24,17 @@ Copiez `custom_components/openems_zero_injection` dans le répertoire `custom_co
 
 Dans l'assistant d'ajout de l'intégration, indiquez l'adresse IP du Hoymiles DTU Pro-S et le port TCP. Le port par défaut est `502`. Le capteur de diagnostic **OpenEMS Connection** affiche `Connected` lorsque le port TCP est joignable, sinon `Disconnected`.
 
-## Limite de puissance manuelle (Build003 RC1)
+## Contrôleur expérimental (Build004)
 
-Les capteurs diagnostiques affichent les limites temporaire et permanente des ports 1 à 3. Les entités Number ne sont créées que pour les ports dont la limite temporaire retourne une valeur valide lors du démarrage.
+Configurez l'entité Home Assistant de puissance réseau dans les options de l'intégration. La convention par défaut est positive = consommation réseau et négative = injection. La cible par défaut est `-40 W`, avec une zone morte de `±30 W`.
 
-Avant une modification manuelle, activez **Enable Manual DTU Writes**. Il est toujours désactivé après un redémarrage. Les seules écritures possibles sont des limites **temporaires** `2–100 %` vers `0xD007`, `0xD00D` ou `0xD013`. Chaque écriture `0x06` doit être confirmée par son écho Modbus, puis par une relecture immédiate `0x03` du même registre. Une erreur conserve la dernière valeur confirmée et ne déclenche aucune nouvelle écriture.
+Le mode du contrôleur est **Disabled** après chaque démarrage. **Simulation** calcule et explique les décisions sans écrire. **Production** reste verrouillé tant que **Enable Manual DTU Writes** est désactivé. Il exige trois mesures réseau valides et trois limites temporaires identiques avant une éventuelle écriture. La consigne est limitée à 5 % par commande et espacée de 12 secondes par défaut.
+
+> **Avertissement :** Build004 est expérimental. Le mode Production peut modifier la puissance photovoltaïque réelle. Les premiers essais doivent être réalisés sous surveillance.
 
 ## Sécurité
 
-Le client interne utilise uniquement les fonctions Modbus TCP `0x03`, `0x04` et, exclusivement derrière l'interrupteur de sécurité, `0x06`. Il n'implémente pas `0x10`, aucune écriture permanente, aucune écriture globale et aucune fonction de régulation automatique.
+Le client interne utilise uniquement les fonctions Modbus TCP `0x03`, `0x04` et `0x06`. Les écritures Build004 sont exclusivement temporaires vers `0xD007`, `0xD00D` et `0xD013`, vérifiées par relecture. Il n'implémente pas `0x10`, aucune écriture permanente ou globale, aucun PID ni aucune logique batterie.
 
 ## Tests
 
@@ -40,5 +42,5 @@ Dans un environnement de développement Home Assistant 2026.7.2 compatible avec 
 
 ## Feuille de route
 
-1. **Build003 RC1** : valider les ports actifs et la limite temporaire sur le DTU réel.
-2. **Build004** : uniquement après validation explicite du matériel et d'une spécification approuvée.
+1. **Build004** : valider sous surveillance le mode Simulation, puis Production, sur le DTU réel.
+2. **Build005** : seulement après validation réelle des comportements Build004.

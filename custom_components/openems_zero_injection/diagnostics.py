@@ -7,7 +7,17 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_DTU_HOST, CONF_DTU_PORT, DEFAULT_DEVICE_ID, DOMAIN, VERSION
+from .const import (
+    CONF_DTU_HOST,
+    CONF_DTU_PORT,
+    CONF_GRID_POWER_ENTITY_ID,
+    CONF_GRID_POWER_INVERTED,
+    DEFAULT_DEVICE_ID,
+    DEFAULT_GRID_POWER_ENTITY_ID,
+    DEFAULT_GRID_POWER_INVERTED,
+    DOMAIN,
+    VERSION,
+)
 from .coordinator import DtuProSCoordinator
 
 
@@ -17,6 +27,7 @@ async def async_get_config_entry_diagnostics(
     """Return non-sensitive connection diagnostics."""
     coordinator: DtuProSCoordinator = hass.data[DOMAIN][entry.entry_id]
     data = coordinator.data
+    controller = coordinator.controller
     return {
         "dtu_ip": entry.data[CONF_DTU_HOST],
         "port": entry.data[CONF_DTU_PORT],
@@ -29,6 +40,27 @@ async def async_get_config_entry_diagnostics(
             "response_time_ms": data.response_time_ms if data else None,
         },
         "manual_writes_enabled": coordinator.manual_writes_enabled,
+        "controller": {
+            "mode": controller.mode.value,
+            "state": controller.status.state,
+            "grid_power_entity_id": entry.options.get(
+                CONF_GRID_POWER_ENTITY_ID, DEFAULT_GRID_POWER_ENTITY_ID
+            ),
+            "grid_power_inverted": entry.options.get(
+                CONF_GRID_POWER_INVERTED, DEFAULT_GRID_POWER_INVERTED
+            ),
+            "scheduler_state": controller.scheduler.state.value,
+            "next_command_allowed_in_seconds": controller.scheduler.remaining_seconds(),
+            "last_error": controller.status.last_error,
+            "counters": {
+                "decisions": controller.history.count,
+                "commands_sent": controller.commands_sent,
+                "commands_succeeded": controller.commands_succeeded,
+                "commands_failed": controller.commands_failed,
+                "commands_simulated": controller.commands_simulated,
+            },
+            "recent_decisions": controller.history.latest_records(),
+        },
         "measurements": {
             "inverter_count": data.inverter_count if data else None,
             "meter_count": data.meter_count if data else None,
