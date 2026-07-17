@@ -40,6 +40,18 @@ async def async_get_config_entry_diagnostics(
         f"0x{address:04X}": coordinator.power_limit_health(address)
         for address in power_limit_addresses
     }
+    telemetry_health = {
+        field: coordinator.measurement_health(field)
+        for field in (
+            "serial_number",
+            "inverter_count",
+            "meter_count",
+            "total_energy_wh",
+            "daily_energy_wh",
+            "active_power_w",
+            "reactive_power_var",
+        )
+    }
     return {
         "dtu_ip": entry.data[CONF_DTU_HOST],
         "port": entry.data[CONF_DTU_PORT],
@@ -50,6 +62,7 @@ async def async_get_config_entry_diagnostics(
             "last_communication_error": data.last_error if data else None,
             "last_success": data.last_success.isoformat() if data and data.last_success else None,
             "response_time_ms": data.response_time_ms if data else None,
+            **coordinator.connection_diagnostics(),
         },
         "manual_writes_enabled": coordinator.manual_writes_enabled,
         "controller": {
@@ -91,6 +104,10 @@ async def async_get_config_entry_diagnostics(
                 address
                 for address, health in power_limit_health.items()
                 if not health["available"]
+            ],
+            "telemetry_health": telemetry_health,
+            "stale_telemetry_registers": [
+                field for field, health in telemetry_health.items() if not health["available"]
             ],
         },
     }

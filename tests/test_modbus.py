@@ -165,6 +165,75 @@ async def test_truncated_timeout_refused_and_reconnect() -> None:
             await client.async_read_input_registers(0, 1)
 
 
+async def test_empty_response_closes_then_reconnects_cleanly() -> None:
+    """An EOF before MBAP is never reused for the next request."""
+    broken_reader, broken_writer = streams(
+        [asyncio.IncompleteReadError(partial=b"", expected=7)]
+    )
+    healthy_reader, healthy_writer = streams(read_response(tid=2))
+    open_connection = AsyncMock(
+        side_effect=[(broken_reader, broken_writer), (healthy_reader, healthy_writer)]
+    )
+    with patch(
+        "custom_components.openems_zero_injection.modbus.asyncio.open_connection",
+        open_connection,
+    ):
+        client = DtuProSModbusClient("x", 502)
+        with pytest.raises(DtuConnectionError):
+            await client.async_read_input_registers(0, 1)
+        assert await client.async_read_input_registers(0, 1) == [2]
+
+    broken_writer.close.assert_called_once()
+    broken_writer.wait_closed.assert_awaited_once()
+    assert client.connection_diagnostics()["reconnections"] == 1
+
+
+async def test_timeout_closes_connection_and_records_error() -> None:
+    """A Modbus timeout leaves no half-open stream behind."""
+    reader, writer = streams([asyncio.TimeoutError()])
+    with patch(
+        "custom_components.openems_zero_injection.modbus.asyncio.open_connection",
+        AsyncMock(return_value=(reader, writer)),
+    ):
+        client = DtuProSModbusClient("x", 502)
+        with pytest.raises(DtuConnectionError, match="Modbus communication failed"):
+            await client.async_read_input_registers(0, 1)
+
+    assert not client.connected
+    assert client.connection_diagnostics()["total_errors"] == 1
+    writer.close.assert_called_once()
+
+
+async def test_concurrent_requests_are_serialized() -> None:
+    """The request lock prevents two Modbus frames from using one stream at once."""
+    reader, writer = streams(read_response(tid=1) + read_response(tid=2))
+    in_drain = 0
+    max_in_drain = 0
+
+    async def drain() -> None:
+        nonlocal in_drain, max_in_drain
+        in_drain += 1
+        max_in_drain = max(max_in_drain, in_drain)
+        await asyncio.sleep(0)
+        in_drain -= 1
+
+    writer.drain = AsyncMock(side_effect=drain)
+    with patch(
+        "custom_components.openems_zero_injection.modbus.asyncio.open_connection",
+        AsyncMock(return_value=(reader, writer)),
+    ):
+        client = DtuProSModbusClient("x", 502)
+        first, second = await asyncio.gather(
+            client.async_read_input_registers(0, 1),
+            client.async_read_input_registers(1, 1),
+        )
+
+    assert first == [2]
+    assert second == [2]
+    assert max_in_drain == 1
+    assert writer.write.call_count == 2
+
+
 async def test_clean_disconnect() -> None:
     reader, writer = streams(read_response())
     with patch(

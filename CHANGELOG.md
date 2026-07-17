@@ -17,6 +17,8 @@ Toutes les évolutions notables sont documentées dans ce fichier.
 - Aucune intégration Zendure/SolarFlow, aucune écriture permanente, aucun PID ni retry automatique.
 - Une erreur isolée d'une limite temporaire conserve la dernière valeur avec un état périmé et suspend les commandes Production jusqu'à trois lectures temporaires fraîches et cohérentes.
 - Les limites permanentes sont strictement diagnostiques, lues au démarrage puis toutes les cinq minutes ; leur indisponibilité n'interrompt pas le contrôleur.
+- Les lectures standard de télémétrie conservent désormais leur dernière valeur valide et leur état de fraîcheur individuellement ; une panne ponctuelle ne rend plus tout le coordinateur indisponible.
+- Le client Modbus sérialise les requêtes, espace les trames de 150 ms, ferme la socket après une réponse vide, tronquée ou expirée, et applique un backoff asynchrone borné après plusieurs échecs globaux.
 
 ## [0.3.0-alpha.1] - 2026-07-16 — Build003 RC1
 

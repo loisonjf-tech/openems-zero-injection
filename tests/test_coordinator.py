@@ -35,10 +35,81 @@ async def test_coordinator_decodes_measurements(hass) -> None:
     assert coordinator.active_temporary_power_limit_ports() == (1, 2, 3)
 
 
+async def test_telemetry_failure_keeps_last_value_stale_then_recovers(hass) -> None:
+    """A transient active-power read never injects a synthetic zero value."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502}
+    )
+    values = {
+        0x3000: [0x1234, 0x5678, 0x9ABC],
+        0x3003: [1],
+        0x3004: [2],
+        0x3100: [0, 0, 0, 100],
+        0x3104: [0, 0, 0, 5],
+        0x3108: [0, 1234],
+        0x310A: [0, 0],
+    }
+    with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
+        client = cls.return_value
+        client.async_read_input_registers = AsyncMock(
+            side_effect=lambda address, _count: values[address]
+        )
+        client.async_read_power_limit_register = AsyncMock(return_value=50)
+        coordinator = DtuProSCoordinator(hass, entry)
+        await coordinator.async_refresh()
+        client.async_read_input_registers.side_effect = (
+            lambda address, _count: DtuConnectionError("0 bytes read")
+            if address == 0x3108
+            else values[address]
+        )
+        await coordinator.async_refresh()
+
+        assert coordinator.last_update_success is True
+        assert coordinator.data.active_power_w == 123.4
+        stale_health = coordinator.measurement_health("active_power_w")
+        assert stale_health["available"] is False
+        assert stale_health["consecutive_failures"] == 1
+
+        client.async_read_input_registers.side_effect = lambda address, _count: values[address]
+        await coordinator.async_refresh()
+
+    restored_health = coordinator.measurement_health("active_power_w")
+    assert coordinator.data.active_power_w == 123.4
+    assert restored_health["available"] is True
+    assert restored_health["consecutive_failures"] == 0
+
+
+async def test_telemetry_failures_rate_limit_warnings(hass, caplog) -> None:
+    """Repeated identical telemetry failures do not flood Home Assistant logs."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502}
+    )
+    with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
+        client = cls.return_value
+        client.async_read_input_registers = AsyncMock(
+            side_effect=lambda address, count: DtuConnectionError("failed")
+            if address == 0x3108
+            else [0] * count
+        )
+        client.async_read_power_limit_register = AsyncMock(return_value=50)
+        coordinator = DtuProSCoordinator(hass, entry)
+        await coordinator.async_refresh()
+        await coordinator.async_refresh()
+
+    warnings = [
+        record for record in caplog.records if "0x3108 unavailable" in record.message
+    ]
+    assert len(warnings) == 1
+
+
 async def test_coordinator_reports_primary_read_failure(hass) -> None:
     entry = MockConfigEntry(domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502})
     with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
         cls.return_value.async_read_input_registers = AsyncMock(side_effect=DtuConnectionError("refused"))
+        cls.return_value.async_read_power_limit_register = AsyncMock(
+            side_effect=DtuConnectionError("refused")
+        )
+        cls.return_value.connection_diagnostics.return_value = {"last_error": "refused"}
         coordinator = DtuProSCoordinator(hass, entry)
         await coordinator.async_refresh()
     assert coordinator.last_update_success is False

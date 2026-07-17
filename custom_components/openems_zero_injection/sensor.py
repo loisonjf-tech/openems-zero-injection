@@ -134,6 +134,22 @@ class DtuValueSensor(_DtuSensorBase):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Mark cached power-limit values that were not refreshed this cycle."""
+        if self._field in {
+            "serial_number",
+            "inverter_count",
+            "meter_count",
+            "total_energy_wh",
+            "daily_energy_wh",
+            "active_power_w",
+            "reactive_power_var",
+        }:
+            health = self.coordinator.measurement_health(self._field)
+            return {
+                "fresh": health["available"],
+                "last_success": health["last_success"],
+                "last_error": health["last_error"],
+                "consecutive_failures": health["consecutive_failures"],
+            }
         if not self._field.startswith("port_") or "power_limit" not in self._field:
             return {}
         parts = self._field.split("_")
@@ -149,6 +165,7 @@ class DtuValueSensor(_DtuSensorBase):
             "fresh": health["available"],
             "last_success": health["last_success"],
             "last_error": health["last_error"],
+            "consecutive_failures": health["consecutive_failures"],
         }
 
 
