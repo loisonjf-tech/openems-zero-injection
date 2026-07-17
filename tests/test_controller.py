@@ -2,6 +2,7 @@
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from datetime import UTC, datetime, timedelta
 
 from custom_components.openems_zero_injection.acquisition import AcquisitionEngine
 from custom_components.openems_zero_injection.const import ControllerMode, SchedulerState
@@ -39,6 +40,46 @@ async def test_disabled_and_simulation_never_write(hass) -> None:
         await controller.async_tick()
     coordinator.async_set_all_temporary_power_limits.assert_not_awaited()
     assert controller.commands_simulated == 1
+    assert controller.simulated_current_limit == 45
+
+    await controller.async_tick()
+    assert controller.commands_simulated == 1
+    assert controller.status.last_decision == "Waiting for stabilization"
+
+
+async def test_simulation_uses_virtual_limit_and_can_run_again_after_delay(hass) -> None:
+    """Simulation advances only its virtual limit and obeys scheduler timing."""
+    hass.states.async_set("sensor.grid", "-220")
+    coordinator = fake_coordinator()
+    controller = ZeroInjectionController(
+        hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
+    )
+    await controller.async_set_mode(ControllerMode.SIMULATION.value)
+    for _ in range(3):
+        await controller.async_tick()
+    assert controller.simulated_current_limit == 45
+    assert coordinator.data.port_1_temporary_power_limit_percent == 50
+
+    controller.scheduler._next_allowed_at = datetime.now(UTC) - timedelta(seconds=1)
+    await controller.async_tick()
+    assert controller.commands_simulated == 2
+    assert controller.simulated_current_limit == 40
+    coordinator.async_set_all_temporary_power_limits.assert_not_awaited()
+
+
+async def test_disabling_controller_clears_virtual_simulation_state(hass) -> None:
+    """A virtual limit is session-only and is never retained after Disabled."""
+    hass.states.async_set("sensor.grid", "-220")
+    coordinator = fake_coordinator()
+    controller = ZeroInjectionController(
+        hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
+    )
+    await controller.async_set_mode(ControllerMode.SIMULATION.value)
+    for _ in range(3):
+        await controller.async_tick()
+    await controller.async_set_mode(ControllerMode.DISABLED.value)
+    assert controller.simulated_current_limit is None
+    assert controller.last_simulated_limit is None
 
 
 async def test_production_requires_three_valid_measurements_then_writes(hass) -> None:

@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "OpenEMS Zero Injection",
-        "description": "Configurez la connexion Modbus TCP du DTU Hoymiles Pro-S. Build003 fournit la télémétrie et des limites temporaires manuelles verrouillées.",
+        "description": "Configurez la connexion Modbus TCP du DTU Hoymiles Pro-S. Build004 fournit la télémétrie, la simulation et le pilotage sécurisé.",
         "data": {
           "dtu_host": "Adresse IP ou nom du DTU",
           "dtu_port": "Port Modbus TCP"
@@ -27,6 +27,24 @@
           "grid_power_inverted": "Inverser le signe de la puissance réseau"
         }
       }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "controller_state": {"name": "État du contrôleur"},
+      "scheduler_state": {"name": "État du planificateur"},
+      "current_limit": {"name": "Limite DTU réelle"},
+      "calculated_limit": {"name": "Limite DTU calculée"},
+      "simulated_limit": {"name": "Limite DTU simulée"},
+      "last_decision": {"name": "Motif de la dernière décision"},
+      "last_command_result": {"name": "Résultat de la dernière commande"},
+      "commands_simulated": {"name": "Commandes simulées"}
+    },
+    "select": {
+      "controller_mode": {"name": "Mode du contrôleur"}
+    },
+    "switch": {
+      "enable_manual_dtu_writes": {"name": "Autoriser les écritures manuelles DTU"}
     }
   }
 }

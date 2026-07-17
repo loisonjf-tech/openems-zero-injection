@@ -19,6 +19,7 @@ from .const import (
     VERSION,
 )
 from .coordinator import DtuProSCoordinator
+from .controller import display_label
 from .registers import (
     PORT_PERMANENT_POWER_LIMIT_REGISTERS,
     PORT_TEMPORARY_POWER_LIMIT_REGISTERS,
@@ -77,6 +78,16 @@ async def async_get_config_entry_diagnostics(
             "scheduler_state": controller.scheduler.state.value,
             "next_command_allowed_in_seconds": controller.scheduler.remaining_seconds(),
             "last_error": controller.status.last_error,
+            "last_decision_code": controller.status.last_decision,
+            "last_decision_label": display_label(controller.status.last_decision),
+            "real_dtu_limit": controller.status.current_limit_percent,
+            "simulated_current_limit": controller.simulated_current_limit,
+            "last_simulated_limit": controller.last_simulated_limit,
+            "last_simulated_command_time": (
+                controller.last_simulated_command_time.isoformat()
+                if controller.last_simulated_command_time
+                else None
+            ),
             "temporary_limits_ready": coordinator.temporary_limits_ready,
             "counters": {
                 "decisions": controller.history.count,
@@ -84,6 +95,9 @@ async def async_get_config_entry_diagnostics(
                 "commands_succeeded": controller.commands_succeeded,
                 "commands_failed": controller.commands_failed,
                 "commands_simulated": controller.commands_simulated,
+                "blocked_stabilization": controller.decisions_blocked_stabilization,
+                "limit_unchanged": controller.decisions_limit_unchanged,
+                "within_deadband": controller.decisions_within_deadband,
             },
             "recent_decisions": controller.history.latest_records(),
         },

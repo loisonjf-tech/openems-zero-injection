@@ -26,19 +26,19 @@ async def async_setup_entry(
         ]
         + [
             OpenEMSControllerNumber(
-                coordinator, entry, "target_grid_power", "OpenEMS Target Grid Power", -200, 200, 5, UnitOfPower.WATT
+                coordinator, entry, "target_grid_power", "Puissance cible réseau", -200, 200, 5, UnitOfPower.WATT
             ),
             OpenEMSControllerNumber(
-                coordinator, entry, "deadband", "OpenEMS Deadband", 0, 200, 5, UnitOfPower.WATT
+                coordinator, entry, "deadband", "Zone de tolérance", 0, 200, 5, UnitOfPower.WATT
             ),
             OpenEMSControllerNumber(
-                coordinator, entry, "stabilization_delay", "OpenEMS Stabilization Delay", 10, 60, 1, "s"
+                coordinator, entry, "stabilization_delay", "Délai de stabilisation", 10, 60, 1, "s"
             ),
             OpenEMSControllerNumber(
-                coordinator, entry, "watts_per_percent", "OpenEMS Watts per Percent", 1, 100, 1, "W/%"
+                coordinator, entry, "watts_per_percent", "Watts par pourcentage", 1, 100, 1, "W/%"
             ),
             OpenEMSControllerNumber(
-                coordinator, entry, "maximum_step", "OpenEMS Maximum Step", 1, 20, 1, PERCENTAGE
+                coordinator, entry, "maximum_step", "Pas maximal", 1, 20, 1, PERCENTAGE
             ),
         ]
     )
@@ -61,7 +61,7 @@ class DtuTemporaryPowerLimitNumber(CoordinatorEntity[DtuProSCoordinator], Number
         self._port = port
         self._field = f"port_{port}_temporary_power_limit_percent"
         self._attr_unique_id = f"{entry.entry_id}_port_{port}_temporary_power_limit"
-        self._attr_name = f"DTU Port {port} Temporary Power Limit"
+        self._attr_name = f"Limite temporaire de puissance DTU port {port}"
         endpoint = f"{entry.data[CONF_DTU_HOST]}:{entry.data[CONF_DTU_PORT]}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, endpoint)},

@@ -25,7 +25,7 @@ async def async_setup_entry(
 class DtuManualWritesSwitch(CoordinatorEntity[DtuProSCoordinator], SwitchEntity):
     """Require an explicit local opt-in before a Number can send function 0x06."""
 
-    _attr_name = "Enable Manual DTU Writes"
+    _attr_name = "Autoriser les écritures manuelles DTU"
     _attr_entity_category = EntityCategory.CONFIG
     _attr_icon = "mdi:shield-lock-outline"
 
