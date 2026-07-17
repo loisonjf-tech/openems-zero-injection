@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from homeassistant.core import HomeAssistant, CALLBACK
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_interval
 
 from .acquisition import AcquisitionEngine
@@ -71,7 +72,7 @@ class ZeroInjectionController:
         self._learning = PassiveLearningEngine()
         self._status = ControllerStatus()
         self._valid_grid_measurements = 0
-        self._cancel_tick: CALLBACK | None = None
+        self._cancel_tick: Callable[[], None] | None = None
         self._tick_lock = asyncio.Lock()
         self.commands_sent = 0
         self.commands_succeeded = 0
