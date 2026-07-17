@@ -84,7 +84,7 @@ async def test_disabling_controller_clears_virtual_simulation_state(hass) -> Non
 
 async def test_nominal_power_derives_conversion_coefficient_and_updates_decision(hass) -> None:
     """The decision engine always receives the coefficient derived from PV power."""
-    hass.states.async_set("sensor.grid", "-220")
+    hass.states.async_set("sensor.grid", "-200")
     coordinator = fake_coordinator()
     controller = ZeroInjectionController(
         hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
