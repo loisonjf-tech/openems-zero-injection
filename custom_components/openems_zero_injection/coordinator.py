@@ -13,6 +13,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import CONF_DTU_HOST, CONF_DTU_PORT, DOMAIN, SCAN_INTERVAL
+from .acquisition import AcquisitionEngine
+from .controller import ZeroInjectionController
+from .const import (
+    CONF_GRID_POWER_ENTITY_ID,
+    CONF_GRID_POWER_INVERTED,
+    DEFAULT_GRID_POWER_ENTITY_ID,
+    DEFAULT_GRID_POWER_INVERTED,
+)
 from .models import DtuMeasurements
 from .modbus import DtuConnectionError, DtuProSModbusClient
 from .registers import (
@@ -63,6 +71,15 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         # Deliberately reset on every integration startup. The switch is a
         # physical safety interlock, never an automation setting.
         self._manual_writes_enabled = False
+        self.controller = ZeroInjectionController(
+            hass,
+            self,
+            AcquisitionEngine(
+                hass,
+                entry.options.get(CONF_GRID_POWER_ENTITY_ID, DEFAULT_GRID_POWER_ENTITY_ID),
+                entry.options.get(CONF_GRID_POWER_INVERTED, DEFAULT_GRID_POWER_INVERTED),
+            ),
+        )
 
     async def _optional_read(self, address: int, count: int) -> list[int] | None:
         try:
@@ -210,6 +227,64 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             "Manual temporary DTU power limit confirmed: port %s, %s%%", port, value
         )
 
+    async def async_set_all_temporary_power_limits(self, value: int) -> None:
+        """Apply one verified automatic temporary limit to all three ports.
+
+        This is the only automatic-write entry point. It intentionally uses no
+        retries, restoration write, global register, or permanent register.
+        """
+        if not self._manual_writes_enabled:
+            raise HomeAssistantError("Manual DTU writes are disabled")
+        if not isinstance(value, int) or not 2 <= value <= 100:
+            raise HomeAssistantError("DTU power limit must be between 2 and 100%")
+
+        addresses = tuple(PORT_TEMPORARY_POWER_LIMIT_REGISTERS.values())
+        _LOGGER.warning(
+            "Automatic temporary DTU power-limit request: all ports, %s%%", value
+        )
+        try:
+            for address in addresses:
+                await self._modbus.async_write_temporary_power_limit(address, value)
+            confirmed = {
+                address: decode_power_limit_percent(
+                    [await self._modbus.async_read_power_limit_register(address)]
+                )
+                for address in addresses
+            }
+        except (DtuConnectionError, RegisterDecodeError) as err:
+            _LOGGER.error("Automatic temporary DTU power-limit write failed: %s", err)
+            raise HomeAssistantError(
+                f"DTU temporary power-limit command failed: {err}"
+            ) from err
+
+        if any(read_value != value for read_value in confirmed.values()):
+            _LOGGER.error(
+                "Automatic temporary DTU power-limit verification failed: requested %s%%, read %s",
+                value,
+                confirmed,
+            )
+            raise HomeAssistantError("DTU temporary power-limit readback mismatch")
+
+        if self.data is not None:
+            self.async_set_updated_data(
+                replace(
+                    self.data,
+                    port_1_temporary_power_limit_percent=confirmed[
+                        PORT_TEMPORARY_POWER_LIMIT_REGISTERS[1]
+                    ],
+                    port_2_temporary_power_limit_percent=confirmed[
+                        PORT_TEMPORARY_POWER_LIMIT_REGISTERS[2]
+                    ],
+                    port_3_temporary_power_limit_percent=confirmed[
+                        PORT_TEMPORARY_POWER_LIMIT_REGISTERS[3]
+                    ],
+                )
+            )
+        _LOGGER.warning(
+            "Automatic temporary DTU power limit confirmed on all ports: %s%%", value
+        )
+
     async def async_shutdown(self) -> None:
         """Close the Modbus client during integration unload."""
+        await self.controller.async_stop()
         await self._modbus.async_disconnect()

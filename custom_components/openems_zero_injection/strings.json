@@ -16,5 +16,17 @@
     "error": {
       "cannot_connect": "Unable to connect to the DTU Pro-S. Check the address and Modbus TCP port."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "OpenEMS controller",
+        "description": "Select the local grid-power sensor used by Build004.",
+        "data": {
+          "grid_power_entity_id": "Grid power sensor",
+          "grid_power_inverted": "Invert grid-power sign"
+        }
+      }
+    }
   }
 }

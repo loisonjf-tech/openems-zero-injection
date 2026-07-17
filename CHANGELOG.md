@@ -2,6 +2,20 @@
 
 Toutes les évolutions notables sont documentées dans ce fichier.
 
+## [0.4.0-alpha.1] - 2026-07-17 — Build004
+
+### Added
+
+- Acquisition configurable de la puissance réseau locale et contrôleur déterministe avec cible, zone morte, estimation W/% et pas maximal.
+- Modes Disabled, Simulation et Production ; scheduler central avec délai de stabilisation de 12 secondes par défaut.
+- Historique borné des décisions, diagnostics de contrôleur et collecte passive des données d'apprentissage.
+
+### Safety
+
+- Production exige trois mesures réseau valides, des limites temporaires cohérentes et l'interrupteur Build003 activé.
+- Les seules écritures automatiques sont les limites temporaires des trois ports, suivies d'une relecture complète.
+- Aucune intégration Zendure/SolarFlow, aucune écriture permanente, aucun PID ni retry automatique.
+
 ## [0.3.0-alpha.1] - 2026-07-16 — Build003 RC1
 
 ### Added

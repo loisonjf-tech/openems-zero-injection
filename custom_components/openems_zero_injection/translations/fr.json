@@ -16,5 +16,17 @@
     "error": {
       "cannot_connect": "Impossible de se connecter au DTU Pro-S. Vérifiez l'adresse et le port Modbus TCP."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Contrôleur OpenEMS",
+        "description": "Sélectionnez le capteur local de puissance réseau utilisé par Build004.",
+        "data": {
+          "grid_power_entity_id": "Capteur de puissance réseau",
+          "grid_power_inverted": "Inverser le signe de la puissance réseau"
+        }
+      }
+    }
   }
 }
