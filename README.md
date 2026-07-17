@@ -30,6 +30,8 @@ Configurez l'entité Home Assistant de puissance réseau dans les options de l'i
 
 Le mode du contrôleur est **Désactivé** après chaque démarrage. **Simulation** calcule et explique les décisions sans écrire. Elle utilise une limite virtuelle distincte de la limite DTU et applique le même délai de stabilisation de 12 secondes que Production. **Production** reste verrouillé tant que **Autoriser les écritures manuelles DTU** est désactivé. Il exige trois mesures réseau valides et trois limites temporaires identiques, fraîches et cohérentes avant une éventuelle écriture. En cas de lecture isolée échouée, la dernière valeur est conservée avec l'attribut `fresh: false`, mais elle ne peut pas autoriser une commande Production. La consigne est limitée à 5 % par commande et espacée de 12 secondes par défaut.
 
+La **Puissance nominale de l’installation photovoltaïque** est configurée manuellement, persistée dans les options et vaut `3000 W` par défaut pour l'installation actuelle. Le coefficient de conversion est toujours calculé par `puissance nominale / 100` : `3000 W` donne `30 W/%`, `4000 W` donne `40 W/%`. Cette donnée n'est ni lue ni déduite depuis la DTU ; une future valeur détectée par la DTU, si elle est validée, restera informative.
+
 > **Avertissement :** Build004 est expérimental. Le mode Production peut modifier la puissance photovoltaïque réelle. Les premiers essais doivent être réalisés sous surveillance.
 
 ## Sécurité

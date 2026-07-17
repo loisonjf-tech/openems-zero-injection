@@ -24,7 +24,8 @@
         "description": "Select the local grid-power sensor used by Build004.",
         "data": {
           "grid_power_entity_id": "Grid power sensor",
-          "grid_power_inverted": "Invert grid-power sign"
+          "grid_power_inverted": "Invert grid-power sign",
+          "installed_nominal_power_w": "Installed nominal photovoltaic power"
         }
       }
     }
@@ -36,6 +37,7 @@
       "current_limit": {"name": "Actual DTU limit"},
       "calculated_limit": {"name": "Calculated DTU limit"},
       "simulated_limit": {"name": "Simulated DTU limit"},
+      "watts_per_percent": {"name": "Power corresponding to 1%"},
       "last_decision": {"name": "Last decision reason"},
       "last_command_result": {"name": "Last command result"},
       "commands_simulated": {"name": "Simulated commands"}
@@ -45,6 +47,14 @@
     },
     "switch": {
       "enable_manual_dtu_writes": {"name": "Enable manual DTU writes"}
+    }
+  },
+  "exceptions": {
+    "installed_nominal_power_invalid": {
+      "message": "Invalid nominal power"
+    },
+    "configuration_updated": {
+      "message": "Configuration updated"
     }
   }
 }

@@ -81,6 +81,17 @@ async def async_get_config_entry_diagnostics(
             "last_decision_code": controller.status.last_decision,
             "last_decision_label": display_label(controller.status.last_decision),
             "real_dtu_limit": controller.status.current_limit_percent,
+            "installed_nominal_power_w": controller.installed_nominal_power_w,
+            "watts_per_percent": controller.watts_per_percent,
+            "installed_power_source": controller.installed_power_source,
+            "installed_power_updated_at": (
+                controller.installed_power_updated_at.isoformat()
+                if controller.installed_power_updated_at
+                else None
+            ),
+            "previous_installed_nominal_power_w": (
+                controller.previous_installed_nominal_power_w
+            ),
             "simulated_current_limit": controller.simulated_current_limit,
             "last_simulated_limit": controller.last_simulated_limit,
             "last_simulated_command_time": (

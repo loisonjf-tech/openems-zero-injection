@@ -11,6 +11,11 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_DTU_HOST, CONF_DTU_PORT, DOMAIN
+from .const import (
+    INSTALLED_NOMINAL_POWER_STEP_W,
+    MAX_INSTALLED_NOMINAL_POWER_W,
+    MIN_INSTALLED_NOMINAL_POWER_W,
+)
 from .coordinator import DtuProSCoordinator
 
 
@@ -35,7 +40,14 @@ async def async_setup_entry(
                 coordinator, entry, "stabilization_delay", "Délai de stabilisation", 10, 60, 1, "s"
             ),
             OpenEMSControllerNumber(
-                coordinator, entry, "watts_per_percent", "Watts par pourcentage", 1, 100, 1, "W/%"
+                coordinator,
+                entry,
+                "installed_nominal_power",
+                "Puissance nominale de l’installation photovoltaïque",
+                MIN_INSTALLED_NOMINAL_POWER_W,
+                MAX_INSTALLED_NOMINAL_POWER_W,
+                INSTALLED_NOMINAL_POWER_STEP_W,
+                UnitOfPower.WATT,
             ),
             OpenEMSControllerNumber(
                 coordinator, entry, "maximum_step", "Pas maximal", 1, 20, 1, PERCENTAGE
@@ -130,7 +142,7 @@ class OpenEMSControllerNumber(CoordinatorEntity[DtuProSCoordinator], NumberEntit
             "target_grid_power": "target_grid_power_w",
             "deadband": "deadband_w",
             "stabilization_delay": "stabilization_delay_seconds",
-            "watts_per_percent": "watts_per_percent",
+            "installed_nominal_power": "installed_nominal_power_w",
             "maximum_step": "maximum_step_percent",
         }
         return float(getattr(controller, fields[self._key]))
@@ -142,8 +154,10 @@ class OpenEMSControllerNumber(CoordinatorEntity[DtuProSCoordinator], NumberEntit
             "target_grid_power": controller.set_target_grid_power,
             "deadband": controller.set_deadband,
             "stabilization_delay": controller.set_stabilization_delay,
-            "watts_per_percent": controller.set_watts_per_percent,
             "maximum_step": controller.set_maximum_step,
         }
-        setters[self._key](int(value) if self._key != "watts_per_percent" else value)
+        if self._key == "installed_nominal_power":
+            await self.coordinator.async_set_installed_nominal_power(value)
+            return
+        setters[self._key](int(value))
         self.async_write_ha_state()

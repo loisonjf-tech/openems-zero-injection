@@ -24,7 +24,8 @@
         "description": "Sélectionnez le capteur local de puissance réseau utilisé par Build004.",
         "data": {
           "grid_power_entity_id": "Capteur de puissance réseau",
-          "grid_power_inverted": "Inverser le signe de la puissance réseau"
+          "grid_power_inverted": "Inverser le signe de la puissance réseau",
+          "installed_nominal_power_w": "Puissance nominale de l’installation photovoltaïque"
         }
       }
     }
@@ -36,6 +37,7 @@
       "current_limit": {"name": "Limite DTU réelle"},
       "calculated_limit": {"name": "Limite DTU calculée"},
       "simulated_limit": {"name": "Limite DTU simulée"},
+      "watts_per_percent": {"name": "Puissance correspondant à 1 %"},
       "last_decision": {"name": "Motif de la dernière décision"},
       "last_command_result": {"name": "Résultat de la dernière commande"},
       "commands_simulated": {"name": "Commandes simulées"}
@@ -45,6 +47,14 @@
     },
     "switch": {
       "enable_manual_dtu_writes": {"name": "Autoriser les écritures manuelles DTU"}
+    }
+  },
+  "exceptions": {
+    "installed_nominal_power_invalid": {
+      "message": "Puissance nominale invalide"
+    },
+    "configuration_updated": {
+      "message": "Configuration mise à jour"
     }
   }
 }

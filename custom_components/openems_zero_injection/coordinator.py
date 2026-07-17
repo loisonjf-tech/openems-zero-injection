@@ -16,6 +16,8 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .const import (
     CONF_DTU_HOST,
     CONF_DTU_PORT,
+    CONF_INSTALLED_NOMINAL_POWER_W,
+    DEFAULT_INSTALLED_NOMINAL_POWER_W,
     DOMAIN,
     PERMANENT_LIMIT_SCAN_INTERVAL,
     POWER_LIMIT_FAILURE_LOG_INTERVAL_SECONDS,
@@ -91,6 +93,11 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         # Deliberately reset on every integration startup. The switch is a
         # physical safety interlock, never an automation setting.
         self._manual_writes_enabled = False
+        installed_power_source = (
+            "options"
+            if CONF_INSTALLED_NOMINAL_POWER_W in entry.options
+            else "initial_configuration"
+        )
         self._telemetry_health = {
             field: _PowerLimitHealth()
             for field in (
@@ -123,6 +130,11 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
                 entry.options.get(CONF_GRID_POWER_ENTITY_ID, DEFAULT_GRID_POWER_ENTITY_ID),
                 entry.options.get(CONF_GRID_POWER_INVERTED, DEFAULT_GRID_POWER_INVERTED),
             ),
+            installed_nominal_power_w=entry.options.get(
+                CONF_INSTALLED_NOMINAL_POWER_W,
+                DEFAULT_INSTALLED_NOMINAL_POWER_W,
+            ),
+            installed_power_source=installed_power_source,
         )
 
     async def _async_refresh_telemetry(
@@ -356,6 +368,13 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             "Manual DTU temporary power-limit writes %s",
             "enabled" if enabled else "disabled",
         )
+        self.async_update_listeners()
+
+    async def async_set_installed_nominal_power(self, value: float) -> None:
+        """Persist a user-configured nominal PV power without DTU I/O."""
+        self.controller.set_installed_nominal_power(value, source="entity")
+        options = {**self.config_entry.options, CONF_INSTALLED_NOMINAL_POWER_W: int(value)}
+        self.hass.config_entries.async_update_entry(self.config_entry, options=options)
         self.async_update_listeners()
 
     def active_temporary_power_limit_ports(self) -> tuple[int, ...]:

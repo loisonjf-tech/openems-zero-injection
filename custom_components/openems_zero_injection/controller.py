@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+import logging
 from typing import TYPE_CHECKING
 
 from homeassistant.core import HomeAssistant
@@ -15,10 +16,12 @@ from .acquisition import AcquisitionEngine
 from .const import (
     CONTROLLER_INTERVAL,
     DEFAULT_DEADBAND_W,
+    DEFAULT_INSTALLED_NOMINAL_POWER_W,
     DEFAULT_MAXIMUM_STEP_PERCENT,
     DEFAULT_STABILIZATION_DELAY_SECONDS,
     DEFAULT_TARGET_GRID_POWER_W,
-    DEFAULT_WATTS_PER_PERCENT,
+    MAX_INSTALLED_NOMINAL_POWER_W,
+    MIN_INSTALLED_NOMINAL_POWER_W,
     ControllerMode,
     SchedulerState,
     VALID_GRID_MEASUREMENTS_REQUIRED,
@@ -93,6 +96,9 @@ class ZeroInjectionController:
         hass: HomeAssistant,
         coordinator: DtuProSCoordinator,
         acquisition: AcquisitionEngine,
+        *,
+        installed_nominal_power_w: int = DEFAULT_INSTALLED_NOMINAL_POWER_W,
+        installed_power_source: str = "initial_configuration",
     ) -> None:
         self._hass = hass
         self._coordinator = coordinator
@@ -101,7 +107,10 @@ class ZeroInjectionController:
         self._target_grid_power_w = DEFAULT_TARGET_GRID_POWER_W
         self._deadband_w = DEFAULT_DEADBAND_W
         self._stabilization_delay_seconds = DEFAULT_STABILIZATION_DELAY_SECONDS
-        self._watts_per_percent = DEFAULT_WATTS_PER_PERCENT
+        self._installed_nominal_power_w = 0
+        self._installed_power_source = installed_power_source
+        self._installed_power_updated_at: datetime | None = None
+        self._previous_installed_nominal_power_w: int | None = None
         self._maximum_step_percent = DEFAULT_MAXIMUM_STEP_PERCENT
         self._scheduler = SafetyScheduler(self._stabilization_delay_seconds)
         self._history = DecisionHistory()
@@ -120,6 +129,9 @@ class ZeroInjectionController:
         self._simulated_current_limit: int | None = None
         self._last_simulated_limit: int | None = None
         self._last_simulated_command_time: datetime | None = None
+        self.set_installed_nominal_power(
+            installed_nominal_power_w, source=installed_power_source, log_change=False
+        )
 
     @property
     def mode(self) -> ControllerMode:
@@ -155,7 +167,23 @@ class ZeroInjectionController:
 
     @property
     def watts_per_percent(self) -> float:
-        return self._watts_per_percent
+        return self._installed_nominal_power_w / 100
+
+    @property
+    def installed_nominal_power_w(self) -> int:
+        return self._installed_nominal_power_w
+
+    @property
+    def installed_power_source(self) -> str:
+        return self._installed_power_source
+
+    @property
+    def installed_power_updated_at(self) -> datetime | None:
+        return self._installed_power_updated_at
+
+    @property
+    def previous_installed_nominal_power_w(self) -> int | None:
+        return self._previous_installed_nominal_power_w
 
     @property
     def maximum_step_percent(self) -> int:
@@ -219,8 +247,29 @@ class ZeroInjectionController:
         self._stabilization_delay_seconds = value
         self._scheduler.configure(value)
 
-    def set_watts_per_percent(self, value: float) -> None:
-        self._watts_per_percent = value
+    def set_installed_nominal_power(
+        self, value: float, *, source: str, log_change: bool = True
+    ) -> None:
+        """Set the persistent manual PV nominal power used for all decisions."""
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise ValueError("Installed nominal power must be numeric")
+        if int(value) != value or not (
+            MIN_INSTALLED_NOMINAL_POWER_W <= value <= MAX_INSTALLED_NOMINAL_POWER_W
+        ):
+            raise ValueError("Installed nominal power is outside the permitted range")
+        new_value = int(value)
+        if self._installed_nominal_power_w == new_value:
+            return
+        old_value = self._installed_nominal_power_w or None
+        self._installed_nominal_power_w = new_value
+        self._previous_installed_nominal_power_w = old_value
+        self._installed_power_source = source
+        self._installed_power_updated_at = datetime.now(UTC)
+        if log_change:
+            logging.getLogger(__name__).info(
+                "Installed nominal PV power updated from %s W to %s W", old_value, new_value
+            )
+        self._coordinator.async_update_listeners()
 
     def set_maximum_step(self, value: int) -> None:
         self._maximum_step_percent = value
@@ -303,7 +352,7 @@ class ZeroInjectionController:
                 target_grid_power_w=self._target_grid_power_w,
                 deadband_w=self._deadband_w,
                 current_limit_percent=current_limit,
-                watts_per_percent=self._watts_per_percent,
+                watts_per_percent=self.watts_per_percent,
                 minimum_limit_percent=2,
                 maximum_limit_percent=100,
                 maximum_step_percent=self._maximum_step_percent,
@@ -379,7 +428,7 @@ class ZeroInjectionController:
                         dtu_power_after=None,
                         configured_wait_time=self._stabilization_delay_seconds,
                         observed_change=None,
-                        estimated_watts_per_percent=self._watts_per_percent,
+                        estimated_watts_per_percent=self.watts_per_percent,
                     )
                 )
             else:
@@ -428,7 +477,7 @@ class ZeroInjectionController:
                 current_limit_percent=current_limit,
                 calculated_limit_percent=decision.calculated_limit_percent if decision else None,
                 applied_limit_percent=decision.applied_limit_percent if decision else None,
-                watts_per_percent=self._watts_per_percent,
+                watts_per_percent=self.watts_per_percent,
                 scheduler_state=self._scheduler.state.value,
                 decision_reason=reason,
                 command_sent=sent,
