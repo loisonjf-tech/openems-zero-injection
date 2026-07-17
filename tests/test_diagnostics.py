@@ -32,6 +32,13 @@ async def test_diagnostics_include_connection_state(hass) -> None:
         client_class.return_value.async_read_power_limit_register = AsyncMock(
             return_value=50
         )
+        client_class.return_value.connection_diagnostics.return_value = {
+            "connected": True,
+            "total_errors": 0,
+            "consecutive_failures": 0,
+            "last_error": None,
+            "reconnections": 0,
+        }
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
@@ -39,3 +46,6 @@ async def test_diagnostics_include_connection_state(hass) -> None:
     assert diagnostics["dtu_ip"] == "192.0.2.10"
     assert diagnostics["device_id"] == 1
     assert diagnostics["measurements"]["serial_number"] == "redacted"
+    assert diagnostics["controller"]["temporary_limits_ready"] is True
+    assert diagnostics["measurements"]["power_limit_health"]["0xD00D"]["available"] is True
+    assert diagnostics["measurements"]["unavailable_power_limit_registers"] == []

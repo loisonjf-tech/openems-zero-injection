@@ -28,13 +28,17 @@ Dans l'assistant d'ajout de l'intégration, indiquez l'adresse IP du Hoymiles DT
 
 Configurez l'entité Home Assistant de puissance réseau dans les options de l'intégration. La convention par défaut est positive = consommation réseau et négative = injection. La cible par défaut est `-40 W`, avec une zone morte de `±30 W`.
 
-Le mode du contrôleur est **Disabled** après chaque démarrage. **Simulation** calcule et explique les décisions sans écrire. **Production** reste verrouillé tant que **Enable Manual DTU Writes** est désactivé. Il exige trois mesures réseau valides et trois limites temporaires identiques avant une éventuelle écriture. La consigne est limitée à 5 % par commande et espacée de 12 secondes par défaut.
+Le mode du contrôleur est **Désactivé** après chaque démarrage. **Simulation** calcule et explique les décisions sans écrire. Elle utilise une limite virtuelle distincte de la limite DTU et applique le même délai de stabilisation de 12 secondes que Production. **Production** reste verrouillé tant que **Autoriser les écritures manuelles DTU** est désactivé. Il exige trois mesures réseau valides et trois limites temporaires identiques, fraîches et cohérentes avant une éventuelle écriture. En cas de lecture isolée échouée, la dernière valeur est conservée avec l'attribut `fresh: false`, mais elle ne peut pas autoriser une commande Production. La consigne est limitée à 5 % par commande et espacée de 12 secondes par défaut.
+
+La **Puissance nominale de l’installation photovoltaïque** est configurée manuellement, persistée dans les options et vaut `3000 W` par défaut pour l'installation actuelle. Le coefficient de conversion est toujours calculé par `puissance nominale / 100` : `3000 W` donne `30 W/%`, `4000 W` donne `40 W/%`. Cette donnée n'est ni lue ni déduite depuis la DTU ; une future valeur détectée par la DTU, si elle est validée, restera informative.
 
 > **Avertissement :** Build004 est expérimental. Le mode Production peut modifier la puissance photovoltaïque réelle. Les premiers essais doivent être réalisés sous surveillance.
 
 ## Sécurité
 
-Le client interne utilise uniquement les fonctions Modbus TCP `0x03`, `0x04` et `0x06`. Les écritures Build004 sont exclusivement temporaires vers `0xD007`, `0xD00D` et `0xD013`, vérifiées par relecture. Il n'implémente pas `0x10`, aucune écriture permanente ou globale, aucun PID ni aucune logique batterie.
+Le client interne utilise uniquement les fonctions Modbus TCP `0x03`, `0x04` et `0x06`. Les écritures Build004 sont exclusivement temporaires vers `0xD007`, `0xD00D` et `0xD013`, vérifiées par relecture. Les registres permanents (`0xD008`, `0xD00E`, `0xD014`) sont seulement diagnostiques et lus toutes les cinq minutes, jamais écrits. Il n'implémente pas `0x10`, aucune écriture permanente ou globale, aucun PID ni aucune logique batterie.
+
+Les lectures Modbus sont strictement sérialisées et espacées de 150 ms. Une erreur ponctuelle conserve la dernière valeur connue, signalée comme périmée avec sa date et son compteur d'échecs ; elle ne devient jamais `0` artificiellement. Les erreurs de socket, timeout ou réponse incomplète ferment la connexion TCP afin que le cycle normal suivant la recrée. Après plusieurs échecs globaux, la reconnexion applique un délai asynchrone borné.
 
 ## Tests
 

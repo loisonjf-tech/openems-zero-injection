@@ -16,9 +16,13 @@ from .const import (
     CONF_DTU_PORT,
     CONF_GRID_POWER_ENTITY_ID,
     CONF_GRID_POWER_INVERTED,
+    CONF_INSTALLED_NOMINAL_POWER_W,
     DEFAULT_DTU_PORT,
     DEFAULT_GRID_POWER_ENTITY_ID,
     DEFAULT_GRID_POWER_INVERTED,
+    DEFAULT_INSTALLED_NOMINAL_POWER_W,
+    MAX_INSTALLED_NOMINAL_POWER_W,
+    MIN_INSTALLED_NOMINAL_POWER_W,
     DOMAIN,
 )
 from .modbus import DtuConnectionError, DtuProSModbusClient
@@ -113,6 +117,19 @@ class OpenEMSOptionsFlow(config_entries.OptionsFlow):
                             DEFAULT_GRID_POWER_INVERTED,
                         ),
                     ): selector.BooleanSelector(),
+                    vol.Required(
+                        CONF_INSTALLED_NOMINAL_POWER_W,
+                        default=options.get(
+                            CONF_INSTALLED_NOMINAL_POWER_W,
+                            DEFAULT_INSTALLED_NOMINAL_POWER_W,
+                        ),
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(
+                            min=MIN_INSTALLED_NOMINAL_POWER_W,
+                            max=MAX_INSTALLED_NOMINAL_POWER_W,
+                        ),
+                    ),
                 }
             ),
         )

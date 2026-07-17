@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+import logging
 from typing import TYPE_CHECKING
 
 from homeassistant.core import HomeAssistant
@@ -15,10 +16,12 @@ from .acquisition import AcquisitionEngine
 from .const import (
     CONTROLLER_INTERVAL,
     DEFAULT_DEADBAND_W,
+    DEFAULT_INSTALLED_NOMINAL_POWER_W,
     DEFAULT_MAXIMUM_STEP_PERCENT,
     DEFAULT_STABILIZATION_DELAY_SECONDS,
     DEFAULT_TARGET_GRID_POWER_W,
-    DEFAULT_WATTS_PER_PERCENT,
+    MAX_INSTALLED_NOMINAL_POWER_W,
+    MIN_INSTALLED_NOMINAL_POWER_W,
     ControllerMode,
     SchedulerState,
     VALID_GRID_MEASUREMENTS_REQUIRED,
@@ -32,6 +35,41 @@ if TYPE_CHECKING:
     from .coordinator import DtuProSCoordinator
 
 
+DISPLAY_LABELS_FR = {
+    "Within deadband": "Dans la zone de tolérance",
+    "Grid import": "Consommation sur le réseau",
+    "Excess export": "Injection excessive sur le réseau",
+    "Waiting for stabilization": "Attente de stabilisation",
+    "Simulation mode": "Mode simulation",
+    "Production mode": "Mode production",
+    "Disabled": "Désactivé",
+    "Simulation": "Simulation",
+    "Production": "Production",
+    "Paused": "En pause",
+    "Error": "Erreur",
+    "Idle": "Inactif",
+    "Waiting": "En attente",
+    "Writing": "Écriture en cours",
+    "Verifying": "Vérification en cours",
+    "Command confirmed": "Commande confirmée",
+    "Command failed": "Échec de la commande",
+    "Command simulated": "Commande simulée",
+    "DTU unavailable": "DTU indisponible",
+    "Grid sensor unavailable": "Compteur réseau indisponible",
+    "Limit unchanged": "Limite inchangée",
+    "Maximum step applied": "Pas maximal appliqué",
+    "Data unavailable": "Données indisponibles",
+    "Temporary limit unavailable": "Limite temporaire indisponible",
+    "Limits inconsistent": "Limites DTU incohérentes",
+    "Controller disabled": "Contrôleur désactivé",
+}
+
+
+def display_label(value: str | None) -> str | None:
+    """Return the French user-facing label while preserving internal codes."""
+    return DISPLAY_LABELS_FR.get(value, value)
+
+
 @dataclass(frozen=True, slots=True)
 class ControllerStatus:
     """Current controller state exposed through Home Assistant entities."""
@@ -42,6 +80,7 @@ class ControllerStatus:
     grid_error_w: float | None = None
     current_limit_percent: int | None = None
     calculated_limit_percent: int | None = None
+    simulated_limit_percent: int | None = None
     last_decision: str | None = None
     last_decision_time: datetime | None = None
     last_command_result: str | None = None
@@ -57,6 +96,9 @@ class ZeroInjectionController:
         hass: HomeAssistant,
         coordinator: DtuProSCoordinator,
         acquisition: AcquisitionEngine,
+        *,
+        installed_nominal_power_w: int = DEFAULT_INSTALLED_NOMINAL_POWER_W,
+        installed_power_source: str = "initial_configuration",
     ) -> None:
         self._hass = hass
         self._coordinator = coordinator
@@ -65,7 +107,10 @@ class ZeroInjectionController:
         self._target_grid_power_w = DEFAULT_TARGET_GRID_POWER_W
         self._deadband_w = DEFAULT_DEADBAND_W
         self._stabilization_delay_seconds = DEFAULT_STABILIZATION_DELAY_SECONDS
-        self._watts_per_percent = DEFAULT_WATTS_PER_PERCENT
+        self._installed_nominal_power_w = 0
+        self._installed_power_source = installed_power_source
+        self._installed_power_updated_at: datetime | None = None
+        self._previous_installed_nominal_power_w: int | None = None
         self._maximum_step_percent = DEFAULT_MAXIMUM_STEP_PERCENT
         self._scheduler = SafetyScheduler(self._stabilization_delay_seconds)
         self._history = DecisionHistory()
@@ -78,6 +123,15 @@ class ZeroInjectionController:
         self.commands_succeeded = 0
         self.commands_failed = 0
         self.commands_simulated = 0
+        self.decisions_blocked_stabilization = 0
+        self.decisions_limit_unchanged = 0
+        self.decisions_within_deadband = 0
+        self._simulated_current_limit: int | None = None
+        self._last_simulated_limit: int | None = None
+        self._last_simulated_command_time: datetime | None = None
+        self.set_installed_nominal_power(
+            installed_nominal_power_w, source=installed_power_source, log_change=False
+        )
 
     @property
     def mode(self) -> ControllerMode:
@@ -113,11 +167,39 @@ class ZeroInjectionController:
 
     @property
     def watts_per_percent(self) -> float:
-        return self._watts_per_percent
+        return self._installed_nominal_power_w / 100
+
+    @property
+    def installed_nominal_power_w(self) -> int:
+        return self._installed_nominal_power_w
+
+    @property
+    def installed_power_source(self) -> str:
+        return self._installed_power_source
+
+    @property
+    def installed_power_updated_at(self) -> datetime | None:
+        return self._installed_power_updated_at
+
+    @property
+    def previous_installed_nominal_power_w(self) -> int | None:
+        return self._previous_installed_nominal_power_w
 
     @property
     def maximum_step_percent(self) -> int:
         return self._maximum_step_percent
+
+    @property
+    def simulated_current_limit(self) -> int | None:
+        return self._simulated_current_limit
+
+    @property
+    def last_simulated_limit(self) -> int | None:
+        return self._last_simulated_limit
+
+    @property
+    def last_simulated_command_time(self) -> datetime | None:
+        return self._last_simulated_command_time
 
     async def async_start(self) -> None:
         """Start periodic local acquisition; mode remains disabled after restart."""
@@ -136,12 +218,24 @@ class ZeroInjectionController:
 
     async def async_set_mode(self, mode: str) -> None:
         """Select an explicit mode; Production is never restored on startup."""
+        previous_mode = self._mode
         self._mode = ControllerMode(mode)
         if self._mode is ControllerMode.DISABLED:
             self._scheduler.pause()
+            self._simulated_current_limit = None
+            self._last_simulated_limit = None
+            self._last_simulated_command_time = None
         elif self._scheduler.state is SchedulerState.PAUSED:
             self._scheduler.reset()
-        self._set_status(state=self._mode.value, last_error=None)
+        if self._mode is ControllerMode.SIMULATION and previous_mode is not ControllerMode.SIMULATION:
+            self._simulated_current_limit = self._current_consistent_limit(require_fresh=True)
+            self._last_simulated_limit = None
+            self._last_simulated_command_time = None
+        self._set_status(
+            state=self._mode.value,
+            simulated_limit_percent=self._simulated_current_limit,
+            last_error=None,
+        )
 
     def set_target_grid_power(self, value: int) -> None:
         self._target_grid_power_w = value
@@ -153,8 +247,29 @@ class ZeroInjectionController:
         self._stabilization_delay_seconds = value
         self._scheduler.configure(value)
 
-    def set_watts_per_percent(self, value: float) -> None:
-        self._watts_per_percent = value
+    def set_installed_nominal_power(
+        self, value: float, *, source: str, log_change: bool = True
+    ) -> None:
+        """Set the persistent manual PV nominal power used for all decisions."""
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise ValueError("Installed nominal power must be numeric")
+        if int(value) != value or not (
+            MIN_INSTALLED_NOMINAL_POWER_W <= value <= MAX_INSTALLED_NOMINAL_POWER_W
+        ):
+            raise ValueError("Installed nominal power is outside the permitted range")
+        new_value = int(value)
+        if self._installed_nominal_power_w == new_value:
+            return
+        old_value = self._installed_nominal_power_w or None
+        self._installed_nominal_power_w = new_value
+        self._previous_installed_nominal_power_w = old_value
+        self._installed_power_source = source
+        self._installed_power_updated_at = datetime.now(UTC)
+        if log_change:
+            logging.getLogger(__name__).info(
+                "Installed nominal PV power updated from %s W to %s W", old_value, new_value
+            )
+        self._coordinator.async_update_listeners()
 
     def set_maximum_step(self, value: int) -> None:
         self._maximum_step_percent = value
@@ -199,15 +314,36 @@ class ZeroInjectionController:
             if self._valid_grid_measurements == VALID_GRID_MEASUREMENTS_REQUIRED:
                 self._scheduler.reset()
 
-            current_limit = self._current_consistent_limit()
+            real_limit = self._current_consistent_limit(require_fresh=True)
+            current_limit = (
+                self._simulated_current_limit
+                if self._mode is ControllerMode.SIMULATION
+                else real_limit
+            )
+            if self._mode is ControllerMode.SIMULATION and current_limit is None:
+                current_limit = real_limit
+                self._simulated_current_limit = real_limit
             if current_limit is None:
+                limit_error = (
+                    "Temporary limits are stale or inconsistent"
+                    if self._mode is ControllerMode.PRODUCTION
+                    else "Temporary limits are unavailable or inconsistent"
+                )
                 self._scheduler.pause()
-                self._record(measurement.power_w, None, None, "DTU unavailable", False, False, "Temporary limits are unavailable or inconsistent")
+                self._record(
+                    measurement.power_w,
+                    None,
+                    None,
+                    "DTU unavailable",
+                    False,
+                    False,
+                    limit_error,
+                )
                 self._set_status(
                     state="Paused",
                     grid_power_w=measurement.power_w,
                     last_decision="DTU unavailable",
-                    last_error="Temporary limits are unavailable or inconsistent",
+                    last_error=limit_error,
                 )
                 return
 
@@ -216,7 +352,7 @@ class ZeroInjectionController:
                 target_grid_power_w=self._target_grid_power_w,
                 deadband_w=self._deadband_w,
                 current_limit_percent=current_limit,
-                watts_per_percent=self._watts_per_percent,
+                watts_per_percent=self.watts_per_percent,
                 minimum_limit_percent=2,
                 maximum_limit_percent=100,
                 maximum_step_percent=self._maximum_step_percent,
@@ -227,17 +363,42 @@ class ZeroInjectionController:
                 grid_error_w=decision.grid_error_w,
                 current_limit_percent=current_limit,
                 calculated_limit_percent=decision.applied_limit_percent,
+                simulated_limit_percent=self._simulated_current_limit,
                 last_decision=decision.reason.value,
                 last_error=None,
             )
             if not decision.command_needed:
+                if decision.reason.value == "Within deadband":
+                    self.decisions_within_deadband += 1
+                else:
+                    self.decisions_limit_unchanged += 1
                 self._record(measurement.power_w, current_limit, decision, decision.reason.value, False, False, None)
                 return
 
             if self._mode is ControllerMode.SIMULATION:
+                accepted, result = await self._scheduler.async_simulate()
+                if not accepted:
+                    if result == "Waiting for stabilization":
+                        self.decisions_blocked_stabilization += 1
+                    self._record(measurement.power_w, current_limit, decision, result, False, False, None)
+                    self._set_status(
+                        state=self._scheduler.state.value,
+                        last_decision=result,
+                        last_command_result=None,
+                    )
+                    return
+                self._simulated_current_limit = decision.applied_limit_percent
+                self._last_simulated_limit = decision.applied_limit_percent
+                self._last_simulated_command_time = datetime.now(UTC)
                 self.commands_simulated += 1
-                self._record(measurement.power_w, current_limit, decision, "Simulation mode", False, False, None)
-                self._set_status(last_decision="Simulation mode", last_command_result="Simulated")
+                self._record(measurement.power_w, current_limit, decision, result, False, True, None)
+                self._set_status(
+                    state=self._scheduler.state.value,
+                    simulated_limit_percent=self._simulated_current_limit,
+                    last_decision=decision.reason.value,
+                    last_command_result=result,
+                    last_command_time=self._last_simulated_command_time,
+                )
                 return
 
             if not self._coordinator.manual_writes_enabled:
@@ -267,7 +428,7 @@ class ZeroInjectionController:
                         dtu_power_after=None,
                         configured_wait_time=self._stabilization_delay_seconds,
                         observed_change=None,
-                        estimated_watts_per_percent=self._watts_per_percent,
+                        estimated_watts_per_percent=self.watts_per_percent,
                     )
                 )
             else:
@@ -281,9 +442,11 @@ class ZeroInjectionController:
                 last_error=None if success else result,
             )
 
-    def _current_consistent_limit(self) -> int | None:
+    def _current_consistent_limit(self, *, require_fresh: bool) -> int | None:
         data = self._coordinator.data
         if data is None or not data.connected:
+            return None
+        if require_fresh and not self._coordinator.temporary_limits_ready:
             return None
         limits = [
             data.port_1_temporary_power_limit_percent,
@@ -314,7 +477,7 @@ class ZeroInjectionController:
                 current_limit_percent=current_limit,
                 calculated_limit_percent=decision.calculated_limit_percent if decision else None,
                 applied_limit_percent=decision.applied_limit_percent if decision else None,
-                watts_per_percent=self._watts_per_percent,
+                watts_per_percent=self.watts_per_percent,
                 scheduler_state=self._scheduler.state.value,
                 decision_reason=reason,
                 command_sent=sent,

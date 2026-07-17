@@ -25,8 +25,8 @@ async def async_setup_entry(
 class OpenEMSControllerModeSelect(CoordinatorEntity[DtuProSCoordinator], SelectEntity):
     """Explicitly choose Disabled, Simulation, or Production."""
 
-    _attr_name = "OpenEMS Controller Mode"
-    _attr_options = [mode.value for mode in ControllerMode]
+    _attr_name = "Mode du contrôleur"
+    _attr_options = ["Désactivé", "Simulation", "Production"]
     _attr_entity_category = EntityCategory.CONFIG
     _attr_icon = "mdi:transmission-tower"
 
@@ -43,9 +43,18 @@ class OpenEMSControllerModeSelect(CoordinatorEntity[DtuProSCoordinator], SelectE
 
     @property
     def current_option(self) -> str:
-        return self.coordinator.controller.mode.value
+        return {
+            ControllerMode.DISABLED: "Désactivé",
+            ControllerMode.SIMULATION: "Simulation",
+            ControllerMode.PRODUCTION: "Production",
+        }[self.coordinator.controller.mode]
 
     async def async_select_option(self, option: str) -> None:
         """Apply an explicit mode choice; no mode is restored automatically."""
-        await self.coordinator.controller.async_set_mode(option)
+        modes = {
+            "Désactivé": ControllerMode.DISABLED.value,
+            "Simulation": ControllerMode.SIMULATION.value,
+            "Production": ControllerMode.PRODUCTION.value,
+        }
+        await self.coordinator.controller.async_set_mode(modes[option])
         self.async_write_ha_state()
