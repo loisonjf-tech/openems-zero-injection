@@ -1,8 +1,8 @@
 """Integration-level controller safety tests without a real DTU."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
-from datetime import UTC, datetime
+from unittest.mock import AsyncMock, Mock, call
+from datetime import UTC, datetime, timedelta
 
 from custom_components.openems_zero_injection.acquisition import AcquisitionEngine
 from custom_components.openems_zero_injection.const import ControllerMode, SchedulerState
@@ -301,6 +301,86 @@ async def test_production_requires_three_valid_measurements_then_writes(hass) ->
     coordinator.async_set_all_temporary_power_limits.assert_awaited_once_with(45)
     assert controller.commands_succeeded == 1
     assert controller.scheduler.state is SchedulerState.WAITING
+
+
+async def test_stabilization_wait_creates_no_failed_or_counted_command(hass) -> None:
+    """Repeated ticks during stabilization are a safety state, never failures."""
+    hass.states.async_set("sensor.grid", "-220")
+    coordinator = fake_coordinator()
+    controller = ZeroInjectionController(
+        hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
+    )
+    await controller.async_set_mode(ControllerMode.PRODUCTION.value)
+    for _ in range(3):
+        await controller.async_tick()
+    assert controller.commands_sent == 1
+
+    hass.states.async_set("sensor.grid", "-260")
+    for _ in range(10):
+        await controller.async_tick()
+
+    assert controller.scheduler.state is SchedulerState.WAITING
+    assert controller.status.last_decision == "Waiting for stabilization"
+    assert controller.commands_sent == 1
+    assert controller.commands_failed == 0
+    assert controller.last_command_sequence == 1
+    assert controller.status.last_error is None
+
+
+async def test_production_steps_use_confirmed_real_limit_and_never_simulate(hass) -> None:
+    """Each verified write becomes the sole base for the next Production step."""
+    hass.states.async_set("sensor.grid", "-1_000")
+    coordinator = fake_coordinator()
+
+    async def apply_limit(value: int) -> None:
+        coordinator.data.port_1_temporary_power_limit_percent = value
+        coordinator.data.port_2_temporary_power_limit_percent = value
+        coordinator.data.port_3_temporary_power_limit_percent = value
+        coordinator.data.last_success = datetime.now(UTC)
+        coordinator.temporary_limits_timestamp = coordinator.data.last_success
+
+    coordinator.async_set_all_temporary_power_limits = AsyncMock(side_effect=apply_limit)
+    controller = ZeroInjectionController(
+        hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
+    )
+    controller.set_maximum_step(2)
+    await controller.async_set_mode(ControllerMode.PRODUCTION.value)
+    for _ in range(3):
+        await controller.async_tick()
+
+    for expected_limit in (46, 44, 42):
+        controller.scheduler._next_allowed_at = datetime.now(UTC) - timedelta(seconds=1)
+        await controller.async_tick()
+        assert controller.status.real_dtu_limit_percent == expected_limit
+        assert controller.status.calculated_limit_percent is None
+
+    assert controller.commands_sent == 4
+    assert controller.commands_succeeded == 4
+    assert controller.commands_failed == 0
+    assert controller.commands_simulated == 0
+    assert controller.last_simulated_limit is None
+    assert controller.simulated_current_limit is None
+    assert controller.last_command_sequence == 4
+    assert coordinator.async_set_all_temporary_power_limits.await_args_list == [
+        call(48), call(46), call(44), call(42)
+    ]
+
+
+async def test_entering_production_clears_simulation_values(hass) -> None:
+    """Simulation recommendations and counters cannot leak into Production UI."""
+    hass.states.async_set("sensor.grid", "-220")
+    controller = ZeroInjectionController(
+        hass, fake_coordinator(), AcquisitionEngine(hass, "sensor.grid", False)
+    )
+    await controller.async_set_mode(ControllerMode.SIMULATION.value)
+    for _ in range(3):
+        await controller.async_tick()
+    assert controller.commands_simulated == 1
+
+    await controller.async_set_mode(ControllerMode.PRODUCTION.value)
+    assert controller.commands_simulated == 0
+    assert controller.simulated_current_limit is None
+    assert controller.last_simulated_limit is None
 
 
 async def test_grid_sensor_loss_pauses_controller(hass) -> None:

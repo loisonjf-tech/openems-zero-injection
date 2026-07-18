@@ -279,9 +279,31 @@ class ZeroInjectionController:
             self._simulated_current_limit = self._current_consistent_limit(require_fresh=True)
             self._last_simulated_limit = None
             self._last_simulated_command_time = None
+        if self._mode is ControllerMode.PRODUCTION and previous_mode is not ControllerMode.PRODUCTION:
+            # A virtual recommendation can never be a basis or a visible value
+            # for a real command.
+            self._simulated_current_limit = None
+            self._last_simulated_limit = None
+            self._last_simulated_command_time = None
+            self.commands_simulated = 0
         self._set_status(
             state=self._mode.value,
             simulated_limit_percent=self._simulated_current_limit,
+            calculated_limit_percent=(
+                None if self._mode is ControllerMode.PRODUCTION else self._status.calculated_limit_percent
+            ),
+            last_command_result=(
+                None
+                if self._mode is ControllerMode.PRODUCTION
+                and previous_mode is not ControllerMode.PRODUCTION
+                else self._status.last_command_result
+            ),
+            last_command_time=(
+                None
+                if self._mode is ControllerMode.PRODUCTION
+                and previous_mode is not ControllerMode.PRODUCTION
+                else self._status.last_command_time
+            ),
             last_error=None,
         )
 
@@ -434,7 +456,6 @@ class ZeroInjectionController:
                     self._last_simulated_limit = decision.applied_limit_percent
                     self._last_simulated_command_time = datetime.now(UTC)
                     self.commands_simulated += 1
-                    self._last_command_sequence = self._last_decision_sequence + 1
                 self._record(
                     snapshot.grid_power_w,
                     current_limit,
@@ -465,6 +486,24 @@ class ZeroInjectionController:
                 )
                 return
 
+            if decision.command_needed and self._coordinator.manual_writes_enabled:
+                block_reason = self._scheduler.command_block_reason()
+                if block_reason is not None:
+                    # Stabilization is an intentional safety state, not a failed
+                    # command. Do not create command accounting or an error.
+                    self._set_status(
+                        state=self._scheduler.state.value,
+                        grid_power_w=snapshot.grid_power_w,
+                        grid_error_w=decision.grid_error_w,
+                        current_limit_percent=current_limit,
+                        real_dtu_limit_percent=real_limit,
+                        calculated_limit_percent=decision.calculated_limit_percent,
+                        simulated_limit_percent=None,
+                        last_decision=block_reason,
+                        last_error=None,
+                    )
+                    return
+
             self._set_status(
                 state=self._scheduler.state.value,
                 grid_power_w=snapshot.grid_power_w,
@@ -491,6 +530,7 @@ class ZeroInjectionController:
                 return
 
             self.commands_sent += 1
+            self._last_command_sequence = (self._last_command_sequence or 0) + 1
             success, result = await self._scheduler.async_execute(
                 self._mode,
                 lambda: self._coordinator.async_set_all_temporary_power_limits(
@@ -516,13 +556,19 @@ class ZeroInjectionController:
                 )
             else:
                 self.commands_failed += 1
-            self._last_command_sequence = self._last_decision_sequence + 1
             self._record(measurement.power_w, current_limit, decision, result, success, success, None if success else result)
+            confirmed_limit = (
+                self._current_consistent_limit(require_fresh=True) if success else real_limit
+            )
             self._set_status(
                 state=self._scheduler.state.value,
                 last_decision=result,
                 last_command_result=result,
                 last_command_time=datetime.now(UTC),
+                current_limit_percent=confirmed_limit,
+                real_dtu_limit_percent=confirmed_limit,
+                calculated_limit_percent=None if success else decision.calculated_limit_percent,
+                simulated_limit_percent=None,
                 last_error=None if success else result,
             )
 
