@@ -25,6 +25,7 @@ from .const import (
     MAX_INSTALLED_NOMINAL_POWER_W,
     MIN_INSTALLED_NOMINAL_POWER_W,
     MEASUREMENT_SYNC_MAX_DIFFERENCE_SECONDS,
+    SIGNIFICANT_POWER_CHANGE_W,
     ControllerMode,
     SchedulerState,
     VALID_GRID_MEASUREMENTS_REQUIRED,
@@ -43,7 +44,8 @@ DISPLAY_LABELS_FR = {
     "Grid import": "Consommation sur le réseau",
     "Excess export": "Injection excessive sur le réseau",
     "Waiting for stabilization": "Attente de stabilisation",
-    "Simulation awaiting measurement change": "Attente d'une variation physique",
+    "Simulation awaiting measurement change": "Simulation en attente d’une variation des mesures",
+    "Scheduler is paused": "Simulation en attente d’une variation des mesures",
     "Simulation mode": "Mode simulation",
     "Production mode": "Mode production",
     "Disabled": "Désactivé",
@@ -154,7 +156,9 @@ class ZeroInjectionController:
         self._simulation_baseline_dtu_power: float | None = None
         self._last_decision_sequence = 0
         self._last_command_sequence: int | None = None
-        self._last_evaluated_generation: tuple[datetime, datetime, datetime] | None = None
+        self._last_evaluated_snapshot: DecisionSnapshot | None = None
+        self._last_evaluated_configuration_generation = -1
+        self._configuration_generation = 0
         self.set_installed_nominal_power(
             installed_nominal_power_w, source=installed_power_source, log_change=False
         )
@@ -235,6 +239,15 @@ class ZeroInjectionController:
     def last_command_sequence(self) -> int | None:
         return self._last_command_sequence
 
+    @property
+    def waiting_state(self) -> str:
+        """Describe why Simulation is currently holding its recommendation."""
+        return (
+            "Variation physique non détectée"
+            if self._simulation_awaiting_physical_change
+            else "Aucune attente"
+        )
+
     async def async_start(self) -> None:
         """Start periodic local acquisition; mode remains disabled after restart."""
         self._cancel_tick = async_track_time_interval(
@@ -254,6 +267,7 @@ class ZeroInjectionController:
         """Select an explicit mode; Production is never restored on startup."""
         previous_mode = self._mode
         self._mode = ControllerMode(mode)
+        self._configuration_generation += 1
         if self._mode is ControllerMode.DISABLED:
             self._scheduler.pause()
             self._simulated_current_limit = None
@@ -276,13 +290,16 @@ class ZeroInjectionController:
 
     def set_target_grid_power(self, value: int) -> None:
         self._target_grid_power_w = value
+        self._configuration_generation += 1
 
     def set_deadband(self, value: int) -> None:
         self._deadband_w = value
+        self._configuration_generation += 1
 
     def set_stabilization_delay(self, value: int) -> None:
         self._stabilization_delay_seconds = value
         self._scheduler.configure(value)
+        self._configuration_generation += 1
 
     def set_installed_nominal_power(
         self, value: float, *, source: str, log_change: bool = True
@@ -302,6 +319,7 @@ class ZeroInjectionController:
         self._previous_installed_nominal_power_w = old_value
         self._installed_power_source = source
         self._installed_power_updated_at = datetime.now(UTC)
+        self._configuration_generation += 1
         if log_change:
             logging.getLogger(__name__).info(
                 "Installed nominal PV power updated from %s W to %s W", old_value, new_value
@@ -310,6 +328,7 @@ class ZeroInjectionController:
 
     def set_maximum_step(self, value: int) -> None:
         self._maximum_step_percent = value
+        self._configuration_generation += 1
 
     def async_rearm(self) -> None:
         """Allow a user to clear a paused/error scheduler without a DTU write."""
@@ -377,6 +396,10 @@ class ZeroInjectionController:
                 )
                 return
 
+            if self._scheduler.state is SchedulerState.PAUSED:
+                self._scheduler.reset()
+                self._set_status(state="Idle", last_error=None)
+
             snapshot = self._build_snapshot(measurement.power_w, measurement.timestamp)
             if snapshot is None:
                 self._set_status(
@@ -386,14 +409,10 @@ class ZeroInjectionController:
                     last_error="Measurements not synchronized",
                 )
                 return
-            generation = (
-                snapshot.grid_power_timestamp,
-                snapshot.dtu_power_timestamp,
-                snapshot.temporary_limits_timestamp,
-            )
-            if generation == self._last_evaluated_generation:
+            if not self._requires_new_decision(snapshot):
                 return
-            self._last_evaluated_generation = generation
+            self._last_evaluated_snapshot = snapshot
+            self._last_evaluated_configuration_generation = self._configuration_generation
 
             decision = calculate_power_limit(
                 grid_power_w=snapshot.grid_power_w,
@@ -429,7 +448,6 @@ class ZeroInjectionController:
                     snapshot.grid_power_w
                 ):
                     reason = "Simulation awaiting measurement change"
-                    self._record(snapshot.grid_power_w, current_limit, decision, reason, False, False, None)
                     self._set_status(
                         state=self._scheduler.state.value,
                         last_decision=reason,
@@ -438,6 +456,8 @@ class ZeroInjectionController:
                 self._simulation_awaiting_physical_change = False
                 accepted, result = await self._scheduler.async_simulate()
                 if not accepted:
+                    if result == "Scheduler is paused":
+                        result = "Simulation awaiting measurement change"
                     if result == "Waiting for stabilization":
                         self.decisions_blocked_stabilization += 1
                     self._record(snapshot.grid_power_w, current_limit, decision, result, False, False, None)
@@ -564,16 +584,38 @@ class ZeroInjectionController:
             created_at=now,
         )
 
+    def _requires_new_decision(self, snapshot: DecisionSnapshot) -> bool:
+        """Return whether input changed enough to justify a new decision.
+
+        Timestamp-only refreshes and small sensor noise are deliberately ignored.
+        A configuration or mode change is represented by the configuration
+        generation and always gets one fresh evaluation.
+        """
+        previous = self._last_evaluated_snapshot
+        if (
+            previous is None
+            or self._last_evaluated_configuration_generation
+            != self._configuration_generation
+        ):
+            return True
+        if snapshot.temporary_limits != previous.temporary_limits:
+            return True
+        if abs(snapshot.grid_power_w - previous.grid_power_w) > SIGNIFICANT_POWER_CHANGE_W:
+            return True
+        if snapshot.dtu_power_w is None or previous.dtu_power_w is None:
+            return snapshot.dtu_power_w != previous.dtu_power_w
+        return abs(snapshot.dtu_power_w - previous.dtu_power_w) > SIGNIFICANT_POWER_CHANGE_W
+
     def _simulation_has_physical_change(self, grid_power_w: float) -> bool:
         """Require a fresh, meaningful physical change before another simulation."""
         if self._simulation_baseline_grid_power is None:
             return False
-        if abs(grid_power_w - self._simulation_baseline_grid_power) > 30:
+        if abs(grid_power_w - self._simulation_baseline_grid_power) > SIGNIFICANT_POWER_CHANGE_W:
             return True
         current_dtu_power = self._coordinator.data.active_power_w if self._coordinator.data else None
         if self._simulation_baseline_dtu_power is None or current_dtu_power is None:
             return False
-        return abs(current_dtu_power - self._simulation_baseline_dtu_power) > 30
+        return abs(current_dtu_power - self._simulation_baseline_dtu_power) > SIGNIFICANT_POWER_CHANGE_W
 
     def _record(
         self,

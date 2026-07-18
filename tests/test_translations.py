@@ -18,7 +18,9 @@ def test_french_translation_keys_exist_for_controller_entities() -> None:
         ("sensor", "scheduler_state"),
         ("sensor", "current_limit"),
         ("sensor", "calculated_limit"),
+        ("sensor", "last_simulated_limit"),
         ("sensor", "simulated_limit"),
+        ("sensor", "waiting_state"),
         ("sensor", "last_decision"),
         ("sensor", "last_command_result"),
         ("sensor", "commands_simulated"),
@@ -33,6 +35,10 @@ def test_internal_codes_have_french_display_labels() -> None:
     """Translation is a presentation concern: internal codes remain English."""
     assert display_label("Grid import") == "Consommation sur le réseau"
     assert display_label("Waiting for stabilization") == "Attente de stabilisation"
+    assert (
+        display_label("Simulation awaiting measurement change")
+        == "Simulation en attente d’une variation des mesures"
+    )
     assert display_label("Command simulated") == "Commande simulée"
     assert display_label("Disabled") == "Désactivé"
     assert display_label("Grid import") != "Grid import"

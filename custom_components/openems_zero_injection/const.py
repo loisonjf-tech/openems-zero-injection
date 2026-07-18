@@ -42,6 +42,10 @@ GRID_MEASUREMENT_MAX_AGE_SECONDS = 10
 DTU_MEASUREMENT_MAX_AGE_SECONDS = 25
 TEMPORARY_LIMIT_MAX_AGE_SECONDS = 25
 MEASUREMENT_SYNC_MAX_DIFFERENCE_SECONDS = 25
+# A controller decision is only useful after an observable physical change.
+# Smaller fluctuations are normal measurement noise and must not create a new
+# decision/history entry or cause Home Assistant state churn.
+SIGNIFICANT_POWER_CHANGE_W = 30
 
 
 class ControllerMode(StrEnum):

@@ -1,7 +1,7 @@
 """Integration-level controller safety tests without a real DTU."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 from datetime import UTC, datetime, timedelta
 
 from custom_components.openems_zero_injection.acquisition import AcquisitionEngine
@@ -95,6 +95,26 @@ async def test_simulation_keeps_real_limit_separate_from_virtual_recommendation(
     assert controller.status.calculated_limit_percent == 2
 
 
+async def test_simulation_exposes_each_power_limit_role_separately(hass) -> None:
+    """The real, simulated, recommended, and proposed limits are not conflated."""
+    hass.states.async_set("sensor.grid", "-356.5")
+    coordinator = fake_coordinator()
+    controller = ZeroInjectionController(
+        hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
+    )
+    controller.set_target_grid_power(-50)
+    await controller.async_set_mode(ControllerMode.SIMULATION.value)
+    for _ in range(3):
+        await controller.async_tick()
+
+    assert controller.status.real_dtu_limit_percent == 50
+    assert controller.last_simulated_limit == 45
+    assert controller.simulated_current_limit == 45
+    assert controller.status.calculated_limit_percent == 40
+    assert controller.commands_simulated == 1
+    assert controller.commands_sent == 0
+
+
 async def test_simulated_commands_never_exceed_session_decisions(hass) -> None:
     """Session counters use the same non-persistent accounting policy."""
     hass.states.async_set("sensor.grid", "-220")
@@ -120,6 +140,58 @@ async def test_same_measurement_generation_is_evaluated_only_once(hass) -> None:
 
     assert controller.decisions_evaluated == 1
     assert controller.commands_simulated == 1
+
+
+async def test_simulation_wait_does_not_republish_or_create_a_decision(hass) -> None:
+    """Unchanged measurements only keep the physical-change waiting state."""
+    hass.states.async_set("sensor.grid", "-220")
+    coordinator = fake_coordinator()
+    listener = Mock()
+    coordinator.async_update_listeners = listener
+    controller = ZeroInjectionController(
+        hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
+    )
+    listener.reset_mock()
+    await controller.async_set_mode(ControllerMode.SIMULATION.value)
+    for _ in range(3):
+        await controller.async_tick()
+
+    decisions = controller.decisions_evaluated
+    sequence = controller.last_decision_sequence
+    decision_time = controller.status.last_decision_time
+    updates = listener.call_count
+    for _ in range(10):
+        await controller.async_tick()
+
+    assert controller.waiting_state == "Variation physique non détectée"
+    assert controller.status.last_decision == "Simulation awaiting measurement change"
+    assert controller.decisions_evaluated == decisions
+    assert controller.last_decision_sequence == sequence
+    assert controller.status.last_decision_time == decision_time
+    assert listener.call_count == updates
+    coordinator.async_set_all_temporary_power_limits.assert_not_awaited()
+
+
+async def test_only_significant_measurement_changes_create_a_new_decision(hass) -> None:
+    """Noise is ignored; a meaningful physical variation enables one evaluation."""
+    hass.states.async_set("sensor.grid", "-220")
+    controller = ZeroInjectionController(
+        hass, fake_coordinator(), AcquisitionEngine(hass, "sensor.grid", False)
+    )
+    await controller.async_set_mode(ControllerMode.SIMULATION.value)
+    for _ in range(3):
+        await controller.async_tick()
+    assert controller.decisions_evaluated == 1
+
+    hass.states.async_set("sensor.grid", "-225")
+    await controller.async_tick()
+    assert controller.decisions_evaluated == 1
+
+    controller.scheduler._next_allowed_at = datetime.now(UTC) - timedelta(seconds=1)
+    hass.states.async_set("sensor.grid", "-260")
+    await controller.async_tick()
+    assert controller.decisions_evaluated == 2
+    assert controller.commands_simulated == 2
 
 
 async def test_disabling_controller_clears_virtual_simulation_state(hass) -> None:
