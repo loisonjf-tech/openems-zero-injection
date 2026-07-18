@@ -313,7 +313,7 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
 
     @property
     def temporary_limits_ready(self) -> bool:
-        """Return whether all three temporary limits are fresh and coherent."""
+        """Return whether cached control limits remain valid during their grace period."""
         values = [
             self._limit_health[address].value
             for address in PORT_TEMPORARY_POWER_LIMIT_REGISTERS.values()
@@ -323,6 +323,22 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
                 self._limit_health[address].last_success is not None
                 and (datetime.now(UTC) - self._limit_health[address].last_success).total_seconds()
                 <= TEMPORARY_LIMIT_MAX_AGE_SECONDS
+                for address in PORT_TEMPORARY_POWER_LIMIT_REGISTERS.values()
+            )
+            and all(value is not None for value in values)
+            and len(set(values)) == 1
+        )
+
+    @property
+    def temporary_limits_fresh(self) -> bool:
+        """Return whether the three limits were read successfully in this cycle."""
+        values = [
+            self._limit_health[address].value
+            for address in PORT_TEMPORARY_POWER_LIMIT_REGISTERS.values()
+        ]
+        return (
+            all(
+                self._limit_health[address].available
                 for address in PORT_TEMPORARY_POWER_LIMIT_REGISTERS.values()
             )
             and all(value is not None for value in values)
@@ -465,7 +481,7 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             raise HomeAssistantError("DTU power limit must be between 2 and 100%")
 
         addresses = tuple(PORT_TEMPORARY_POWER_LIMIT_REGISTERS.values())
-        if not self.temporary_limits_ready:
+        if not self.temporary_limits_fresh:
             raise HomeAssistantError("DTU temporary power limits are stale or inconsistent")
         _LOGGER.warning(
             "Automatic temporary DTU power-limit request: all ports, %s%%", value
