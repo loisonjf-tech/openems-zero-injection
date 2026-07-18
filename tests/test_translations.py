@@ -36,8 +36,8 @@ def test_internal_codes_have_french_display_labels() -> None:
     assert display_label("Grid import") == "Consommation sur le réseau"
     assert display_label("Waiting for stabilization") == "Attente de stabilisation"
     assert (
-        display_label("Simulation awaiting measurement change")
-        == "Simulation en attente d’une variation des mesures"
+        display_label("Simulation awaiting significant measurements")
+        == "Simulation en attente de nouvelles mesures significatives"
     )
     assert display_label("Command simulated") == "Commande simulée"
     assert display_label("Disabled") == "Désactivé"

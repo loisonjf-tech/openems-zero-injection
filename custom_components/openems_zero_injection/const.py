@@ -46,6 +46,7 @@ MEASUREMENT_SYNC_MAX_DIFFERENCE_SECONDS = 25
 # Smaller fluctuations are normal measurement noise and must not create a new
 # decision/history entry or cause Home Assistant state churn.
 SIGNIFICANT_POWER_CHANGE_W = 30
+SIMULATION_DIAGNOSTIC_REFRESH_SECONDS = 300
 
 
 class ControllerMode(StrEnum):

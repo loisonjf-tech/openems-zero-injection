@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from custom_components.openems_zero_injection.acquisition import AcquisitionEngine
 from custom_components.openems_zero_injection.const import ControllerMode, SchedulerState
@@ -47,11 +47,11 @@ async def test_disabled_and_simulation_never_write(hass) -> None:
 
     await controller.async_tick()
     assert controller.commands_simulated == 1
-    assert controller.status.last_decision == "Simulation awaiting measurement change"
+    assert controller.status.last_decision == "Simulation awaiting significant measurements"
 
 
-async def test_simulation_requires_physical_change_after_virtual_command(hass) -> None:
-    """Delay expiry alone cannot create a second virtual command."""
+async def test_simulation_does_not_chain_virtual_commands(hass) -> None:
+    """A new measurement recalculates but never treats a virtual limit as real."""
     hass.states.async_set("sensor.grid", "-220")
     coordinator = fake_coordinator()
     controller = ZeroInjectionController(
@@ -63,14 +63,14 @@ async def test_simulation_requires_physical_change_after_virtual_command(hass) -
     assert controller.simulated_current_limit == 45
     assert coordinator.data.port_1_temporary_power_limit_percent == 50
 
-    controller.scheduler._next_allowed_at = datetime.now(UTC) - timedelta(seconds=1)
     await controller.async_tick()
     assert controller.commands_simulated == 1
-    assert controller.status.last_decision == "Simulation awaiting measurement change"
+    assert controller.status.last_decision == "Simulation awaiting significant measurements"
 
     hass.states.async_set("sensor.grid", "-260")
     await controller.async_tick()
-    assert controller.commands_simulated == 2
+    assert controller.decisions_evaluated == 2
+    assert controller.commands_simulated == 1
     assert controller.simulated_current_limit == 45
     coordinator.async_set_all_temporary_power_limits.assert_not_awaited()
 
@@ -163,8 +163,8 @@ async def test_simulation_wait_does_not_republish_or_create_a_decision(hass) -> 
     for _ in range(10):
         await controller.async_tick()
 
-    assert controller.waiting_state == "Variation physique non détectée"
-    assert controller.status.last_decision == "Simulation awaiting measurement change"
+    assert controller.waiting_state == "Nouvelles mesures significatives attendues"
+    assert controller.status.last_decision == "Simulation awaiting significant measurements"
     assert controller.decisions_evaluated == decisions
     assert controller.last_decision_sequence == sequence
     assert controller.status.last_decision_time == decision_time
@@ -187,11 +187,32 @@ async def test_only_significant_measurement_changes_create_a_new_decision(hass) 
     await controller.async_tick()
     assert controller.decisions_evaluated == 1
 
-    controller.scheduler._next_allowed_at = datetime.now(UTC) - timedelta(seconds=1)
     hass.states.async_set("sensor.grid", "-260")
     await controller.async_tick()
     assert controller.decisions_evaluated == 2
-    assert controller.commands_simulated == 2
+    assert controller.commands_simulated == 1
+
+
+async def test_paused_scheduler_does_not_create_simulation_decisions(hass) -> None:
+    """A paused scheduler cannot turn unchanged Simulation ticks into decisions."""
+    hass.states.async_set("sensor.grid", "-220")
+    controller = ZeroInjectionController(
+        hass, fake_coordinator(), AcquisitionEngine(hass, "sensor.grid", False)
+    )
+    await controller.async_set_mode(ControllerMode.SIMULATION.value)
+    for _ in range(3):
+        await controller.async_tick()
+    decisions = controller.decisions_evaluated
+    sequence = controller.last_decision_sequence
+    decision_time = controller.status.last_decision_time
+
+    controller.scheduler.pause()
+    for _ in range(100):
+        await controller.async_tick()
+
+    assert controller.decisions_evaluated == decisions
+    assert controller.last_decision_sequence == sequence
+    assert controller.status.last_decision_time == decision_time
 
 
 async def test_disabling_controller_clears_virtual_simulation_state(hass) -> None:

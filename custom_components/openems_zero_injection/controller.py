@@ -26,6 +26,7 @@ from .const import (
     MIN_INSTALLED_NOMINAL_POWER_W,
     MEASUREMENT_SYNC_MAX_DIFFERENCE_SECONDS,
     SIGNIFICANT_POWER_CHANGE_W,
+    SIMULATION_DIAGNOSTIC_REFRESH_SECONDS,
     ControllerMode,
     SchedulerState,
     VALID_GRID_MEASUREMENTS_REQUIRED,
@@ -44,8 +45,7 @@ DISPLAY_LABELS_FR = {
     "Grid import": "Consommation sur le réseau",
     "Excess export": "Injection excessive sur le réseau",
     "Waiting for stabilization": "Attente de stabilisation",
-    "Simulation awaiting measurement change": "Simulation en attente d’une variation des mesures",
-    "Scheduler is paused": "Simulation en attente d’une variation des mesures",
+    "Simulation awaiting significant measurements": "Simulation en attente de nouvelles mesures significatives",
     "Simulation mode": "Mode simulation",
     "Production mode": "Mode production",
     "Disabled": "Désactivé",
@@ -151,9 +151,6 @@ class ZeroInjectionController:
         self._simulated_current_limit: int | None = None
         self._last_simulated_limit: int | None = None
         self._last_simulated_command_time: datetime | None = None
-        self._simulation_awaiting_physical_change = False
-        self._simulation_baseline_grid_power: float | None = None
-        self._simulation_baseline_dtu_power: float | None = None
         self._last_decision_sequence = 0
         self._last_command_sequence: int | None = None
         self._last_evaluated_snapshot: DecisionSnapshot | None = None
@@ -243,8 +240,9 @@ class ZeroInjectionController:
     def waiting_state(self) -> str:
         """Describe why Simulation is currently holding its recommendation."""
         return (
-            "Variation physique non détectée"
-            if self._simulation_awaiting_physical_change
+            "Nouvelles mesures significatives attendues"
+            if self._mode is ControllerMode.SIMULATION
+            and self._last_evaluated_snapshot is not None
             else "Aucune attente"
         )
 
@@ -273,9 +271,6 @@ class ZeroInjectionController:
             self._simulated_current_limit = None
             self._last_simulated_limit = None
             self._last_simulated_command_time = None
-            self._simulation_awaiting_physical_change = False
-            self._simulation_baseline_grid_power = None
-            self._simulation_baseline_dtu_power = None
         elif self._scheduler.state is SchedulerState.PAUSED:
             self._scheduler.reset()
         if self._mode is ControllerMode.SIMULATION and previous_mode is not ControllerMode.SIMULATION:
@@ -424,6 +419,50 @@ class ZeroInjectionController:
                 maximum_limit_percent=100,
                 maximum_step_percent=self._maximum_step_percent,
             )
+            if self._mode is ControllerMode.SIMULATION:
+                # Simulation has no stabilization loop and never models a DTU
+                # response. Every meaningful snapshot is an independent,
+                # display-only recommendation based on the real DTU limit.
+                recommendation_changed = (
+                    decision.command_needed
+                    and decision.applied_limit_percent != self._simulated_current_limit
+                )
+                if recommendation_changed:
+                    self._simulated_current_limit = decision.applied_limit_percent
+                    self._last_simulated_limit = decision.applied_limit_percent
+                    self._last_simulated_command_time = datetime.now(UTC)
+                    self.commands_simulated += 1
+                    self._last_command_sequence = self._last_decision_sequence + 1
+                self._record(
+                    snapshot.grid_power_w,
+                    current_limit,
+                    decision,
+                    decision.reason.value,
+                    False,
+                    recommendation_changed,
+                    None,
+                )
+                self._set_status(
+                    state=ControllerMode.SIMULATION.value,
+                    grid_power_w=snapshot.grid_power_w,
+                    grid_error_w=decision.grid_error_w,
+                    current_limit_percent=current_limit,
+                    real_dtu_limit_percent=real_limit,
+                    calculated_limit_percent=decision.calculated_limit_percent,
+                    simulated_limit_percent=self._simulated_current_limit,
+                    last_decision="Simulation awaiting significant measurements",
+                    last_command_result=(
+                        "Command simulated" if recommendation_changed else self._status.last_command_result
+                    ),
+                    last_command_time=(
+                        self._last_simulated_command_time
+                        if recommendation_changed
+                        else self._status.last_command_time
+                    ),
+                    last_error=None,
+                )
+                return
+
             self._set_status(
                 state=self._scheduler.state.value,
                 grid_power_w=snapshot.grid_power_w,
@@ -441,49 +480,6 @@ class ZeroInjectionController:
                 else:
                     self.decisions_limit_unchanged += 1
                 self._record(snapshot.grid_power_w, current_limit, decision, decision.reason.value, False, False, None)
-                return
-
-            if self._mode is ControllerMode.SIMULATION:
-                if self._simulation_awaiting_physical_change and not self._simulation_has_physical_change(
-                    snapshot.grid_power_w
-                ):
-                    reason = "Simulation awaiting measurement change"
-                    self._set_status(
-                        state=self._scheduler.state.value,
-                        last_decision=reason,
-                    )
-                    return
-                self._simulation_awaiting_physical_change = False
-                accepted, result = await self._scheduler.async_simulate()
-                if not accepted:
-                    if result == "Scheduler is paused":
-                        result = "Simulation awaiting measurement change"
-                    if result == "Waiting for stabilization":
-                        self.decisions_blocked_stabilization += 1
-                    self._record(snapshot.grid_power_w, current_limit, decision, result, False, False, None)
-                    self._set_status(
-                        state=self._scheduler.state.value,
-                        last_decision=result,
-                    )
-                    return
-                self._simulated_current_limit = decision.applied_limit_percent
-                self._last_simulated_limit = decision.applied_limit_percent
-                self._last_simulated_command_time = datetime.now(UTC)
-                self._simulation_awaiting_physical_change = True
-                self._simulation_baseline_grid_power = snapshot.grid_power_w
-                self._simulation_baseline_dtu_power = (
-                    self._coordinator.data.active_power_w if self._coordinator.data else None
-                )
-                self.commands_simulated += 1
-                self._last_command_sequence = self._last_decision_sequence + 1
-                self._record(snapshot.grid_power_w, current_limit, decision, result, False, True, None)
-                self._set_status(
-                    state=self._scheduler.state.value,
-                    simulated_limit_percent=self._simulated_current_limit,
-                    last_decision="Simulation awaiting measurement change",
-                    last_command_result=result,
-                    last_command_time=self._last_simulated_command_time,
-                )
                 return
 
             if not self._coordinator.manual_writes_enabled:
@@ -598,24 +594,22 @@ class ZeroInjectionController:
             != self._configuration_generation
         ):
             return True
-        if snapshot.temporary_limits != previous.temporary_limits:
+        if any(
+            abs(current - prior) >= 1
+            for current, prior in zip(snapshot.temporary_limits, previous.temporary_limits)
+        ):
             return True
         if abs(snapshot.grid_power_w - previous.grid_power_w) > SIGNIFICANT_POWER_CHANGE_W:
             return True
         if snapshot.dtu_power_w is None or previous.dtu_power_w is None:
             return snapshot.dtu_power_w != previous.dtu_power_w
-        return abs(snapshot.dtu_power_w - previous.dtu_power_w) > SIGNIFICANT_POWER_CHANGE_W
-
-    def _simulation_has_physical_change(self, grid_power_w: float) -> bool:
-        """Require a fresh, meaningful physical change before another simulation."""
-        if self._simulation_baseline_grid_power is None:
-            return False
-        if abs(grid_power_w - self._simulation_baseline_grid_power) > SIGNIFICANT_POWER_CHANGE_W:
+        if abs(snapshot.dtu_power_w - previous.dtu_power_w) > SIGNIFICANT_POWER_CHANGE_W:
             return True
-        current_dtu_power = self._coordinator.data.active_power_w if self._coordinator.data else None
-        if self._simulation_baseline_dtu_power is None or current_dtu_power is None:
-            return False
-        return abs(current_dtu_power - self._simulation_baseline_dtu_power) > SIGNIFICANT_POWER_CHANGE_W
+        return (
+            self._mode is ControllerMode.SIMULATION
+            and (snapshot.created_at - previous.created_at).total_seconds()
+            >= SIMULATION_DIAGNOSTIC_REFRESH_SECONDS
+        )
 
     def _record(
         self,
