@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
 from homeassistant.core import HomeAssistant
 
@@ -15,6 +16,7 @@ class GridMeasurement:
 
     power_w: float | None
     error: str | None
+    timestamp: datetime | None = None
 
 
 class AcquisitionEngine:
@@ -45,4 +47,8 @@ class AcquisitionEngine:
             return GridMeasurement(None, "Grid sensor value is not numeric")
         if not GRID_POWER_MIN_W <= power <= GRID_POWER_MAX_W:
             return GridMeasurement(None, "Grid sensor value is outside the allowed range")
-        return GridMeasurement(-power if self._inverted else power, None)
+        return GridMeasurement(
+            -power if self._inverted else power,
+            None,
+            state.last_changed,
+        )

@@ -22,6 +22,7 @@ from .const import (
     PERMANENT_LIMIT_SCAN_INTERVAL,
     POWER_LIMIT_FAILURE_LOG_INTERVAL_SECONDS,
     SCAN_INTERVAL,
+    TEMPORARY_LIMIT_MAX_AGE_SECONDS,
 )
 from .acquisition import AcquisitionEngine
 from .controller import ZeroInjectionController
@@ -319,12 +320,23 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         ]
         return (
             all(
-                self._limit_health[address].available
+                self._limit_health[address].last_success is not None
+                and (datetime.now(UTC) - self._limit_health[address].last_success).total_seconds()
+                <= TEMPORARY_LIMIT_MAX_AGE_SECONDS
                 for address in PORT_TEMPORARY_POWER_LIMIT_REGISTERS.values()
             )
             and all(value is not None for value in values)
             and len(set(values)) == 1
         )
+
+    @property
+    def temporary_limits_timestamp(self) -> datetime | None:
+        """Return the oldest timestamp of the three control-critical limits."""
+        timestamps = [
+            self._limit_health[address].last_success
+            for address in PORT_TEMPORARY_POWER_LIMIT_REGISTERS.values()
+        ]
+        return min(timestamps) if all(timestamps) else None
 
     def power_limit_health(self, address: int) -> dict[str, str | int | None | bool]:
         """Return diagnostics-safe state for a documented power-limit register."""

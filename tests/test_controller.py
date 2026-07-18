@@ -10,12 +10,15 @@ from custom_components.openems_zero_injection.controller import ZeroInjectionCon
 
 
 def fake_coordinator(*, writes_enabled: bool = True):
+    timestamp = datetime.now(UTC)
     coordinator = SimpleNamespace(
         manual_writes_enabled=writes_enabled,
         temporary_limits_ready=True,
+        temporary_limits_timestamp=timestamp,
         data=SimpleNamespace(
             connected=True,
             active_power_w=900.0,
+            last_success=timestamp,
             port_1_temporary_power_limit_percent=50,
             port_2_temporary_power_limit_percent=50,
             port_3_temporary_power_limit_percent=50,
@@ -103,6 +106,20 @@ async def test_simulated_commands_never_exceed_session_decisions(hass) -> None:
         await controller.async_tick()
 
     assert controller.commands_simulated <= controller.decisions_evaluated
+
+
+async def test_same_measurement_generation_is_evaluated_only_once(hass) -> None:
+    """Repeated controller callbacks must not create a recorder-flooding decision."""
+    hass.states.async_set("sensor.grid", "-220")
+    controller = ZeroInjectionController(
+        hass, fake_coordinator(), AcquisitionEngine(hass, "sensor.grid", False)
+    )
+    await controller.async_set_mode(ControllerMode.SIMULATION.value)
+    for _ in range(100):
+        await controller.async_tick()
+
+    assert controller.decisions_evaluated == 1
+    assert controller.commands_simulated == 1
 
 
 async def test_disabling_controller_clears_virtual_simulation_state(hass) -> None:
