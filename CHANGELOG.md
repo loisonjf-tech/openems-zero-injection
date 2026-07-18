@@ -22,6 +22,8 @@ Toutes les évolutions notables sont documentées dans ce fichier.
 - Le mode Simulation dispose d'une limite virtuelle, respecte le scheduler et ne compte qu'une commande théorique réellement admissible ; il n'émet aucune écriture Modbus.
 - Les noms d'entités et les libellés visibles du contrôleur sont francisés et les motifs de décision internes sont présentés avec leur libellé français.
 - La puissance nominale photovoltaïque est maintenant un paramètre utilisateur persistant (3000 W par défaut pour l'installation actuelle). Le coefficient W/% est dérivé exclusivement de cette valeur et n'est plus réglable indépendamment.
+- Simulation sépare strictement la limite DTU réelle, la limite calculée et la recommandation virtuelle. Elle attend désormais une variation physique supérieure à 30 W avant d'autoriser une nouvelle commande virtuelle.
+- Les compteurs de décisions et de commandes sont maintenant explicitement comptés depuis le démarrage, indépendamment de l'historique borné à 200 enregistrements.
 
 ## [0.3.0-alpha.1] - 2026-07-16 — Build003 RC1
 

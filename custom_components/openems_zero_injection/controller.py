@@ -40,6 +40,7 @@ DISPLAY_LABELS_FR = {
     "Grid import": "Consommation sur le réseau",
     "Excess export": "Injection excessive sur le réseau",
     "Waiting for stabilization": "Attente de stabilisation",
+    "Simulation awaiting measurement change": "Attente d'une variation physique",
     "Simulation mode": "Mode simulation",
     "Production mode": "Mode production",
     "Disabled": "Désactivé",
@@ -79,6 +80,7 @@ class ControllerStatus:
     grid_power_w: float | None = None
     grid_error_w: float | None = None
     current_limit_percent: int | None = None
+    real_dtu_limit_percent: int | None = None
     calculated_limit_percent: int | None = None
     simulated_limit_percent: int | None = None
     last_decision: str | None = None
@@ -123,12 +125,18 @@ class ZeroInjectionController:
         self.commands_succeeded = 0
         self.commands_failed = 0
         self.commands_simulated = 0
+        self.decisions_evaluated = 0
         self.decisions_blocked_stabilization = 0
         self.decisions_limit_unchanged = 0
         self.decisions_within_deadband = 0
         self._simulated_current_limit: int | None = None
         self._last_simulated_limit: int | None = None
         self._last_simulated_command_time: datetime | None = None
+        self._simulation_awaiting_physical_change = False
+        self._simulation_baseline_grid_power: float | None = None
+        self._simulation_baseline_dtu_power: float | None = None
+        self._last_decision_sequence = 0
+        self._last_command_sequence: int | None = None
         self.set_installed_nominal_power(
             installed_nominal_power_w, source=installed_power_source, log_change=False
         )
@@ -201,6 +209,14 @@ class ZeroInjectionController:
     def last_simulated_command_time(self) -> datetime | None:
         return self._last_simulated_command_time
 
+    @property
+    def last_decision_sequence(self) -> int:
+        return self._last_decision_sequence
+
+    @property
+    def last_command_sequence(self) -> int | None:
+        return self._last_command_sequence
+
     async def async_start(self) -> None:
         """Start periodic local acquisition; mode remains disabled after restart."""
         self._cancel_tick = async_track_time_interval(
@@ -225,6 +241,9 @@ class ZeroInjectionController:
             self._simulated_current_limit = None
             self._last_simulated_limit = None
             self._last_simulated_command_time = None
+            self._simulation_awaiting_physical_change = False
+            self._simulation_baseline_grid_power = None
+            self._simulation_baseline_dtu_power = None
         elif self._scheduler.state is SchedulerState.PAUSED:
             self._scheduler.reset()
         if self._mode is ControllerMode.SIMULATION and previous_mode is not ControllerMode.SIMULATION:
@@ -315,14 +334,7 @@ class ZeroInjectionController:
                 self._scheduler.reset()
 
             real_limit = self._current_consistent_limit(require_fresh=True)
-            current_limit = (
-                self._simulated_current_limit
-                if self._mode is ControllerMode.SIMULATION
-                else real_limit
-            )
-            if self._mode is ControllerMode.SIMULATION and current_limit is None:
-                current_limit = real_limit
-                self._simulated_current_limit = real_limit
+            current_limit = real_limit
             if current_limit is None:
                 limit_error = (
                     "Temporary limits are stale or inconsistent"
@@ -362,7 +374,8 @@ class ZeroInjectionController:
                 grid_power_w=measurement.power_w,
                 grid_error_w=decision.grid_error_w,
                 current_limit_percent=current_limit,
-                calculated_limit_percent=decision.applied_limit_percent,
+                real_dtu_limit_percent=real_limit,
+                calculated_limit_percent=decision.calculated_limit_percent,
                 simulated_limit_percent=self._simulated_current_limit,
                 last_decision=decision.reason.value,
                 last_error=None,
@@ -376,6 +389,17 @@ class ZeroInjectionController:
                 return
 
             if self._mode is ControllerMode.SIMULATION:
+                if self._simulation_awaiting_physical_change and not self._simulation_has_physical_change(
+                    measurement.power_w
+                ):
+                    reason = "Simulation awaiting measurement change"
+                    self._record(measurement.power_w, current_limit, decision, reason, False, False, None)
+                    self._set_status(
+                        state=self._scheduler.state.value,
+                        last_decision=reason,
+                    )
+                    return
+                self._simulation_awaiting_physical_change = False
                 accepted, result = await self._scheduler.async_simulate()
                 if not accepted:
                     if result == "Waiting for stabilization":
@@ -384,13 +408,18 @@ class ZeroInjectionController:
                     self._set_status(
                         state=self._scheduler.state.value,
                         last_decision=result,
-                        last_command_result=None,
                     )
                     return
                 self._simulated_current_limit = decision.applied_limit_percent
                 self._last_simulated_limit = decision.applied_limit_percent
                 self._last_simulated_command_time = datetime.now(UTC)
+                self._simulation_awaiting_physical_change = True
+                self._simulation_baseline_grid_power = measurement.power_w
+                self._simulation_baseline_dtu_power = (
+                    self._coordinator.data.active_power_w if self._coordinator.data else None
+                )
                 self.commands_simulated += 1
+                self._last_command_sequence = self._last_decision_sequence + 1
                 self._record(measurement.power_w, current_limit, decision, result, False, True, None)
                 self._set_status(
                     state=self._scheduler.state.value,
@@ -433,6 +462,7 @@ class ZeroInjectionController:
                 )
             else:
                 self.commands_failed += 1
+            self._last_command_sequence = self._last_decision_sequence + 1
             self._record(measurement.power_w, current_limit, decision, result, success, success, None if success else result)
             self._set_status(
                 state=self._scheduler.state.value,
@@ -457,6 +487,17 @@ class ZeroInjectionController:
             return None
         return limits[0]
 
+    def _simulation_has_physical_change(self, grid_power_w: float) -> bool:
+        """Require a fresh, meaningful physical change before another simulation."""
+        if self._simulation_baseline_grid_power is None:
+            return False
+        if abs(grid_power_w - self._simulation_baseline_grid_power) > 30:
+            return True
+        current_dtu_power = self._coordinator.data.active_power_w if self._coordinator.data else None
+        if self._simulation_baseline_dtu_power is None or current_dtu_power is None:
+            return False
+        return abs(current_dtu_power - self._simulation_baseline_dtu_power) > 30
+
     def _record(
         self,
         grid_power_w: float | None,
@@ -467,6 +508,8 @@ class ZeroInjectionController:
         confirmed: bool,
         error: str | None,
     ) -> None:
+        self.decisions_evaluated += 1
+        self._last_decision_sequence = self.decisions_evaluated
         self._history.append(
             DecisionRecord(
                 timestamp=datetime.now(UTC),
