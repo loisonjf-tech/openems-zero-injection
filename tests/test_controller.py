@@ -44,7 +44,7 @@ async def test_disabled_and_simulation_never_write(hass) -> None:
 
     await controller.async_tick()
     assert controller.commands_simulated == 1
-    assert controller.status.last_decision == "Waiting for stabilization"
+    assert controller.status.last_decision == "Simulation awaiting measurement change"
 
 
 async def test_simulation_requires_physical_change_after_virtual_command(hass) -> None:
