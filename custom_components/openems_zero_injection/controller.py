@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_interval
 
 from .acquisition import AcquisitionEngine
+from .battery import BatteryManager, NullBatteryManager
 from .const import (
     CONTROLLER_INTERVAL,
     DEFAULT_DEADBAND_W,
@@ -122,10 +123,14 @@ class ZeroInjectionController:
         *,
         installed_nominal_power_w: int = DEFAULT_INSTALLED_NOMINAL_POWER_W,
         installed_power_source: str = "initial_configuration",
+        battery_manager: BatteryManager | None = None,
     ) -> None:
         self._hass = hass
         self._coordinator = coordinator
         self._acquisition = acquisition
+        # V1 deliberately never reads this object. V1.1 will make any battery
+        # policy depend on this neutral interface rather than a vendor API.
+        self._battery_manager: BatteryManager = battery_manager or NullBatteryManager()
         self._mode = ControllerMode.DISABLED
         self._target_grid_power_w = DEFAULT_TARGET_GRID_POWER_W
         self._deadband_w = DEFAULT_DEADBAND_W
@@ -181,6 +186,11 @@ class ZeroInjectionController:
     @property
     def learning(self) -> PassiveLearningEngine:
         return self._learning
+
+    @property
+    def battery_manager(self) -> BatteryManager:
+        """Expose the future V1.1 battery contract without using it in V1."""
+        return self._battery_manager
 
     @property
     def target_grid_power_w(self) -> int:

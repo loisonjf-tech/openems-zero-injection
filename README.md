@@ -51,4 +51,5 @@ Dans un environnement de développement Home Assistant 2026.7.2 compatible avec 
 ## Feuille de route
 
 1. **Build004** : valider sous surveillance le mode Simulation, puis Production, sur le DTU réel.
-2. **Build005** : seulement après validation réelle des comportements Build004.
+2. **V1.1** : adaptateurs de batterie derrière `BatteryManager`, avec une éventuelle politique Priorité Batterie validée séparément.
+3. **Build005** : seulement après validation réelle des comportements Build004 et V1.1.

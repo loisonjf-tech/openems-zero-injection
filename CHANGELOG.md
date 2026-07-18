@@ -9,6 +9,7 @@ Toutes les évolutions notables sont documentées dans ce fichier.
 - Acquisition configurable de la puissance réseau locale et contrôleur déterministe avec cible, zone morte, estimation W/% et pas maximal.
 - Modes Disabled, Simulation et Production ; scheduler central avec délai de stabilisation de 12 secondes par défaut.
 - Historique borné des décisions, diagnostics de contrôleur et collecte passive des données d'apprentissage.
+- Abstraction `BatteryManager` neutre vis-à-vis du constructeur, réservée à V1.1 ; elle ne lit aucune batterie et n'influence pas la V1.
 
 ### Safety
 
