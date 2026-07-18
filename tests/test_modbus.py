@@ -181,6 +181,9 @@ async def test_empty_response_closes_then_reconnects_cleanly() -> None:
         client = DtuProSModbusClient("x", 502)
         with pytest.raises(DtuConnectionError):
             await client.async_read_input_registers(0, 1)
+        # The next normal coordinator cycle occurs after the initial five-second
+        # transport backoff; do not attempt an immediate reconnect storm.
+        client._last_failure_time = asyncio.get_running_loop().time() - 5
         assert await client.async_read_input_registers(0, 1) == [2]
 
     broken_writer.close.assert_called_once()
