@@ -54,3 +54,19 @@ async def test_connection_sensor_reports_connected(hass) -> None:
     )
     assert safety_switch is not None
     assert hass.states.get(safety_switch).state == "off"
+
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator.last_update_success = False
+    coordinator.async_update_listeners()
+    await hass.async_block_till_done()
+
+    for platform, unique_id in (
+        ("select", f"{entry.entry_id}_controller_mode"),
+        ("switch", f"{entry.entry_id}_enable_manual_dtu_writes"),
+        ("number", f"{entry.entry_id}_installed_nominal_power"),
+        ("sensor", f"{entry.entry_id}_controller_state"),
+        ("sensor", f"{entry.entry_id}_commands_simulated"),
+    ):
+        entity_id = registry.async_get_entity_id(platform, DOMAIN, unique_id)
+        assert entity_id is not None
+        assert hass.states.get(entity_id).state != "unavailable"

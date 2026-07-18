@@ -42,6 +42,8 @@ Les lectures Modbus sont strictement sérialisées et espacées de 150 ms. Une e
 
 Le contrôleur vérifie son tick toutes les trois secondes, mais n'évalue qu'un seul snapshot cohérent par nouvelle génération de mesures. La mesure réseau est valable 10 secondes ; la télémétrie DTU et les limites temporaires restent utilisables 25 secondes. Les limites permanentes sont diagnostiques, lues au démarrage puis toutes les cinq minutes, et ne suspendent jamais le contrôleur.
 
+Les entités de configuration et du moteur local (mode, interrupteur de sécurité, paramètres, compteurs et dernier état) restent disponibles lors d'une indisponibilité DTU. Seules les entités dont la valeur provient directement du Modbus peuvent devenir indisponibles.
+
 ## Tests
 
 Dans un environnement de développement Home Assistant 2026.7.2 compatible avec Python 3.14.2 ou plus récent, installez les dépendances de test puis exécutez `pytest`. La suite couvre le Config Flow, le client Modbus simulé, le coordinateur, le capteur et les diagnostics.

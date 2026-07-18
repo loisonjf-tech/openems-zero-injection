@@ -24,6 +24,7 @@ Toutes les évolutions notables sont documentées dans ce fichier.
 - La puissance nominale photovoltaïque est maintenant un paramètre utilisateur persistant (3000 W par défaut pour l'installation actuelle). Le coefficient W/% est dérivé exclusivement de cette valeur et n'est plus réglable indépendamment.
 - Simulation sépare strictement la limite DTU réelle, la limite calculée et la recommandation virtuelle. Elle attend désormais une variation physique supérieure à 30 W avant d'autoriser une nouvelle commande virtuelle.
 - Les compteurs de décisions et de commandes sont maintenant explicitement comptés depuis le démarrage, indépendamment de l'historique borné à 200 enregistrements.
+- Les entités de configuration et de contrôleur ne dépendent plus de la disponibilité globale du coordinateur Modbus ; elles restent visibles pendant une panne DTU.
 
 ## [0.3.0-alpha.1] - 2026-07-16 — Build003 RC1
 

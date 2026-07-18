@@ -196,6 +196,11 @@ class OpenEMSControllerSensor(_DtuSensorBase):
         self._attr_device_class = device_class
 
     @property
+    def available(self) -> bool:
+        """Controller state is local and remains visible during DTU outages."""
+        return True
+
+    @property
     def native_value(self) -> Any:
         controller = self.coordinator.controller
         status = controller.status

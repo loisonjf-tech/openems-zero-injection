@@ -136,6 +136,11 @@ class OpenEMSControllerNumber(CoordinatorEntity[DtuProSCoordinator], NumberEntit
         )
 
     @property
+    def available(self) -> bool:
+        """Local configuration must remain editable while Modbus is unavailable."""
+        return True
+
+    @property
     def native_value(self) -> float:
         controller = self.coordinator.controller
         fields = {

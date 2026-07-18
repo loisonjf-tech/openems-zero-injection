@@ -45,6 +45,11 @@ class DtuManualWritesSwitch(CoordinatorEntity[DtuProSCoordinator], SwitchEntity)
         """Return whether manual writes have been explicitly enabled."""
         return self.coordinator.manual_writes_enabled
 
+    @property
+    def available(self) -> bool:
+        """The local write interlock is independent of DTU connectivity."""
+        return True
+
     async def async_turn_on(self, **kwargs: object) -> None:
         """Allow manual writes for the current Home Assistant session."""
         await self.coordinator.async_set_manual_writes_enabled(True)

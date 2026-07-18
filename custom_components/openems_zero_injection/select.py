@@ -49,6 +49,11 @@ class OpenEMSControllerModeSelect(CoordinatorEntity[DtuProSCoordinator], SelectE
             ControllerMode.PRODUCTION: "Production",
         }[self.coordinator.controller.mode]
 
+    @property
+    def available(self) -> bool:
+        """The local controller mode remains selectable during DTU outages."""
+        return True
+
     async def async_select_option(self, option: str) -> None:
         """Apply an explicit mode choice; no mode is restored automatically."""
         modes = {
