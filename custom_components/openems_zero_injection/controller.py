@@ -269,10 +269,11 @@ class ZeroInjectionController:
         self._mode = ControllerMode(mode)
         self._configuration_generation += 1
         if self._mode is ControllerMode.DISABLED:
-            self._scheduler.pause()
+            self._scheduler.reset()
             self._simulated_current_limit = None
             self._last_simulated_limit = None
             self._last_simulated_command_time = None
+            self._last_evaluated_snapshot = None
         elif self._scheduler.state is SchedulerState.PAUSED:
             self._scheduler.reset()
         if self._mode is ControllerMode.SIMULATION and previous_mode is not ControllerMode.SIMULATION:
@@ -290,7 +291,9 @@ class ZeroInjectionController:
             state=self._mode.value,
             simulated_limit_percent=self._simulated_current_limit,
             calculated_limit_percent=(
-                None if self._mode is ControllerMode.PRODUCTION else self._status.calculated_limit_percent
+                None
+                if self._mode in {ControllerMode.DISABLED, ControllerMode.PRODUCTION}
+                else self._status.calculated_limit_percent
             ),
             last_command_result=(
                 None
@@ -360,7 +363,15 @@ class ZeroInjectionController:
             return
         async with self._tick_lock:
             if self._mode is ControllerMode.DISABLED:
-                self._set_status(state="Disabled")
+                real_limit = self._current_consistent_limit(require_fresh=False)
+                self._set_status(
+                    state="Disabled",
+                    current_limit_percent=real_limit,
+                    real_dtu_limit_percent=real_limit,
+                    calculated_limit_percent=None,
+                    simulated_limit_percent=None,
+                    last_error=None,
+                )
                 return
 
             measurement = self._acquisition.read_grid_power()

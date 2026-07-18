@@ -45,6 +45,7 @@ class SafetyScheduler:
         """Manually re-arm the scheduler after an error or pause."""
         if not self._lock.locked():
             self._state = SchedulerState.IDLE
+            self._next_allowed_at = None
             self._last_error = None
 
     def command_block_reason(self) -> str | None:

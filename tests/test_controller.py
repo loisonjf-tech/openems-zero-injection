@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, call
 from datetime import UTC, datetime, timedelta
+from dataclasses import replace
 
 from custom_components.openems_zero_injection.acquisition import AcquisitionEngine
 from custom_components.openems_zero_injection.const import ControllerMode, SchedulerState
@@ -226,6 +227,42 @@ async def test_disabling_controller_clears_virtual_simulation_state(hass) -> Non
     for _ in range(3):
         await controller.async_tick()
     await controller.async_set_mode(ControllerMode.DISABLED.value)
+    assert controller.simulated_current_limit is None
+    assert controller.last_simulated_limit is None
+
+
+async def test_disabled_controller_publishes_latest_coherent_modbus_limit(hass) -> None:
+    """A prior command value can never override the three current DTU limits."""
+    coordinator = fake_coordinator()
+    controller = ZeroInjectionController(
+        hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
+    )
+    controller._status = replace(
+        controller.status, current_limit_percent=31, real_dtu_limit_percent=31
+    )
+    await controller.async_set_mode(ControllerMode.DISABLED.value)
+    await controller.async_tick()
+
+    assert controller.status.real_dtu_limit_percent == 50
+    assert controller.status.current_limit_percent == 50
+    assert controller.scheduler.state is SchedulerState.IDLE
+
+
+async def test_disabled_controller_updates_after_manual_dtu_limit_change(hass) -> None:
+    """The following disabled tick always adopts the latest coherent snapshot."""
+    coordinator = fake_coordinator()
+    controller = ZeroInjectionController(
+        hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
+    )
+    await controller.async_set_mode(ControllerMode.DISABLED.value)
+    await controller.async_tick()
+    coordinator.data.port_1_temporary_power_limit_percent = 40
+    coordinator.data.port_2_temporary_power_limit_percent = 40
+    coordinator.data.port_3_temporary_power_limit_percent = 40
+    await controller.async_tick()
+
+    assert controller.status.real_dtu_limit_percent == 40
+    assert controller.status.current_limit_percent == 40
     assert controller.simulated_current_limit is None
     assert controller.last_simulated_limit is None
 
