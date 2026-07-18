@@ -18,6 +18,7 @@ def test_french_translation_keys_exist_for_controller_entities() -> None:
         ("sensor", "scheduler_state"),
         ("sensor", "current_limit"),
         ("sensor", "calculated_limit"),
+        ("sensor", "commanded_limit"),
         ("sensor", "last_simulated_limit"),
         ("sensor", "simulated_limit"),
         ("sensor", "waiting_state"),

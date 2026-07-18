@@ -54,6 +54,7 @@ DISPLAY_LABELS_FR = {
     "Paused": "En pause",
     "Error": "Erreur",
     "Idle": "Inactif",
+    "Monitoring": "Surveillance",
     "Waiting": "En attente",
     "Writing": "Écriture en cours",
     "Verifying": "Vérification en cours",
@@ -87,6 +88,7 @@ class ControllerStatus:
     current_limit_percent: int | None = None
     real_dtu_limit_percent: int | None = None
     calculated_limit_percent: int | None = None
+    commanded_limit_percent: int | None = None
     simulated_limit_percent: int | None = None
     last_decision: str | None = None
     last_decision_time: datetime | None = None
@@ -246,6 +248,17 @@ class ZeroInjectionController:
             else "Aucune attente"
         )
 
+    @property
+    def scheduler_display_state(self) -> str:
+        """Return a user-facing state without exposing an expired wait."""
+        if (
+            self._mode is ControllerMode.PRODUCTION
+            and self._scheduler.state in {SchedulerState.IDLE, SchedulerState.WAITING}
+            and self._scheduler.remaining_seconds() == 0
+        ):
+            return "Monitoring"
+        return self._scheduler.state.value
+
     async def async_start(self) -> None:
         """Start periodic local acquisition; mode remains disabled after restart."""
         if self._cancel_tick is not None:
@@ -369,6 +382,7 @@ class ZeroInjectionController:
                     current_limit_percent=real_limit,
                     real_dtu_limit_percent=real_limit,
                     calculated_limit_percent=None,
+                    commanded_limit_percent=None,
                     simulated_limit_percent=None,
                     last_error=None,
                 )
@@ -440,6 +454,12 @@ class ZeroInjectionController:
                 )
                 return
             if not self._requires_new_decision(snapshot):
+                if (
+                    self._mode is ControllerMode.PRODUCTION
+                    and self.scheduler_display_state == "Monitoring"
+                    and self._status.state == SchedulerState.WAITING.value
+                ):
+                    self._set_status(state="Monitoring", last_decision="Monitoring")
                 return
             self._last_evaluated_snapshot = snapshot
             self._last_evaluated_configuration_generation = self._configuration_generation
@@ -483,6 +503,7 @@ class ZeroInjectionController:
                     current_limit_percent=current_limit,
                     real_dtu_limit_percent=real_limit,
                     calculated_limit_percent=decision.calculated_limit_percent,
+                    commanded_limit_percent=None,
                     simulated_limit_percent=self._simulated_current_limit,
                     last_decision="Simulation awaiting significant measurements",
                     last_command_result=(
@@ -509,6 +530,7 @@ class ZeroInjectionController:
                         current_limit_percent=current_limit,
                         real_dtu_limit_percent=real_limit,
                         calculated_limit_percent=decision.calculated_limit_percent,
+                        commanded_limit_percent=decision.applied_limit_percent,
                         simulated_limit_percent=None,
                         last_decision=block_reason,
                         last_error=None,
@@ -516,12 +538,15 @@ class ZeroInjectionController:
                     return
 
             self._set_status(
-                state=self._scheduler.state.value,
+                state=self.scheduler_display_state,
                 grid_power_w=snapshot.grid_power_w,
                 grid_error_w=decision.grid_error_w,
                 current_limit_percent=current_limit,
                 real_dtu_limit_percent=real_limit,
                 calculated_limit_percent=decision.calculated_limit_percent,
+                commanded_limit_percent=(
+                    decision.applied_limit_percent if decision.command_needed else None
+                ),
                 simulated_limit_percent=self._simulated_current_limit,
                 last_decision=decision.reason.value,
                 last_error=None,
@@ -579,6 +604,7 @@ class ZeroInjectionController:
                 current_limit_percent=confirmed_limit,
                 real_dtu_limit_percent=confirmed_limit,
                 calculated_limit_percent=None if success else decision.calculated_limit_percent,
+                commanded_limit_percent=None if success else decision.applied_limit_percent,
                 simulated_limit_percent=None,
                 last_error=None if success else result,
             )

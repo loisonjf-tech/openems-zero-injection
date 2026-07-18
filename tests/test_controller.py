@@ -340,6 +340,41 @@ async def test_production_requires_three_valid_measurements_then_writes(hass) ->
     assert controller.scheduler.state is SchedulerState.WAITING
 
 
+async def test_production_exposes_theoretical_and_next_commanded_limits(hass) -> None:
+    """The UI separates the raw calculation from the maximum-step command."""
+    hass.states.async_set("sensor.grid", "-356.5")
+    coordinator = fake_coordinator(writes_enabled=False)
+    controller = ZeroInjectionController(
+        hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
+    )
+    controller.set_target_grid_power(-50)
+    controller.set_maximum_step(2)
+    await controller.async_set_mode(ControllerMode.PRODUCTION.value)
+    for _ in range(3):
+        await controller.async_tick()
+
+    assert controller.status.real_dtu_limit_percent == 50
+    assert controller.status.calculated_limit_percent == 40
+    assert controller.status.commanded_limit_percent == 48
+
+
+async def test_expired_stabilization_displays_monitoring(hass) -> None:
+    """An elapsed delay is surveillance, not an indefinitely waiting scheduler."""
+    hass.states.async_set("sensor.grid", "-220")
+    controller = ZeroInjectionController(
+        hass, fake_coordinator(), AcquisitionEngine(hass, "sensor.grid", False)
+    )
+    await controller.async_set_mode(ControllerMode.PRODUCTION.value)
+    for _ in range(3):
+        await controller.async_tick()
+    controller.scheduler._next_allowed_at = datetime.now(UTC) - timedelta(seconds=1)
+    await controller.async_tick()
+
+    assert controller.scheduler_display_state == "Monitoring"
+    assert controller.status.state == "Monitoring"
+    assert controller.status.last_decision == "Monitoring"
+
+
 async def test_stabilization_wait_creates_no_failed_or_counted_command(hass) -> None:
     """Repeated ticks during stabilization are a safety state, never failures."""
     hass.states.async_set("sensor.grid", "-220")

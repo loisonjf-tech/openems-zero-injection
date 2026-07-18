@@ -50,7 +50,8 @@ async def async_setup_entry(
             OpenEMSControllerSensor(coordinator, entry, "current_limit", "Limite DTU réelle", unit="%"),
             OpenEMSControllerSensor(coordinator, entry, "last_simulated_limit", "Dernière limite simulée", unit="%"),
             OpenEMSControllerSensor(coordinator, entry, "simulated_limit", "Limite actuellement recommandée", unit="%"),
-            OpenEMSControllerSensor(coordinator, entry, "calculated_limit", "Prochaine limite proposée", unit="%"),
+            OpenEMSControllerSensor(coordinator, entry, "calculated_limit", "Limite théorique calculée", unit="%"),
+            OpenEMSControllerSensor(coordinator, entry, "commanded_limit", "Prochaine limite commandée", unit="%"),
             OpenEMSControllerSensor(coordinator, entry, "waiting_state", "État d’attente", EntityCategory.DIAGNOSTIC),
             OpenEMSControllerSensor(coordinator, entry, "watts_per_percent", "Puissance correspondant à 1 %", EntityCategory.DIAGNOSTIC, unit="W/%"),
             OpenEMSControllerSensor(coordinator, entry, "grid_power", "Puissance réseau", unit=UnitOfPower.WATT),
@@ -215,9 +216,10 @@ class OpenEMSControllerSensor(_DtuSensorBase):
         status = controller.status
         fields: dict[str, Any] = {
             "controller_state": status.state,
-            "scheduler_state": controller.scheduler.state.value,
+            "scheduler_state": controller.scheduler_display_state,
             "current_limit": status.real_dtu_limit_percent,
             "calculated_limit": status.calculated_limit_percent,
+            "commanded_limit": status.commanded_limit_percent,
             "simulated_limit": status.simulated_limit_percent,
             "last_simulated_limit": controller.last_simulated_limit,
             "waiting_state": controller.waiting_state,
