@@ -148,11 +148,12 @@ async def test_temporary_limit_failure_keeps_cached_value_and_blocks_writes(hass
         client.async_write_temporary_power_limit = AsyncMock()
         coordinator = DtuProSCoordinator(hass, entry)
         await coordinator.async_refresh()
-        client.async_read_power_limit_register.side_effect = (
-            lambda address: DtuConnectionError("Modbus communication failed")
-            if address == 0xD00D
-            else 50
-        )
+        def fail_port_two(address: int) -> int:
+            if address == 0xD00D:
+                raise DtuConnectionError("Modbus communication failed")
+            return 50
+
+        client.async_read_power_limit_register.side_effect = fail_port_two
         await coordinator.async_refresh()
         await coordinator.async_set_manual_writes_enabled(True)
         from homeassistant.exceptions import HomeAssistantError
@@ -163,7 +164,8 @@ async def test_temporary_limit_failure_keeps_cached_value_and_blocks_writes(hass
     assert coordinator.last_update_success is True
     assert coordinator.data.port_2_temporary_power_limit_percent == 50
     assert not coordinator.power_limit_health(0xD00D)["available"]
-    assert not coordinator.temporary_limits_ready
+    assert coordinator.temporary_limits_ready
+    assert not coordinator.temporary_limits_fresh
     client.async_write_temporary_power_limit.assert_not_awaited()
 
 
@@ -175,10 +177,13 @@ async def test_permanent_limit_failure_does_not_affect_temporary_readiness(hass)
         client.async_read_input_registers = AsyncMock(
             side_effect=lambda _address, count: [0] * count
         )
+        def fail_permanent_port_three(address: int) -> int:
+            if address == 0xD014:
+                raise DtuConnectionError("Modbus communication failed")
+            return 50
+
         client.async_read_power_limit_register = AsyncMock(
-            side_effect=lambda address: DtuConnectionError("Modbus communication failed")
-            if address == 0xD014
-            else 50
+            side_effect=fail_permanent_port_three
         )
         coordinator = DtuProSCoordinator(hass, entry)
         await coordinator.async_refresh()
@@ -222,16 +227,21 @@ async def test_temporary_limit_recovers_after_all_three_reads_succeed(hass) -> N
         client.async_read_power_limit_register = AsyncMock(return_value=50)
         coordinator = DtuProSCoordinator(hass, entry)
         await coordinator.async_refresh()
-        client.async_read_power_limit_register.side_effect = (
-            lambda address: DtuConnectionError("failed") if address == 0xD00D else 50
-        )
+        def fail_port_two(address: int) -> int:
+            if address == 0xD00D:
+                raise DtuConnectionError("failed")
+            return 50
+
+        client.async_read_power_limit_register.side_effect = fail_port_two
         await coordinator.async_refresh()
-        assert not coordinator.temporary_limits_ready
+        assert coordinator.temporary_limits_ready
+        assert not coordinator.temporary_limits_fresh
         client.async_read_power_limit_register.side_effect = None
         client.async_read_power_limit_register.return_value = 50
         await coordinator.async_refresh()
 
     assert coordinator.temporary_limits_ready
+    assert coordinator.temporary_limits_fresh
     assert coordinator.power_limit_health(0xD00D)["available"]
 
 

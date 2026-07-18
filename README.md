@@ -40,6 +40,8 @@ Le client interne utilise uniquement les fonctions Modbus TCP `0x03`, `0x04` et 
 
 Les lectures Modbus sont strictement sérialisées et espacées de 150 ms. Une erreur ponctuelle conserve la dernière valeur connue, signalée comme périmée avec sa date et son compteur d'échecs ; elle ne devient jamais `0` artificiellement. Les erreurs de socket, timeout ou réponse incomplète ferment la connexion TCP afin que le cycle normal suivant la recrée. Après plusieurs échecs globaux, la reconnexion applique un délai asynchrone borné.
 
+Le contrôleur vérifie son tick toutes les trois secondes, mais n'évalue qu'un seul snapshot cohérent par nouvelle génération de mesures. La mesure réseau est valable 10 secondes ; la télémétrie DTU et les limites temporaires restent utilisables 25 secondes. Les limites permanentes sont diagnostiques, lues au démarrage puis toutes les cinq minutes, et ne suspendent jamais le contrôleur.
+
 ## Tests
 
 Dans un environnement de développement Home Assistant 2026.7.2 compatible avec Python 3.14.2 ou plus récent, installez les dépendances de test puis exécutez `pytest`. La suite couvre le Config Flow, le client Modbus simulé, le coordinateur, le capteur et les diagnostics.
