@@ -24,6 +24,7 @@ from .const import (
     GENERAL_INFO_SCAN_INTERVAL,
     GLOBAL_TRANSPORT_FAILURES_UNAVAILABLE,
     PERMANENT_LIMIT_SCAN_INTERVAL,
+    PERMANENT_LIMIT_FAILURE_BACKOFF,
     POWER_LIMIT_FAILURE_LOG_INTERVAL_SECONDS,
     SCAN_INTERVAL,
     TEMPORARY_LIMIT_SCAN_INTERVAL,
@@ -124,12 +125,14 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             )
         }
         self._last_permanent_limit_read: datetime | None = None
+        self._permanent_limit_suppressed_until: dict[int, datetime] = {}
         self._last_temporary_limit_read: datetime | None = None
         self._last_energy_read: datetime | None = None
         self._last_general_info_read: datetime | None = None
         self._update_lock = asyncio.Lock()
         self._shutdown = False
         self._consecutive_transport_failures = 0
+        self._cycle_timings_ms: dict[str, float | None] = {}
         self._cycle_successes = 0
         self._transport_failed_this_cycle = False
         self._total_register_errors = 0
@@ -253,9 +256,15 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         """Read the approved registers and decode only confirmed value types."""
         started = monotonic()
         now = datetime.now(UTC)
+        self._cycle_timings_ms = {
+            "connection": self._modbus.connection_diagnostics().get(
+                "last_connection_time_ms"
+            ),
+        }
         self._cycle_successes = 0
         self._transport_failed_this_cycle = False
         if self._is_due(self._last_general_info_read, GENERAL_INFO_SCAN_INTERVAL, now):
+            phase_started = monotonic()
             serial = await self._async_refresh_telemetry(
                 "serial_number", REG_DTU_SERIAL, REG_DTU_SERIAL_COUNT, decode_dtu_serial
             )
@@ -269,12 +278,16 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
                 decode_uint16,
             )
             self._last_general_info_read = now
+            self._cycle_timings_ms["dtu_information"] = (
+                monotonic() - phase_started
+            ) * 1000
         else:
             serial = self._telemetry_health["serial_number"].value
             meter = self._telemetry_health["meter_count"].value
             inverter_count = self._telemetry_health["inverter_count"].value
 
         # Fast sequential block: current power and DTU availability.
+        phase_started = monotonic()
         active = await self._async_refresh_telemetry(
             "active_power_w",
             REG_TOTAL_ACTIVE_POWER,
@@ -287,8 +300,10 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             REG_TOTAL_REACTIVE_POWER_COUNT,
             lambda registers: decode_uint32(registers) * REACTIVE_POWER_SCALE,
         )
+        self._cycle_timings_ms["power"] = (monotonic() - phase_started) * 1000
 
         if self._is_due(self._last_energy_read, ENERGY_SCAN_INTERVAL, now):
+            phase_started = monotonic()
             total = await self._async_refresh_telemetry(
                 "total_energy_wh", REG_TOTAL_ENERGY, REG_TOTAL_ENERGY_COUNT, decode_uint64
             )
@@ -296,6 +311,7 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
                 "daily_energy_wh", REG_DAILY_ENERGY, REG_DAILY_ENERGY_COUNT, decode_uint64
             )
             self._last_energy_read = now
+            self._cycle_timings_ms["energy"] = (monotonic() - phase_started) * 1000
         else:
             total = self._telemetry_health["total_energy_wh"].value
             daily = self._telemetry_health["daily_energy_wh"].value
@@ -308,26 +324,34 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
                 or self._consecutive_transport_failures
                 >= GLOBAL_TRANSPORT_FAILURES_UNAVAILABLE
             ):
+                self._cycle_timings_ms["total_cycle"] = (monotonic() - started) * 1000
                 raise UpdateFailed(self._last_raw_error or "DTU communication failed")
+            self._cycle_timings_ms["total_cycle"] = (monotonic() - started) * 1000
             return replace(
                 self.data,
                 connected=True,
-                response_time_ms=(monotonic() - started) * 1000,
+                response_time_ms=self._modbus.connection_diagnostics().get(
+                    "last_response_time_ms"
+                ),
                 last_error=self._last_raw_error or "DTU communication failed",
             )
         if self._cycle_successes == 0:
             error = self._modbus.connection_diagnostics()["last_error"]
             if self.data is None:
+                self._cycle_timings_ms["total_cycle"] = (monotonic() - started) * 1000
                 raise UpdateFailed(str(error or "DTU communication failed"))
+            self._cycle_timings_ms["total_cycle"] = (monotonic() - started) * 1000
             return replace(
                 self.data,
-                response_time_ms=(monotonic() - started) * 1000,
+                response_time_ms=self._modbus.connection_diagnostics().get(
+                    "last_response_time_ms"
+                ),
                 last_error=str(error or "DTU telemetry data unavailable"),
             )
 
         self._consecutive_transport_failures = 0
 
-        return DtuMeasurements(
+        result = DtuMeasurements(
             connected=True,
             serial_number=serial if isinstance(serial, str) else None,
             inverter_count=inverter_count if isinstance(inverter_count, int) else None,
@@ -336,11 +360,23 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             reactive_power_var=reactive if isinstance(reactive, float) else None,
             daily_energy_wh=daily if isinstance(daily, int) else None,
             total_energy_wh=total if isinstance(total, int) else None,
-            response_time_ms=(monotonic() - started) * 1000,
+            response_time_ms=self._modbus.connection_diagnostics().get(
+                "last_response_time_ms"
+            ),
             last_success=now,
             last_error=self._last_raw_error if self._transport_failed_this_cycle else None,
             **power_limit_values,
         )
+        self._cycle_timings_ms["total_cycle"] = (monotonic() - started) * 1000
+        return result
+
+    def async_set_updated_data(self, data: DtuMeasurements) -> None:
+        """Measure Home Assistant state publication independently from Modbus I/O."""
+        started = monotonic()
+        super().async_set_updated_data(data)
+        self._cycle_timings_ms["home_assistant_publish"] = (
+            monotonic() - started
+        ) * 1000
 
     @staticmethod
     def _is_due(last_read: datetime | None, interval: timedelta, now: datetime) -> bool:
@@ -352,16 +388,36 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         if self._is_due(
             self._last_temporary_limit_read, TEMPORARY_LIMIT_SCAN_INTERVAL, now
         ):
+            phase_started = monotonic()
             for address in PORT_TEMPORARY_POWER_LIMIT_REGISTERS.values():
                 await self._async_refresh_power_limit(address)
             self._last_temporary_limit_read = now
+            self._cycle_timings_ms["temporary_limits"] = (
+                monotonic() - phase_started
+            ) * 1000
         if (
             self._last_permanent_limit_read is None
             or now - self._last_permanent_limit_read >= PERMANENT_LIMIT_SCAN_INTERVAL
         ):
+            phase_started = monotonic()
             for address in PORT_PERMANENT_POWER_LIMIT_REGISTERS.values():
+                if now < self._permanent_limit_suppressed_until.get(address, now):
+                    continue
                 await self._async_refresh_power_limit(address)
+                health = self._limit_health[address]
+                if health.consecutive_failures >= 2:
+                    self._permanent_limit_suppressed_until[address] = (
+                        now + PERMANENT_LIMIT_FAILURE_BACKOFF
+                    )
+                    _LOGGER.warning(
+                        "DTU permanent register 0x%04X suppressed for 30 minutes after %s failures",
+                        address,
+                        health.consecutive_failures,
+                    )
             self._last_permanent_limit_read = now
+            self._cycle_timings_ms["permanent_limits"] = (
+                monotonic() - phase_started
+            ) * 1000
 
         return {
             f"port_{port}_temporary_power_limit_percent": self._limit_health[
@@ -448,6 +504,11 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             "last_raw_error": self._last_raw_error,
             "consecutive_transport_failures": self._consecutive_transport_failures,
         }
+
+    @property
+    def cycle_timings_ms(self) -> dict[str, float | None]:
+        """Return individual Modbus and coordinator durations for diagnostics."""
+        return dict(self._cycle_timings_ms)
 
     @property
     def manual_writes_enabled(self) -> bool:

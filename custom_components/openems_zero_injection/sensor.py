@@ -141,6 +141,13 @@ class DtuValueSensor(_DtuSensorBase):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Mark cached power-limit values that were not refreshed this cycle."""
+        if self._field == "response_time_ms":
+            return {
+                "measurement": "single Modbus TCP transaction",
+                "coordinator_cycle_duration_ms": self.coordinator.cycle_timings_ms.get(
+                    "total_cycle"
+                ),
+            }
         if self._field in {
             "serial_number",
             "inverter_count",

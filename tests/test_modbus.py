@@ -55,7 +55,9 @@ async def test_valid_input_register_response() -> None:
         "custom_components.openems_zero_injection.modbus.asyncio.open_connection",
         AsyncMock(return_value=(reader, writer)),
     ):
-        assert await DtuProSModbusClient("x", 502).async_read_input_registers(0x3004, 1) == [2]
+        client = DtuProSModbusClient("x", 502)
+        assert await client.async_read_input_registers(0x3004, 1) == [2]
+    assert client.connection_diagnostics()["last_response_time_ms"] is not None
 
 
 async def test_valid_holding_register_power_limit_response() -> None:

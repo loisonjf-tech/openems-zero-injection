@@ -63,6 +63,7 @@ async def async_get_config_entry_diagnostics(
             "last_communication_error": data.last_error if data else None,
             "last_success": data.last_success.isoformat() if data and data.last_success else None,
             "response_time_ms": data.response_time_ms if data else None,
+            "cycle_timings_ms": coordinator.cycle_timings_ms,
             **coordinator.connection_diagnostics(),
         },
         "manual_writes_enabled": coordinator.manual_writes_enabled,

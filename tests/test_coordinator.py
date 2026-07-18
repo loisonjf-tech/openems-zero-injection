@@ -32,12 +32,21 @@ async def test_coordinator_decodes_measurements(hass) -> None:
                 0xD014: 100,
             }[address]
         )
+        cls.return_value.connection_diagnostics.return_value = {
+            "connected": True,
+            "last_error": None,
+            "last_response_time_ms": 12.5,
+            "last_connection_time_ms": 3.0,
+        }
         coordinator = DtuProSCoordinator(hass, entry)
         await coordinator.async_refresh()
     assert coordinator.data.inverter_count == 2
     assert coordinator.data.active_power_w == 123.4
     assert coordinator.data.daily_energy_wh == 5
     assert coordinator.data.response_time_ms is not None
+    assert coordinator.data.response_time_ms == 12.5
+    assert coordinator.cycle_timings_ms["power"] is not None
+    assert coordinator.cycle_timings_ms["total_cycle"] is not None
     assert coordinator.data.port_1_temporary_power_limit_percent == 50
     assert coordinator.active_temporary_power_limit_ports() == (1, 2, 3)
 
@@ -340,6 +349,28 @@ async def test_power_limit_failures_rate_limit_warnings(hass, caplog) -> None:
         record for record in caplog.records if "0xD00D unavailable" in record.message
     ]
     assert len(warnings) == 1
+
+
+async def test_permanent_registers_are_suppressed_after_two_failures(hass) -> None:
+    """Unsupported permanent registers are not retried every five-minute cycle."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502}
+    )
+    with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
+        client = cls.return_value
+        client.async_read_power_limit_register = AsyncMock(
+            side_effect=DtuConnectionError("unsupported register")
+        )
+        client.connection_diagnostics.return_value = {"connected": True}
+        coordinator = DtuProSCoordinator(hass, entry)
+        now = datetime.now(UTC)
+        await coordinator._async_refresh_power_limits(now)
+        await coordinator._async_refresh_power_limits(now + timedelta(minutes=5))
+        client.async_read_power_limit_register.reset_mock()
+        coordinator._last_temporary_limit_read = now + timedelta(minutes=10)
+        await coordinator._async_refresh_power_limits(now + timedelta(minutes=10))
+
+    assert client.async_read_power_limit_register.await_count == 0
 
 
 async def test_manual_write_is_gated_and_verified(hass) -> None:
