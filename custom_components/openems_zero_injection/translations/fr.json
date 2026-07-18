@@ -41,6 +41,11 @@
       "simulated_limit": {"name": "Limite actuellement recommandée"},
       "waiting_state": {"name": "État d’attente"},
       "watts_per_percent": {"name": "Puissance correspondant à 1 %"},
+      "energy_manager_battery_count": {"name": "Nombre de batteries détectées"},
+      "energy_manager_total_max_charge_power_w": {"name": "Puissance maximale totale de charge"},
+      "energy_manager_total_current_charge_power_w": {"name": "Puissance actuelle de charge"},
+      "energy_manager_total_remaining_charge_power_w": {"name": "Capacité restante de charge"},
+      "energy_manager_state": {"name": "État Energy Manager"},
       "last_decision": {"name": "Motif de la dernière décision"},
       "last_command_result": {"name": "Résultat de la dernière commande"},
       "commands_simulated": {"name": "Commandes simulées"}

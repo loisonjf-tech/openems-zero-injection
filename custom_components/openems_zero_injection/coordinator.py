@@ -32,6 +32,7 @@ from .const import (
 )
 from .acquisition import AcquisitionEngine
 from .controller import ZeroInjectionController
+from .energy_manager import EnergyManager
 from .const import (
     CONF_GRID_POWER_ENTITY_ID,
     CONF_GRID_POWER_INVERTED,
@@ -137,6 +138,9 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         self._transport_failed_this_cycle = False
         self._total_register_errors = 0
         self._last_raw_error: str | None = None
+        # Passive EMS inventory. It intentionally has no adapter or scheduler
+        # dependency in Build004, so it cannot change DTU control behaviour.
+        self.energy_manager = EnergyManager()
         self.controller = ZeroInjectionController(
             hass,
             self,

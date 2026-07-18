@@ -10,6 +10,7 @@ Toutes les évolutions notables sont documentées dans ce fichier.
 - Modes Disabled, Simulation et Production ; scheduler central avec délai de stabilisation de 12 secondes par défaut.
 - Historique borné des décisions, diagnostics de contrôleur et collecte passive des données d'apprentissage.
 - Abstraction `BatteryManager` neutre vis-à-vis du constructeur, réservée à V1.1 ; elle ne lit aucune batterie et n'influence pas la V1.
+- Couche `EnergyManager` passive, indépendante du scheduler DTU, avec modèle multi-batteries et agrégats diagnostics de capacité de charge ; aucun adaptateur ni calcul EMS n'influence la régulation.
 
 ### Safety
 

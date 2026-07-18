@@ -45,6 +45,37 @@ async def async_setup_entry(
             DtuValueSensor(coordinator, entry, "port_2_permanent_power_limit_percent", "Limite permanente DTU port 2", EntityCategory.DIAGNOSTIC, unit="%"),
             DtuValueSensor(coordinator, entry, "port_3_temporary_power_limit_percent", "Limite temporaire DTU port 3", EntityCategory.DIAGNOSTIC, unit="%"),
             DtuValueSensor(coordinator, entry, "port_3_permanent_power_limit_percent", "Limite permanente DTU port 3", EntityCategory.DIAGNOSTIC, unit="%"),
+            EnergyManagerSensor(
+                coordinator, entry, "battery_count", "Nombre de batteries détectées"
+            ),
+            EnergyManagerSensor(
+                coordinator,
+                entry,
+                "total_max_charge_power_w",
+                "Puissance maximale totale de charge",
+                device_class=SensorDeviceClass.POWER,
+                state_class=SensorStateClass.MEASUREMENT,
+                unit=UnitOfPower.WATT,
+            ),
+            EnergyManagerSensor(
+                coordinator,
+                entry,
+                "total_current_charge_power_w",
+                "Puissance actuelle de charge",
+                device_class=SensorDeviceClass.POWER,
+                state_class=SensorStateClass.MEASUREMENT,
+                unit=UnitOfPower.WATT,
+            ),
+            EnergyManagerSensor(
+                coordinator,
+                entry,
+                "total_remaining_charge_power_w",
+                "Capacité restante de charge",
+                device_class=SensorDeviceClass.POWER,
+                state_class=SensorStateClass.MEASUREMENT,
+                unit=UnitOfPower.WATT,
+            ),
+            EnergyManagerSensor(coordinator, entry, "state", "État Energy Manager"),
             OpenEMSControllerSensor(coordinator, entry, "controller_state", "État du contrôleur"),
             OpenEMSControllerSensor(coordinator, entry, "scheduler_state", "État du planificateur"),
             OpenEMSControllerSensor(coordinator, entry, "current_limit", "Limite DTU réelle", unit="%"),
@@ -182,6 +213,41 @@ class DtuValueSensor(_DtuSensorBase):
             "last_error": health["last_error"],
             "consecutive_failures": health["consecutive_failures"],
         }
+
+
+class EnergyManagerSensor(_DtuSensorBase):
+    """Expose passive Energy Manager aggregates without any DTU interaction."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: DtuProSCoordinator,
+        entry: ConfigEntry,
+        field: str,
+        name: str,
+        *,
+        device_class: SensorDeviceClass | None = None,
+        state_class: SensorStateClass | None = None,
+        unit: str | None = None,
+    ) -> None:
+        super().__init__(coordinator, entry, f"energy_manager_{field}")
+        self._field = field
+        self._attr_name = name
+        self._attr_device_class = device_class
+        self._attr_state_class = state_class
+        self._attr_native_unit_of_measurement = unit
+
+    @property
+    def available(self) -> bool:
+        """Local passive diagnostics do not depend on the DTU connection."""
+        return True
+
+    @property
+    def native_value(self) -> Any:
+        snapshot = self.coordinator.energy_manager.snapshot()
+        value = getattr(snapshot, self._field)
+        return display_label(value) if self._field == "state" else value
 
 
 class OpenEMSControllerSensor(_DtuSensorBase):

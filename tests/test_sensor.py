@@ -55,6 +55,20 @@ async def test_connection_sensor_reports_connected(hass) -> None:
     assert safety_switch is not None
     assert hass.states.get(safety_switch).state == "off"
 
+    expected_energy_manager_states = {
+        "energy_manager_battery_count": "0",
+        "energy_manager_total_max_charge_power_w": "0.0",
+        "energy_manager_total_current_charge_power_w": "0.0",
+        "energy_manager_total_remaining_charge_power_w": "0.0",
+        "energy_manager_state": "Aucune batterie configurée",
+    }
+    for suffix, expected_state in expected_energy_manager_states.items():
+        entity_id = registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{entry.entry_id}_{suffix}"
+        )
+        assert entity_id is not None
+        assert hass.states.get(entity_id).state == expected_state
+
     coordinator = hass.data[DOMAIN][entry.entry_id]
     coordinator.last_update_success = False
     coordinator.async_update_listeners()

@@ -42,6 +42,8 @@ if TYPE_CHECKING:
 
 
 DISPLAY_LABELS_FR = {
+    "No batteries configured": "Aucune batterie configurée",
+    "Passive": "Passif",
     "Within deadband": "Dans la zone de tolérance",
     "Grid import": "Consommation sur le réseau",
     "Excess export": "Injection excessive sur le réseau",

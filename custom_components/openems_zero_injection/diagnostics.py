@@ -53,6 +53,7 @@ async def async_get_config_entry_diagnostics(
             "reactive_power_var",
         )
     }
+    energy_manager = coordinator.energy_manager.snapshot()
     return {
         "dtu_ip": entry.data[CONF_DTU_HOST],
         "port": entry.data[CONF_DTU_PORT],
@@ -67,6 +68,13 @@ async def async_get_config_entry_diagnostics(
             **coordinator.connection_diagnostics(),
         },
         "manual_writes_enabled": coordinator.manual_writes_enabled,
+        "energy_manager": {
+            "state": energy_manager.state,
+            "battery_count": energy_manager.battery_count,
+            "total_max_charge_power_w": energy_manager.total_max_charge_power_w,
+            "total_current_charge_power_w": energy_manager.total_current_charge_power_w,
+            "total_remaining_charge_power_w": energy_manager.total_remaining_charge_power_w,
+        },
         "controller": {
             "mode": controller.mode.value,
             "state": controller.status.state,

@@ -44,6 +44,10 @@ Le contrôleur vérifie son tick toutes les trois secondes, mais n'évalue qu'un
 
 Les entités de configuration et du moteur local (mode, interrupteur de sécurité, paramètres, compteurs et dernier état) restent disponibles lors d'une indisponibilité DTU. Seules les entités dont la valeur provient directement du Modbus peuvent devenir indisponibles.
 
+## Préparation EMS passive
+
+Une couche `EnergyManager` indépendante du scheduler DTU centralise dès maintenant un inventaire passif de batteries autonomes. Elle publie seulement des diagnostics (nombre de batteries, puissances de charge maximale et actuelle, capacité de charge restante, état). Aucun adaptateur Zendure n'est encore présent, aucune batterie n'est lue, et ces calculs ne participent à aucune décision ni commande du contrôleur.
+
 ## Tests
 
 Dans un environnement de développement Home Assistant 2026.7.2 compatible avec Python 3.14.2 ou plus récent, installez les dépendances de test puis exécutez `pytest`. La suite couvre le Config Flow, le client Modbus simulé, le coordinateur, le capteur et les diagnostics.
@@ -51,5 +55,5 @@ Dans un environnement de développement Home Assistant 2026.7.2 compatible avec 
 ## Feuille de route
 
 1. **Build004** : valider sous surveillance le mode Simulation, puis Production, sur le DTU réel.
-2. **V1.1** : adaptateurs de batterie derrière `BatteryManager`, avec une éventuelle politique Priorité Batterie validée séparément.
+2. **V1.1** : adaptateurs de batterie derrière la couche EMS passive, avec une éventuelle politique Priorité Batterie validée séparément.
 3. **Build005** : seulement après validation réelle des comportements Build004 et V1.1.
