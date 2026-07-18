@@ -248,6 +248,8 @@ class ZeroInjectionController:
 
     async def async_start(self) -> None:
         """Start periodic local acquisition; mode remains disabled after restart."""
+        if self._cancel_tick is not None:
+            return
         self._cancel_tick = async_track_time_interval(
             self._hass, self._async_scheduled_tick, CONTROLLER_INTERVAL
         )

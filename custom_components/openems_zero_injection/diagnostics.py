@@ -106,6 +106,12 @@ async def async_get_config_entry_diagnostics(
             ),
             "temporary_limits_ready": coordinator.temporary_limits_ready,
             "temporary_limits_fresh": coordinator.temporary_limits_fresh,
+            "refresh_schedule_seconds": {
+                "power": 10,
+                "energy": 30,
+                "temporary_limits": 30,
+                "permanent_limits": 300,
+            },
             "counters": {
                 "decisions_evaluated_since_start": controller.decisions_evaluated,
                 "commands_sent": controller.commands_sent,

@@ -25,6 +25,8 @@ Toutes les évolutions notables sont documentées dans ce fichier.
 - Simulation sépare strictement la limite DTU réelle, la limite calculée et la recommandation virtuelle. Elle attend désormais une variation physique supérieure à 30 W avant d'autoriser une nouvelle commande virtuelle.
 - Les compteurs de décisions et de commandes sont maintenant explicitement comptés depuis le démarrage, indépendamment de l'historique borné à 200 enregistrements.
 - Les entités de configuration et de contrôleur ne dépendent plus de la disponibilité globale du coordinateur Modbus ; elles restent visibles pendant une panne DTU.
+- Le coordinateur sérialise désormais ses propres rafraîchissements, conserve le client TCP entre les lectures et sépare les cadences : puissance 10 s, énergie et limites temporaires 30 s, informations et limites permanentes 5 min.
+- Après une erreur de transport, les dernières données valides restent publiées comme périmées pendant deux échecs globaux ; le client applique ensuite un backoff non bloquant de 5, 10, 20 puis 30 s.
 
 ## [0.3.0-alpha.1] - 2026-07-16 — Build003 RC1
 

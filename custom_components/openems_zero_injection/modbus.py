@@ -10,7 +10,6 @@ from .const import (
     DEFAULT_DEVICE_ID,
     MODBUS_INTER_REQUEST_DELAY_SECONDS,
     MODBUS_RECONNECT_BACKOFF_MAX_SECONDS,
-    MODBUS_RECONNECT_BACKOFF_THRESHOLD,
     MODBUS_TIMEOUT_SECONDS,
 )
 from .registers import POWER_LIMIT_REGISTERS, TEMPORARY_POWER_LIMIT_REGISTERS
@@ -53,6 +52,7 @@ class DtuProSModbusClient:
         self._consecutive_failures = 0
         self._last_error: str | None = None
         self._last_success: float | None = None
+        self._last_failure_time: float | None = None
 
     @property
     def connected(self) -> bool:
@@ -69,7 +69,7 @@ class DtuProSModbusClient:
         if self.connected:
             return True
         await self._async_disconnect_locked()
-        await self._async_backoff_before_connect()
+        self._async_backoff_before_connect()
         try:
             async with asyncio.timeout(MODBUS_TIMEOUT_SECONDS):
                 self._reader, self._writer = await asyncio.open_connection(
@@ -193,24 +193,29 @@ class DtuProSModbusClient:
                 await asyncio.sleep(delay)
         self._last_request_time = asyncio.get_running_loop().time()
 
-    async def _async_backoff_before_connect(self) -> None:
-        """Use bounded, non-blocking delay after repeated connection failures."""
-        if self._consecutive_failures < MODBUS_RECONNECT_BACKOFF_THRESHOLD:
+    def _async_backoff_before_connect(self) -> None:
+        """Refuse premature reconnects without sleeping in an update callback."""
+        if self._consecutive_failures == 0 or self._last_failure_time is None:
             return
-        exponent = self._consecutive_failures - MODBUS_RECONNECT_BACKOFF_THRESHOLD
-        delay = min(2**exponent, MODBUS_RECONNECT_BACKOFF_MAX_SECONDS)
-        _LOGGER.debug("Waiting %s seconds before DTU reconnect", delay)
-        await asyncio.sleep(delay)
+        delay = min(
+            5 * (2 ** (self._consecutive_failures - 1)),
+            MODBUS_RECONNECT_BACKOFF_MAX_SECONDS,
+        )
+        elapsed = asyncio.get_running_loop().time() - self._last_failure_time
+        if elapsed < delay:
+            raise DtuConnectionError("Modbus reconnect backoff active")
 
     def _record_success(self) -> None:
         self._consecutive_failures = 0
         self._last_error = None
         self._last_success = asyncio.get_running_loop().time()
+        self._last_failure_time = None
 
     def _record_failure(self, error: str) -> None:
         self._total_errors += 1
         self._consecutive_failures += 1
         self._last_error = error
+        self._last_failure_time = asyncio.get_running_loop().time()
 
     def connection_diagnostics(self) -> dict[str, int | str | None | bool]:
         """Return client connection state without exposing any credentials."""

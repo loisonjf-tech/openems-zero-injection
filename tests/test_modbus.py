@@ -204,6 +204,21 @@ async def test_timeout_closes_connection_and_records_error() -> None:
     writer.close.assert_called_once()
 
 
+async def test_reconnect_backoff_is_immediate_and_does_not_block_event_loop() -> None:
+    """A failed transport delays reconnect eligibility without a blocking sleep."""
+    client = DtuProSModbusClient("x", 502)
+    client._record_failure("timeout")
+    open_connection = AsyncMock()
+    with patch(
+        "custom_components.openems_zero_injection.modbus.asyncio.open_connection",
+        open_connection,
+    ):
+        with pytest.raises(DtuConnectionError, match="backoff"):
+            await asyncio.wait_for(client.async_read_input_registers(0, 1), timeout=0.1)
+
+    open_connection.assert_not_awaited()
+
+
 async def test_concurrent_requests_are_serialized() -> None:
     """The request lock prevents two Modbus frames from using one stream at once."""
     reader, writer = streams(read_response(tid=1) + read_response(tid=2))

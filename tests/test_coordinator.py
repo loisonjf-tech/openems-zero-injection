@@ -1,11 +1,18 @@
 """Tests for Build002 read-only telemetry coordination."""
 
+import asyncio
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, call, patch
 
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.openems_zero_injection.const import CONF_DTU_HOST, CONF_DTU_PORT, DOMAIN
+from custom_components.openems_zero_injection.const import (
+    CONF_DTU_HOST,
+    CONF_DTU_PORT,
+    DOMAIN,
+    TEMPORARY_LIMIT_SCAN_INTERVAL,
+)
 from custom_components.openems_zero_injection.coordinator import DtuProSCoordinator
 from custom_components.openems_zero_injection.modbus import DtuConnectionError
 
@@ -154,6 +161,7 @@ async def test_temporary_limit_failure_keeps_cached_value_and_blocks_writes(hass
             return 50
 
         client.async_read_power_limit_register.side_effect = fail_port_two
+        coordinator._last_temporary_limit_read = datetime.now(UTC) - TEMPORARY_LIMIT_SCAN_INTERVAL
         await coordinator.async_refresh()
         await coordinator.async_set_manual_writes_enabled(True)
         from homeassistant.exceptions import HomeAssistantError
@@ -209,11 +217,7 @@ async def test_permanent_limits_are_not_read_on_each_fast_cycle(hass) -> None:
         client.async_read_power_limit_register.reset_mock()
         await coordinator.async_refresh()
 
-    assert client.async_read_power_limit_register.await_args_list == [
-        call(0xD007),
-        call(0xD00D),
-        call(0xD013),
-    ]
+    assert client.async_read_power_limit_register.await_args_list == []
 
 
 async def test_temporary_limit_recovers_after_all_three_reads_succeed(hass) -> None:
@@ -233,16 +237,92 @@ async def test_temporary_limit_recovers_after_all_three_reads_succeed(hass) -> N
             return 50
 
         client.async_read_power_limit_register.side_effect = fail_port_two
+        coordinator._last_temporary_limit_read = datetime.now(UTC) - TEMPORARY_LIMIT_SCAN_INTERVAL
         await coordinator.async_refresh()
         assert coordinator.temporary_limits_ready
         assert not coordinator.temporary_limits_fresh
         client.async_read_power_limit_register.side_effect = None
         client.async_read_power_limit_register.return_value = 50
+        coordinator._last_temporary_limit_read = datetime.now(UTC) - TEMPORARY_LIMIT_SCAN_INTERVAL
         await coordinator.async_refresh()
 
     assert coordinator.temporary_limits_ready
     assert coordinator.temporary_limits_fresh
     assert coordinator.power_limit_health(0xD00D)["available"]
+
+
+async def test_overlapping_refreshes_reuse_the_current_snapshot(hass) -> None:
+    """A slow Modbus read cannot start a second coordinator transaction."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502}
+    )
+    with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
+        client = cls.return_value
+        active_calls = 0
+        max_active_calls = 0
+
+        async def read(address: int, count: int) -> list[int]:
+            nonlocal active_calls, max_active_calls
+            active_calls += 1
+            max_active_calls = max(max_active_calls, active_calls)
+            await asyncio.sleep(0)
+            active_calls -= 1
+            return [0] * count
+
+        client.async_read_input_registers = AsyncMock(side_effect=read)
+        client.async_read_power_limit_register = AsyncMock(return_value=50)
+        coordinator = DtuProSCoordinator(hass, entry)
+        await coordinator.async_refresh()
+        await asyncio.gather(
+            coordinator._async_update_data(), coordinator._async_update_data()
+        )
+
+    assert active_calls == 0
+    assert max_active_calls == 1
+
+
+async def test_transport_failure_keeps_cached_power_until_global_threshold(hass) -> None:
+    """A socket failure leaves already-valid power visible as stale data."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502}
+    )
+    values = {0x3108: [0, 1234], 0x310A: [0, 0]}
+    with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
+        client = cls.return_value
+        client.async_read_input_registers = AsyncMock(
+            side_effect=lambda address, count: values.get(address, [0] * count)
+        )
+        client.async_read_power_limit_register = AsyncMock(return_value=50)
+        client.connection_diagnostics.return_value = {"connected": True, "last_error": None}
+        coordinator = DtuProSCoordinator(hass, entry)
+        await coordinator.async_refresh()
+        client.async_read_input_registers.side_effect = DtuConnectionError("socket closed")
+        client.connection_diagnostics.return_value = {
+            "connected": False,
+            "last_error": "socket closed",
+        }
+        await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is True
+    assert coordinator.data.active_power_w == 123.4
+    assert coordinator.data.last_error == "socket closed"
+
+
+async def test_shutdown_stops_periodic_controller_and_closes_client(hass) -> None:
+    """Unload leaves no controller timer or persistent TCP client behind."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502}
+    )
+    with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
+        client = cls.return_value
+        client.async_disconnect = AsyncMock()
+        coordinator = DtuProSCoordinator(hass, entry)
+        await coordinator.controller.async_start()
+        assert coordinator.controller._cancel_tick is not None
+        await coordinator.async_shutdown()
+
+    assert coordinator.controller._cancel_tick is None
+    client.async_disconnect.assert_awaited_once()
 
 
 async def test_power_limit_failures_rate_limit_warnings(hass, caplog) -> None:

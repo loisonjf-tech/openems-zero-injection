@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import logging
 from time import monotonic
 
@@ -19,9 +20,13 @@ from .const import (
     CONF_INSTALLED_NOMINAL_POWER_W,
     DEFAULT_INSTALLED_NOMINAL_POWER_W,
     DOMAIN,
+    ENERGY_SCAN_INTERVAL,
+    GENERAL_INFO_SCAN_INTERVAL,
+    GLOBAL_TRANSPORT_FAILURES_UNAVAILABLE,
     PERMANENT_LIMIT_SCAN_INTERVAL,
     POWER_LIMIT_FAILURE_LOG_INTERVAL_SECONDS,
     SCAN_INTERVAL,
+    TEMPORARY_LIMIT_SCAN_INTERVAL,
     TEMPORARY_LIMIT_MAX_AGE_SECONDS,
 )
 from .acquisition import AcquisitionEngine
@@ -119,6 +124,12 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             )
         }
         self._last_permanent_limit_read: datetime | None = None
+        self._last_temporary_limit_read: datetime | None = None
+        self._last_energy_read: datetime | None = None
+        self._last_general_info_read: datetime | None = None
+        self._update_lock = asyncio.Lock()
+        self._shutdown = False
+        self._consecutive_transport_failures = 0
         self._cycle_successes = 0
         self._transport_failed_this_cycle = False
         self._total_register_errors = 0
@@ -228,28 +239,42 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         health.consecutive_failures += 1
 
     async def _async_update_data(self) -> DtuMeasurements:
+        """Serialize coordinator refreshes and reuse the latest complete cache."""
+        if self._shutdown:
+            raise UpdateFailed("DTU coordinator is shutting down")
+        if self._update_lock.locked():
+            if self.data is not None:
+                return self.data
+            raise UpdateFailed("DTU telemetry update already in progress")
+        async with self._update_lock:
+            return await self._async_update_data_locked()
+
+    async def _async_update_data_locked(self) -> DtuMeasurements:
         """Read the approved registers and decode only confirmed value types."""
         started = monotonic()
+        now = datetime.now(UTC)
         self._cycle_successes = 0
         self._transport_failed_this_cycle = False
-        serial = await self._async_refresh_telemetry(
-            "serial_number", REG_DTU_SERIAL, REG_DTU_SERIAL_COUNT, decode_dtu_serial
-        )
-        meter = await self._async_refresh_telemetry(
-            "meter_count", REG_METER_COUNT, REG_METER_COUNT_COUNT, decode_uint16
-        )
-        inverter_count = await self._async_refresh_telemetry(
-            "inverter_count",
-            REG_INVERTER_COUNT,
-            REG_INVERTER_COUNT_COUNT,
-            decode_uint16,
-        )
-        total = await self._async_refresh_telemetry(
-            "total_energy_wh", REG_TOTAL_ENERGY, REG_TOTAL_ENERGY_COUNT, decode_uint64
-        )
-        daily = await self._async_refresh_telemetry(
-            "daily_energy_wh", REG_DAILY_ENERGY, REG_DAILY_ENERGY_COUNT, decode_uint64
-        )
+        if self._is_due(self._last_general_info_read, GENERAL_INFO_SCAN_INTERVAL, now):
+            serial = await self._async_refresh_telemetry(
+                "serial_number", REG_DTU_SERIAL, REG_DTU_SERIAL_COUNT, decode_dtu_serial
+            )
+            meter = await self._async_refresh_telemetry(
+                "meter_count", REG_METER_COUNT, REG_METER_COUNT_COUNT, decode_uint16
+            )
+            inverter_count = await self._async_refresh_telemetry(
+                "inverter_count",
+                REG_INVERTER_COUNT,
+                REG_INVERTER_COUNT_COUNT,
+                decode_uint16,
+            )
+            self._last_general_info_read = now
+        else:
+            serial = self._telemetry_health["serial_number"].value
+            meter = self._telemetry_health["meter_count"].value
+            inverter_count = self._telemetry_health["inverter_count"].value
+
+        # Fast sequential block: current power and DTU availability.
         active = await self._async_refresh_telemetry(
             "active_power_w",
             REG_TOTAL_ACTIVE_POWER,
@@ -263,12 +288,44 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             lambda registers: decode_uint32(registers) * REACTIVE_POWER_SCALE,
         )
 
-        power_limit_values = await self._async_refresh_power_limits()
-        if self._transport_failed_this_cycle:
-            raise UpdateFailed(self._last_raw_error or "DTU communication failed")
+        if self._is_due(self._last_energy_read, ENERGY_SCAN_INTERVAL, now):
+            total = await self._async_refresh_telemetry(
+                "total_energy_wh", REG_TOTAL_ENERGY, REG_TOTAL_ENERGY_COUNT, decode_uint64
+            )
+            daily = await self._async_refresh_telemetry(
+                "daily_energy_wh", REG_DAILY_ENERGY, REG_DAILY_ENERGY_COUNT, decode_uint64
+            )
+            self._last_energy_read = now
+        else:
+            total = self._telemetry_health["total_energy_wh"].value
+            daily = self._telemetry_health["daily_energy_wh"].value
+
+        power_limit_values = await self._async_refresh_power_limits(now)
+        if self._transport_failed_this_cycle and self._cycle_successes == 0:
+            self._consecutive_transport_failures += 1
+            if (
+                self.data is None
+                or self._consecutive_transport_failures
+                >= GLOBAL_TRANSPORT_FAILURES_UNAVAILABLE
+            ):
+                raise UpdateFailed(self._last_raw_error or "DTU communication failed")
+            return replace(
+                self.data,
+                connected=True,
+                response_time_ms=(monotonic() - started) * 1000,
+                last_error=self._last_raw_error or "DTU communication failed",
+            )
         if self._cycle_successes == 0:
             error = self._modbus.connection_diagnostics()["last_error"]
-            raise UpdateFailed(str(error or "DTU communication failed"))
+            if self.data is None:
+                raise UpdateFailed(str(error or "DTU communication failed"))
+            return replace(
+                self.data,
+                response_time_ms=(monotonic() - started) * 1000,
+                last_error=str(error or "DTU telemetry data unavailable"),
+            )
+
+        self._consecutive_transport_failures = 0
 
         return DtuMeasurements(
             connected=True,
@@ -280,17 +337,24 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             daily_energy_wh=daily if isinstance(daily, int) else None,
             total_energy_wh=total if isinstance(total, int) else None,
             response_time_ms=(monotonic() - started) * 1000,
-            last_success=datetime.now(UTC),
-            last_error=None,
+            last_success=now,
+            last_error=self._last_raw_error if self._transport_failed_this_cycle else None,
             **power_limit_values,
         )
 
-    async def _async_refresh_power_limits(self) -> dict[str, int | None]:
-        """Read temporary limits each normal scan and permanent limits slowly."""
-        for address in PORT_TEMPORARY_POWER_LIMIT_REGISTERS.values():
-            await self._async_refresh_power_limit(address)
+    @staticmethod
+    def _is_due(last_read: datetime | None, interval: timedelta, now: datetime) -> bool:
+        """Return whether a low-priority register group is due for refresh."""
+        return last_read is None or now - last_read >= interval
 
-        now = datetime.now(UTC)
+    async def _async_refresh_power_limits(self, now: datetime) -> dict[str, int | None]:
+        """Read control limits slowly and permanent diagnostics more slowly."""
+        if self._is_due(
+            self._last_temporary_limit_read, TEMPORARY_LIMIT_SCAN_INTERVAL, now
+        ):
+            for address in PORT_TEMPORARY_POWER_LIMIT_REGISTERS.values():
+                await self._async_refresh_power_limit(address)
+            self._last_temporary_limit_read = now
         if (
             self._last_permanent_limit_read is None
             or now - self._last_permanent_limit_read >= PERMANENT_LIMIT_SCAN_INTERVAL
@@ -382,6 +446,7 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             **self._modbus.connection_diagnostics(),
             "total_register_errors": self._total_register_errors,
             "last_raw_error": self._last_raw_error,
+            "consecutive_transport_failures": self._consecutive_transport_failures,
         }
 
     @property
@@ -525,6 +590,7 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
                 )
             )
         now = datetime.now(UTC)
+        self._last_temporary_limit_read = now
         for address in addresses:
             health = self._limit_health[address]
             health.value = value
@@ -539,5 +605,7 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
 
     async def async_shutdown(self) -> None:
         """Close the Modbus client during integration unload."""
+        self._shutdown = True
         await self.controller.async_stop()
-        await self._modbus.async_disconnect()
+        async with self._update_lock:
+            await self._modbus.async_disconnect()
