@@ -39,11 +39,11 @@ async def async_setup_entry(
             DtuValueSensor(coordinator, entry, "total_energy_wh", "Énergie totale DTU", device_class=SensorDeviceClass.ENERGY, state_class=SensorStateClass.TOTAL_INCREASING, unit=UnitOfEnergy.WATT_HOUR),
             DtuValueSensor(coordinator, entry, "response_time_ms", "Temps de réponse DTU", EntityCategory.DIAGNOSTIC, device_class=SensorDeviceClass.DURATION, state_class=SensorStateClass.MEASUREMENT, unit=UnitOfTime.MILLISECONDS),
             DtuValueSensor(coordinator, entry, "last_success", "Dernière communication DTU", EntityCategory.DIAGNOSTIC, device_class=SensorDeviceClass.TIMESTAMP),
-            DtuValueSensor(coordinator, entry, "port_1_temporary_power_limit_percent", "Limite temporaire DTU port 1", EntityCategory.DIAGNOSTIC, unit="%"),
+            DtuValueSensor(coordinator, entry, "port_1_temporary_power_limit_percent", "Limite temporaire réelle DTU port 1", EntityCategory.DIAGNOSTIC, unit="%"),
             DtuValueSensor(coordinator, entry, "port_1_permanent_power_limit_percent", "Limite permanente DTU port 1", EntityCategory.DIAGNOSTIC, unit="%"),
-            DtuValueSensor(coordinator, entry, "port_2_temporary_power_limit_percent", "Limite temporaire DTU port 2", EntityCategory.DIAGNOSTIC, unit="%"),
+            DtuValueSensor(coordinator, entry, "port_2_temporary_power_limit_percent", "Limite temporaire réelle DTU port 2", EntityCategory.DIAGNOSTIC, unit="%"),
             DtuValueSensor(coordinator, entry, "port_2_permanent_power_limit_percent", "Limite permanente DTU port 2", EntityCategory.DIAGNOSTIC, unit="%"),
-            DtuValueSensor(coordinator, entry, "port_3_temporary_power_limit_percent", "Limite temporaire DTU port 3", EntityCategory.DIAGNOSTIC, unit="%"),
+            DtuValueSensor(coordinator, entry, "port_3_temporary_power_limit_percent", "Limite temporaire réelle DTU port 3", EntityCategory.DIAGNOSTIC, unit="%"),
             DtuValueSensor(coordinator, entry, "port_3_permanent_power_limit_percent", "Limite permanente DTU port 3", EntityCategory.DIAGNOSTIC, unit="%"),
             EnergyManagerSensor(
                 coordinator, entry, "battery_count", "Nombre de batteries détectées"
@@ -164,6 +164,18 @@ class DtuValueSensor(_DtuSensorBase):
 
     @property
     def available(self) -> bool:
+        # The three temporary-limit readings are cached coordinator values.
+        # Keep a known value visible during a transient global refresh failure;
+        # its freshness and any error remain explicit in state attributes.
+        if self._field in {
+            "port_1_temporary_power_limit_percent",
+            "port_2_temporary_power_limit_percent",
+            "port_3_temporary_power_limit_percent",
+        }:
+            return (
+                self.coordinator.data is not None
+                and getattr(self.coordinator.data, self._field) is not None
+            )
         return super().available and self.coordinator.data is not None and getattr(self.coordinator.data, self._field) is not None
 
     @property
