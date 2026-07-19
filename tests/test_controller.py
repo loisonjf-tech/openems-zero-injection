@@ -130,6 +130,7 @@ async def test_simulation_exposes_each_power_limit_role_separately(hass) -> None
     assert controller.status.calculated_limit_percent == 40
     assert controller.commands_simulated == 1
     assert controller.commands_sent == 0
+    assert controller.scheduler_display_state == "Simulation awaiting measurements"
 
 
 async def test_simulated_commands_never_exceed_session_decisions(hass) -> None:

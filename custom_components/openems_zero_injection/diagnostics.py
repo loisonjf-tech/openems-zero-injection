@@ -97,6 +97,11 @@ async def async_get_config_entry_diagnostics(
             "current_recommended_limit": controller.simulated_current_limit,
             "next_proposed_limit": controller.status.calculated_limit_percent,
             "next_commanded_limit": controller.status.commanded_limit_percent,
+            "next_displayed_limit": (
+                controller.simulated_current_limit
+                if controller.mode.value == "Simulation"
+                else controller.status.commanded_limit_percent
+            ),
             "waiting_state": controller.waiting_state,
             "installed_nominal_power_w": controller.installed_nominal_power_w,
             "watts_per_percent": controller.watts_per_percent,

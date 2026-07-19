@@ -52,6 +52,8 @@ DISPLAY_LABELS_FR = {
     "Excess export": "Injection excessive sur le réseau",
     "Waiting for stabilization": "Attente de stabilisation",
     "Simulation awaiting significant measurements": "Simulation en attente de nouvelles mesures significatives",
+    "Simulation active": "Simulation active",
+    "Simulation awaiting measurements": "Simulation en attente de nouvelles mesures",
     "Simulation mode": "Mode simulation",
     "Production mode": "Mode production",
     "Disabled": "Désactivé",
@@ -288,6 +290,12 @@ class ZeroInjectionController:
     @property
     def scheduler_display_state(self) -> str:
         """Return a user-facing state without exposing an expired wait."""
+        if self._mode is ControllerMode.SIMULATION:
+            return (
+                "Simulation awaiting measurements"
+                if self._last_evaluated_snapshot is not None
+                else "Simulation active"
+            )
         if (
             self._mode is ControllerMode.PRODUCTION
             and self._scheduler.state in {SchedulerState.IDLE, SchedulerState.WAITING}

@@ -286,7 +286,13 @@ class OpenEMSControllerSensor(_DtuSensorBase):
             "scheduler_state": controller.scheduler_display_state,
             "current_limit": status.real_dtu_limit_percent,
             "calculated_limit": status.calculated_limit_percent,
-            "commanded_limit": status.commanded_limit_percent,
+            # In Simulation this is intentionally only a displayed proposal:
+            # it is never submitted to the DTU.
+            "commanded_limit": (
+                controller.simulated_current_limit
+                if controller.mode.value == "Simulation"
+                else status.commanded_limit_percent
+            ),
             "simulated_limit": status.simulated_limit_percent,
             "last_simulated_limit": controller.last_simulated_limit,
             "waiting_state": controller.waiting_state,
@@ -319,3 +325,14 @@ class OpenEMSControllerSensor(_DtuSensorBase):
         }:
             return display_label(value)
         return value
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Make the simulated nature of a displayed proposal explicit."""
+        if self._field != "commanded_limit":
+            return {}
+        is_simulation = self.coordinator.controller.mode.value == "Simulation"
+        return {
+            "execution_mode": "Simulation" if is_simulation else "Production",
+            "is_simulation": is_simulation,
+        }

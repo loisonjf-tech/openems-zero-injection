@@ -14,6 +14,7 @@ Toutes les évolutions notables sont documentées dans ce fichier.
 - Le mode du contrôleur est désormais persistant dans les options de l’intégration et restauré explicitement au démarrage ou au rechargement ; un repli invalide vers Désactivé est journalisé.
 - En mode Désactivé, la puissance réseau locale reste publiée lorsqu’elle est disponible et le motif d’inactivité du planificateur est exposé.
 - Les limites permanentes hors plage documentée journalisent leur valeur brute, deviennent uniquement indisponibles et sont supprimées temporairement des lectures répétées sans affecter le contrôle.
+- L’interface Simulation expose désormais un état de planificateur cohérent et affiche la prochaine proposition de limite avec une indication explicite qu’aucune commande DTU ne sera envoyée.
 
 ### Safety
 
