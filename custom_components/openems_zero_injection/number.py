@@ -73,7 +73,9 @@ class DtuTemporaryPowerLimitNumber(CoordinatorEntity[DtuProSCoordinator], Number
         self._port = port
         self._field = f"port_{port}_temporary_power_limit_percent"
         self._attr_unique_id = f"{entry.entry_id}_port_{port}_temporary_power_limit"
-        self._attr_name = f"Limite temporaire de puissance DTU port {port}"
+        # Keep the unique ID stable: Home Assistant therefore retains the
+        # existing entity_id while making the manual nature unmistakable.
+        self._attr_name = f"Commande manuelle limite temporaire DTU port {port}"
         endpoint = f"{entry.data[CONF_DTU_HOST]}:{entry.data[CONF_DTU_PORT]}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, endpoint)},
@@ -86,6 +88,7 @@ class DtuTemporaryPowerLimitNumber(CoordinatorEntity[DtuProSCoordinator], Number
     def available(self) -> bool:
         return (
             super().available
+            and self.coordinator.manual_write_allowed
             and self.coordinator.data is not None
             and getattr(self.coordinator.data, self._field) is not None
         )

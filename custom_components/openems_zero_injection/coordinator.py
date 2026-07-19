@@ -559,6 +559,22 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         """Return the state of the manual-write safety interlock."""
         return self._manual_writes_enabled
 
+    @property
+    def manual_write_allowed(self) -> bool:
+        """Return whether a NumberEntity may issue a manual DTU write."""
+        return (
+            self._manual_writes_enabled
+            and self.controller.mode is not ControllerMode.SIMULATION
+        )
+
+    @property
+    def automatic_write_allowed(self) -> bool:
+        """Return whether Production may issue one verified automatic command."""
+        return (
+            self.controller.mode is ControllerMode.PRODUCTION
+            and self.temporary_limits_fresh
+        )
+
     async def async_set_manual_writes_enabled(self, enabled: bool) -> None:
         """Change only the local manual-write safety interlock."""
         self._manual_writes_enabled = enabled
@@ -595,7 +611,7 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
 
     async def async_set_temporary_power_limit(self, port: int, value: int) -> None:
         """Manually set, acknowledge, and immediately re-read one temporary limit."""
-        if not self._manual_writes_enabled:
+        if not self.manual_write_allowed:
             raise HomeAssistantError("Manual DTU writes are disabled")
         if port not in PORT_TEMPORARY_POWER_LIMIT_REGISTERS:
             raise HomeAssistantError("Unsupported DTU port")
@@ -652,10 +668,13 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         This is the only automatic-write entry point. It intentionally uses no
         retries, restoration write, global register, or permanent register.
         """
-        if not self._manual_writes_enabled:
-            raise HomeAssistantError("Manual DTU writes are disabled")
         if not isinstance(value, int) or not 2 <= value <= 100:
             raise HomeAssistantError("DTU power limit must be between 2 and 100%")
+
+        if not self.automatic_write_allowed:
+            raise HomeAssistantError(
+                "Automatic DTU writes require Production and fresh temporary limits"
+            )
 
         addresses = tuple(PORT_TEMPORARY_POWER_LIMIT_REGISTERS.values())
         if not self.temporary_limits_fresh:

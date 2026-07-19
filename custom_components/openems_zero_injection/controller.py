@@ -576,7 +576,7 @@ class ZeroInjectionController:
                 )
                 return
 
-            if decision.command_needed and self._coordinator.manual_writes_enabled:
+            if decision.command_needed and self._coordinator.automatic_write_allowed:
                 block_reason = self._scheduler.command_block_reason()
                 if block_reason is not None:
                     # Stabilization is an intentional safety state, not a failed
@@ -617,10 +617,21 @@ class ZeroInjectionController:
                 self._record(snapshot.grid_power_w, current_limit, decision, decision.reason.value, False, False, None)
                 return
 
-            if not self._coordinator.manual_writes_enabled:
+            if not self._coordinator.automatic_write_allowed:
                 self._scheduler.pause()
-                self._record(measurement.power_w, current_limit, decision, "Manual writes disabled", False, False, None)
-                self._set_status(state="Paused", last_error="Enable Manual DTU Writes is off")
+                self._record(
+                    measurement.power_w,
+                    current_limit,
+                    decision,
+                    "Automatic writes unavailable",
+                    False,
+                    False,
+                    None,
+                )
+                self._set_status(
+                    state="Paused",
+                    last_error="Automatic DTU writes are unavailable",
+                )
                 return
 
             self.commands_sent += 1

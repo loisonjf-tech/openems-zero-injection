@@ -207,7 +207,7 @@ async def test_temporary_limit_failure_keeps_cached_value_and_blocks_writes(hass
         client.async_read_power_limit_register.side_effect = fail_port_two
         coordinator._last_temporary_limit_read = datetime.now(UTC) - TEMPORARY_LIMIT_SCAN_INTERVAL
         await coordinator.async_refresh()
-        await coordinator.async_set_manual_writes_enabled(True)
+        await coordinator.controller.async_set_mode(ControllerMode.PRODUCTION.value)
         from homeassistant.exceptions import HomeAssistantError
 
         with pytest.raises(HomeAssistantError, match="stale or inconsistent"):
@@ -519,7 +519,7 @@ async def test_manual_write_different_readback_preserves_last_confirmed_value(ha
 
 
 async def test_automatic_write_updates_all_three_temporary_ports_only(hass) -> None:
-    """Build004 writes and verifies exactly the three approved temporary ports."""
+    """Production writes despite the manual NumberEntity switch being off."""
     entry = MockConfigEntry(domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502})
     with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
         client = cls.return_value
@@ -530,7 +530,7 @@ async def test_automatic_write_updates_all_three_temporary_ports_only(hass) -> N
         client.async_write_temporary_power_limit = AsyncMock()
         coordinator = DtuProSCoordinator(hass, entry)
         await coordinator.async_refresh()
-        await coordinator.async_set_manual_writes_enabled(True)
+        await coordinator.controller.async_set_mode(ControllerMode.PRODUCTION.value)
         client.async_read_power_limit_register.side_effect = [55, 55, 55]
         await coordinator.async_set_all_temporary_power_limits(55)
 
@@ -540,6 +540,54 @@ async def test_automatic_write_updates_all_three_temporary_ports_only(hass) -> N
     assert coordinator.data.port_1_temporary_power_limit_percent == 55
     assert coordinator.data.port_2_temporary_power_limit_percent == 55
     assert coordinator.data.port_3_temporary_power_limit_percent == 55
+
+
+async def test_manual_and_automatic_permissions_are_separate(hass) -> None:
+    """Manual and automatic writes are authorized by independent conditions."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502}
+    )
+    with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
+        client = cls.return_value
+        client.async_read_input_registers = AsyncMock(
+            side_effect=lambda _address, count: [0] * count
+        )
+        client.async_read_power_limit_register = AsyncMock(return_value=50)
+        coordinator = DtuProSCoordinator(hass, entry)
+        await coordinator.async_refresh()
+
+    assert not coordinator.manual_write_allowed
+    assert not coordinator.automatic_write_allowed
+
+    await coordinator.async_set_manual_writes_enabled(True)
+    assert coordinator.manual_write_allowed
+
+    await coordinator.controller.async_set_mode(ControllerMode.SIMULATION.value)
+    assert not coordinator.manual_write_allowed
+    assert not coordinator.automatic_write_allowed
+
+    await coordinator.controller.async_set_mode(ControllerMode.PRODUCTION.value)
+    assert coordinator.manual_write_allowed
+    assert coordinator.automatic_write_allowed
+
+
+@pytest.mark.parametrize("value", [1, 101])
+async def test_automatic_write_rejects_out_of_range_values(hass, value: int) -> None:
+    """Production never forwards a command outside the documented range."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502}
+    )
+    with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
+        client = cls.return_value
+        client.async_write_temporary_power_limit = AsyncMock()
+        coordinator = DtuProSCoordinator(hass, entry)
+        await coordinator.controller.async_set_mode(ControllerMode.PRODUCTION.value)
+        from homeassistant.exceptions import HomeAssistantError
+
+        with pytest.raises(HomeAssistantError, match="between 2 and 100"):
+            await coordinator.async_set_all_temporary_power_limits(value)
+
+    client.async_write_temporary_power_limit.assert_not_awaited()
 
 
 async def test_automatic_write_readback_mismatch_keeps_last_confirmed_values(hass) -> None:
@@ -554,7 +602,7 @@ async def test_automatic_write_readback_mismatch_keeps_last_confirmed_values(has
         client.async_write_temporary_power_limit = AsyncMock()
         coordinator = DtuProSCoordinator(hass, entry)
         await coordinator.async_refresh()
-        await coordinator.async_set_manual_writes_enabled(True)
+        await coordinator.controller.async_set_mode(ControllerMode.PRODUCTION.value)
         client.async_read_power_limit_register.side_effect = [55, 54, 55]
         from homeassistant.exceptions import HomeAssistantError
 

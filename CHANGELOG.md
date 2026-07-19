@@ -15,6 +15,8 @@ Toutes les évolutions notables sont documentées dans ce fichier.
 - En mode Désactivé, la puissance réseau locale reste publiée lorsqu’elle est disponible et le motif d’inactivité du planificateur est exposé.
 - Les limites permanentes hors plage documentée journalisent leur valeur brute, deviennent uniquement indisponibles et sont supprimées temporairement des lectures répétées sans affecter le contrôle.
 - L’interface Simulation expose désormais un état de planificateur cohérent et affiche la prochaine proposition de limite avec une indication explicite qu’aucune commande DTU ne sera envoyée.
+- Les commandes manuelles et les lectures réelles de limites temporaires portent désormais des noms distincts. Les lectures connues restent visibles avec leur état de fraîcheur lors d’un échec ponctuel du coordinator.
+- Les autorisations d’écriture manuelle et automatique sont désormais distinctes : l’interrupteur manuel ne bloque plus le scheduler Production, tandis que Simulation interdit toute écriture réelle.
 
 ### Safety
 

@@ -48,6 +48,10 @@ Le mode sélectionné du contrôleur est enregistré dans les options de l’int
 
 Une limite permanente hors de la plage documentée est traitée comme une donnée diagnostique indisponible. Sa valeur brute est journalisée une fois, puis le registre optionnel est temporairement suspendu ; elle ne modifie ni l’état de connexion ni les limites temporaires utilisées par le contrôleur.
 
+Les trois `number` de limites temporaires sont des **commandes manuelles** par port. Les trois `sensor` portant le terme **réelle** sont des lectures du dernier snapshot du coordinator, donc la valeur lue ou mise en cache après vérification DTU. Ils conservent leur `entity_id` existant lors du renommage. Le scheduler automatique appelle directement le coordinator et ne lit jamais ces entités `number`.
+
+L’interrupteur **Autoriser les écritures manuelles DTU** ne déverrouille que les commandes `number` manuelles. En Production, le scheduler utilise une autorisation distincte : mode Production, trois limites temporaires réelles fraîches et identiques, puis valeur de `2` à `100 %`. En Simulation, aucune autorisation ne permet d’envoyer une écriture Modbus réelle.
+
 Les entités de configuration et du moteur local (mode, interrupteur de sécurité, paramètres, compteurs et dernier état) restent disponibles lors d'une indisponibilité DTU. Seules les entités dont la valeur provient directement du Modbus peuvent devenir indisponibles.
 
 ## Préparation EMS passive

@@ -10,10 +10,11 @@ from custom_components.openems_zero_injection.const import ControllerMode, Sched
 from custom_components.openems_zero_injection.controller import ZeroInjectionController
 
 
-def fake_coordinator(*, writes_enabled: bool = True):
+def fake_coordinator(*, automatic_writes_enabled: bool = True):
     timestamp = datetime.now(UTC)
     coordinator = SimpleNamespace(
-        manual_writes_enabled=writes_enabled,
+        manual_writes_enabled=False,
+        automatic_write_allowed=automatic_writes_enabled,
         temporary_limits_ready=True,
         temporary_limits_timestamp=timestamp,
         data=SimpleNamespace(
@@ -357,10 +358,43 @@ async def test_production_requires_three_valid_measurements_then_writes(hass) ->
     assert controller.scheduler.state is SchedulerState.WAITING
 
 
+async def test_production_writes_when_manual_switch_is_off(hass) -> None:
+    """The manual NumberEntity lock never blocks the Production scheduler."""
+    hass.states.async_set("sensor.grid", "-220")
+    coordinator = fake_coordinator()
+    assert coordinator.manual_writes_enabled is False
+    assert coordinator.automatic_write_allowed is True
+    controller = ZeroInjectionController(
+        hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
+    )
+
+    await controller.async_set_mode(ControllerMode.PRODUCTION.value)
+    for _ in range(3):
+        await controller.async_tick()
+
+    coordinator.async_set_all_temporary_power_limits.assert_awaited_once_with(45)
+
+
+async def test_simulation_never_writes_when_manual_switch_is_on(hass) -> None:
+    """Manual permission cannot turn a simulated proposal into a DTU command."""
+    hass.states.async_set("sensor.grid", "-220")
+    coordinator = fake_coordinator()
+    coordinator.manual_writes_enabled = True
+    controller = ZeroInjectionController(
+        hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
+    )
+
+    await controller.async_set_mode(ControllerMode.SIMULATION.value)
+    for _ in range(3):
+        await controller.async_tick()
+
+    coordinator.async_set_all_temporary_power_limits.assert_not_awaited()
+
+
 async def test_production_exposes_theoretical_and_next_commanded_limits(hass) -> None:
     """The UI separates the raw calculation from the maximum-step command."""
     hass.states.async_set("sensor.grid", "-356.5")
-    coordinator = fake_coordinator(writes_enabled=False)
+    coordinator = fake_coordinator(automatic_writes_enabled=False)
     controller = ZeroInjectionController(
         hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
     )

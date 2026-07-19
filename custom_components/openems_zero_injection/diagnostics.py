@@ -68,6 +68,8 @@ async def async_get_config_entry_diagnostics(
             **coordinator.connection_diagnostics(),
         },
         "manual_writes_enabled": coordinator.manual_writes_enabled,
+        "manual_write_allowed": coordinator.manual_write_allowed,
+        "automatic_write_allowed": coordinator.automatic_write_allowed,
         "energy_manager": {
             "state": energy_manager.state,
             "battery_count": energy_manager.battery_count,

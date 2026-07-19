@@ -48,7 +48,7 @@ async def test_connection_sensor_reports_connected(hass) -> None:
         "number", DOMAIN, f"{entry.entry_id}_port_1_temporary_power_limit"
     )
     assert power_limit_entity is not None
-    assert hass.states.get(power_limit_entity).state == "50.0"
+    assert hass.states.get(power_limit_entity).state == "unavailable"
 
     temporary_limit_sensor = registry.async_get_entity_id(
         "sensor", DOMAIN, f"{entry.entry_id}_port_1_temporary_power_limit_percent"
