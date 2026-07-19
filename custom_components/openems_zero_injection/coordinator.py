@@ -671,9 +671,11 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         if not isinstance(value, int) or not 2 <= value <= 100:
             raise HomeAssistantError("DTU power limit must be between 2 and 100%")
 
-        if not self.automatic_write_allowed:
+        if self.controller.mode is not ControllerMode.PRODUCTION:
+            raise HomeAssistantError("Automatic DTU writes require Production mode")
+        if not self.temporary_limits_fresh:
             raise HomeAssistantError(
-                "Automatic DTU writes require Production and fresh temporary limits"
+                "DTU temporary power limits are stale or inconsistent"
             )
 
         addresses = tuple(PORT_TEMPORARY_POWER_LIMIT_REGISTERS.values())
