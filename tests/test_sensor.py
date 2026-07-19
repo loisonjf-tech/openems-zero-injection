@@ -31,6 +31,7 @@ async def test_connection_sensor_reports_connected(hass) -> None:
             return_value=50
         )
         client_class.return_value.async_write_temporary_power_limit = AsyncMock()
+        client_class.return_value.async_disconnect = AsyncMock()
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
@@ -49,6 +50,12 @@ async def test_connection_sensor_reports_connected(hass) -> None:
     assert power_limit_entity is not None
     assert hass.states.get(power_limit_entity).state == "50.0"
 
+    temporary_limit_sensor = registry.async_get_entity_id(
+        "sensor", DOMAIN, f"{entry.entry_id}_port_1_temporary_power_limit_percent"
+    )
+    assert temporary_limit_sensor is not None
+    assert hass.states.get(temporary_limit_sensor).state == "50"
+
     safety_switch = registry.async_get_entity_id(
         "switch", DOMAIN, f"{entry.entry_id}_enable_manual_dtu_writes"
     )
@@ -57,9 +64,9 @@ async def test_connection_sensor_reports_connected(hass) -> None:
 
     expected_energy_manager_states = {
         "energy_manager_battery_count": "0",
-        "energy_manager_total_max_charge_power_w": "0.0",
-        "energy_manager_total_current_charge_power_w": "0.0",
-        "energy_manager_total_remaining_charge_power_w": "0.0",
+        "energy_manager_total_max_charge_power_w": "0",
+        "energy_manager_total_current_charge_power_w": "0",
+        "energy_manager_total_remaining_charge_power_w": "0",
         "energy_manager_state": "Aucune batterie configurée",
     }
     for suffix, expected_state in expected_energy_manager_states.items():
@@ -73,6 +80,10 @@ async def test_connection_sensor_reports_connected(hass) -> None:
     coordinator.last_update_success = False
     coordinator.async_update_listeners()
     await hass.async_block_till_done()
+
+    # A verified cached temporary limit remains visible; its attributes expose
+    # that a later Modbus refresh might be stale.
+    assert hass.states.get(temporary_limit_sensor).state == "50"
 
     for platform, unique_id in (
         ("select", f"{entry.entry_id}_controller_mode"),
