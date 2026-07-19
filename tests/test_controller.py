@@ -38,6 +38,8 @@ async def test_disabled_and_simulation_never_write(hass) -> None:
     )
     await controller.async_tick()
     coordinator.async_set_all_temporary_power_limits.assert_not_awaited()
+    assert controller.status.grid_power_w == -220
+    assert controller.status.scheduler_inactive_reason == "Controller disabled"
 
     await controller.async_set_mode(ControllerMode.SIMULATION.value)
     for _ in range(3):
@@ -49,6 +51,20 @@ async def test_disabled_and_simulation_never_write(hass) -> None:
     await controller.async_tick()
     assert controller.commands_simulated == 1
     assert controller.status.last_decision == "Simulation awaiting significant measurements"
+
+
+async def test_disabled_controller_keeps_grid_power_visible(hass) -> None:
+    """Disabled is a deliberate state, not an unavailable local measurement."""
+    hass.states.async_set("sensor.grid", "-177")
+    controller = ZeroInjectionController(
+        hass, fake_coordinator(), AcquisitionEngine(hass, "sensor.grid", False)
+    )
+
+    await controller.async_tick()
+
+    assert controller.mode is ControllerMode.DISABLED
+    assert controller.status.grid_power_w == -177
+    assert controller.status.last_decision == "Controller disabled"
 
 
 async def test_simulation_does_not_chain_virtual_commands(hass) -> None:

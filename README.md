@@ -42,6 +42,10 @@ Les lectures Modbus sont strictement sérialisées, sans temporisation artificie
 
 Le contrôleur vérifie son tick toutes les trois secondes, mais n'évalue qu'un seul snapshot cohérent par nouvelle génération de mesures. La puissance DTU est lue toutes les 10 secondes, l'énergie et les limites temporaires toutes les 30 secondes, et les informations générales ainsi que les limites permanentes toutes les cinq minutes. Les limites temporaires restent utilisables 65 secondes ; les limites permanentes sont diagnostiques et ne suspendent jamais le contrôleur.
 
+Le mode sélectionné du contrôleur est enregistré dans les options de l’intégration et restauré après un redémarrage ou un rechargement. Le journal indique le mode restauré et sa source. En mode **Désactivé**, la puissance réseau reste visible lorsqu’elle est lisible : cela distingue explicitement une désactivation volontaire d’un capteur réseau indisponible.
+
+Une limite permanente hors de la plage documentée est traitée comme une donnée diagnostique indisponible. Sa valeur brute est journalisée une fois, puis le registre optionnel est temporairement suspendu ; elle ne modifie ni l’état de connexion ni les limites temporaires utilisées par le contrôleur.
+
 Les entités de configuration et du moteur local (mode, interrupteur de sécurité, paramètres, compteurs et dernier état) restent disponibles lors d'une indisponibilité DTU. Seules les entités dont la valeur provient directement du Modbus peuvent devenir indisponibles.
 
 ## Préparation EMS passive

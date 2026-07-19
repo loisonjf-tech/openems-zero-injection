@@ -41,6 +41,9 @@ if TYPE_CHECKING:
     from .coordinator import DtuProSCoordinator
 
 
+_LOGGER = logging.getLogger(__name__)
+
+
 DISPLAY_LABELS_FR = {
     "No batteries configured": "Aucune batterie configurée",
     "Passive": "Passif",
@@ -98,6 +101,7 @@ class ControllerStatus:
     last_command_result: str | None = None
     last_command_time: datetime | None = None
     last_error: str | None = None
+    scheduler_inactive_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +129,8 @@ class ZeroInjectionController:
         *,
         installed_nominal_power_w: int = DEFAULT_INSTALLED_NOMINAL_POWER_W,
         installed_power_source: str = "initial_configuration",
+        initial_mode: ControllerMode = ControllerMode.DISABLED,
+        mode_restore_source: str = "default",
         battery_manager: BatteryManager | None = None,
     ) -> None:
         self._hass = hass
@@ -133,7 +139,8 @@ class ZeroInjectionController:
         # V1 deliberately never reads this object. V1.1 will make any battery
         # policy depend on this neutral interface rather than a vendor API.
         self._battery_manager: BatteryManager = battery_manager or NullBatteryManager()
-        self._mode = ControllerMode.DISABLED
+        self._mode = initial_mode
+        self._mode_restore_source = mode_restore_source
         self._target_grid_power_w = DEFAULT_TARGET_GRID_POWER_W
         self._deadband_w = DEFAULT_DEADBAND_W
         self._stabilization_delay_seconds = DEFAULT_STABILIZATION_DELAY_SECONDS
@@ -145,7 +152,20 @@ class ZeroInjectionController:
         self._scheduler = SafetyScheduler(self._stabilization_delay_seconds)
         self._history = DecisionHistory()
         self._learning = PassiveLearningEngine()
-        self._status = ControllerStatus()
+        self._status = ControllerStatus(
+            mode=initial_mode,
+            state=initial_mode.value,
+            last_decision=(
+                "Controller disabled"
+                if initial_mode is ControllerMode.DISABLED
+                else None
+            ),
+            scheduler_inactive_reason=(
+                "Controller disabled"
+                if initial_mode is ControllerMode.DISABLED
+                else None
+            ),
+        )
         self._valid_grid_measurements = 0
         self._cancel_tick: Callable[[], None] | None = None
         self._tick_lock = asyncio.Lock()
@@ -172,6 +192,11 @@ class ZeroInjectionController:
     @property
     def mode(self) -> ControllerMode:
         return self._mode
+
+    @property
+    def mode_restore_source(self) -> str:
+        """Return how the controller mode was selected at startup."""
+        return self._mode_restore_source
 
     @property
     def status(self) -> ControllerStatus:
@@ -272,9 +297,14 @@ class ZeroInjectionController:
         return self._scheduler.state.value
 
     async def async_start(self) -> None:
-        """Start periodic local acquisition; mode remains disabled after restart."""
+        """Start periodic local acquisition using the restored controller mode."""
         if self._cancel_tick is not None:
             return
+        restored_mode = (
+            "active" if self._mode is ControllerMode.PRODUCTION else self._mode.value.lower()
+        )
+        _LOGGER.info("Controller mode restored: %s", restored_mode)
+        _LOGGER.info("Controller mode source: %s", self._mode_restore_source)
         self._cancel_tick = async_track_time_interval(
             self._hass, self._async_scheduled_tick, CONTROLLER_INTERVAL
         )
@@ -289,9 +319,10 @@ class ZeroInjectionController:
         await self.async_tick()
 
     async def async_set_mode(self, mode: str) -> None:
-        """Select an explicit mode; Production is never restored on startup."""
+        """Select an explicit mode; persistence is handled by the coordinator."""
         previous_mode = self._mode
         self._mode = ControllerMode(mode)
+        self._mode_restore_source = "options"
         self._configuration_generation += 1
         if self._mode is ControllerMode.DISABLED:
             self._scheduler.reset()
@@ -333,6 +364,9 @@ class ZeroInjectionController:
                 else self._status.last_command_time
             ),
             last_error=None,
+            scheduler_inactive_reason=(
+                "Controller disabled" if self._mode is ControllerMode.DISABLED else None
+            ),
         )
 
     def set_target_grid_power(self, value: int) -> None:
@@ -389,14 +423,18 @@ class ZeroInjectionController:
         async with self._tick_lock:
             if self._mode is ControllerMode.DISABLED:
                 real_limit = self._current_consistent_limit(require_fresh=False)
+                measurement = self._acquisition.read_grid_power()
                 self._set_status(
                     state="Disabled",
+                    grid_power_w=measurement.power_w,
                     current_limit_percent=real_limit,
                     real_dtu_limit_percent=real_limit,
                     calculated_limit_percent=None,
                     commanded_limit_percent=None,
                     simulated_limit_percent=None,
+                    last_decision="Controller disabled",
                     last_error=None,
+                    scheduler_inactive_reason="Controller disabled",
                 )
                 return
 

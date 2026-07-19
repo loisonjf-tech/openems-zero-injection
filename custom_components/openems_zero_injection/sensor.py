@@ -84,6 +84,7 @@ async def async_setup_entry(
             OpenEMSControllerSensor(coordinator, entry, "calculated_limit", "Limite théorique calculée", unit="%"),
             OpenEMSControllerSensor(coordinator, entry, "commanded_limit", "Prochaine limite commandée", unit="%"),
             OpenEMSControllerSensor(coordinator, entry, "waiting_state", "État d’attente", EntityCategory.DIAGNOSTIC),
+            OpenEMSControllerSensor(coordinator, entry, "scheduler_inactive_reason", "Motif d’inactivité du planificateur", EntityCategory.DIAGNOSTIC),
             OpenEMSControllerSensor(coordinator, entry, "watts_per_percent", "Puissance correspondant à 1 %", EntityCategory.DIAGNOSTIC, unit="W/%"),
             OpenEMSControllerSensor(coordinator, entry, "grid_power", "Puissance réseau", unit=UnitOfPower.WATT),
             OpenEMSControllerSensor(coordinator, entry, "grid_error", "Erreur réseau", unit=UnitOfPower.WATT),
@@ -289,6 +290,7 @@ class OpenEMSControllerSensor(_DtuSensorBase):
             "simulated_limit": status.simulated_limit_percent,
             "last_simulated_limit": controller.last_simulated_limit,
             "waiting_state": controller.waiting_state,
+            "scheduler_inactive_reason": status.scheduler_inactive_reason,
             "watts_per_percent": controller.watts_per_percent,
             "grid_power": status.grid_power_w,
             "grid_error": status.grid_error_w,
@@ -313,6 +315,7 @@ class OpenEMSControllerSensor(_DtuSensorBase):
             "last_decision",
             "last_command_result",
             "last_error",
+            "scheduler_inactive_reason",
         }:
             return display_label(value)
         return value

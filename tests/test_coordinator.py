@@ -8,10 +8,12 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.openems_zero_injection.const import (
+    CONF_CONTROLLER_MODE,
     CONF_DTU_HOST,
     CONF_DTU_PORT,
     DOMAIN,
     TEMPORARY_LIMIT_SCAN_INTERVAL,
+    ControllerMode,
 )
 from custom_components.openems_zero_injection.coordinator import DtuProSCoordinator
 from custom_components.openems_zero_injection.modbus import DtuConnectionError
@@ -49,6 +51,39 @@ async def test_coordinator_decodes_measurements(hass) -> None:
     assert coordinator.cycle_timings_ms["total_cycle"] is not None
     assert coordinator.data.port_1_temporary_power_limit_percent == 50
     assert coordinator.active_temporary_power_limit_ports() == (1, 2, 3)
+
+
+async def test_controller_mode_is_restored_from_config_entry_options(hass, caplog) -> None:
+    """A deliberate Simulation selection survives an integration reload."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502},
+        options={CONF_CONTROLLER_MODE: ControllerMode.SIMULATION.value},
+    )
+    with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient"):
+        coordinator = DtuProSCoordinator(hass, entry)
+        await coordinator.controller.async_start()
+        await coordinator.controller.async_stop()
+
+    assert coordinator.controller.mode is ControllerMode.SIMULATION
+    assert coordinator.controller.mode_restore_source == "options"
+    assert "Controller mode restored: simulation" in caplog.text
+    assert "Controller mode source: options" in caplog.text
+
+
+async def test_invalid_persisted_mode_uses_logged_disabled_fallback(hass, caplog) -> None:
+    """Corrupt options visibly use the safe disabled fallback."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502},
+        options={CONF_CONTROLLER_MODE: "unexpected"},
+    )
+    with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient"):
+        coordinator = DtuProSCoordinator(hass, entry)
+
+    assert coordinator.controller.mode is ControllerMode.DISABLED
+    assert coordinator.controller.mode_restore_source == "fallback"
+    assert "Controller mode fallback to disabled" in caplog.text
 
 
 async def test_telemetry_failure_keeps_last_value_stale_then_recovers(hass) -> None:
@@ -208,6 +243,56 @@ async def test_permanent_limit_failure_does_not_affect_temporary_readiness(hass)
     assert coordinator.last_update_success is True
     assert coordinator.temporary_limits_ready
     assert not coordinator.power_limit_health(0xD014)["available"]
+
+
+async def test_permanent_sentinel_is_unavailable_without_affecting_control(hass, caplog) -> None:
+    """An unsupported permanent value is diagnostic-only and logs its raw value."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502}
+    )
+    with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
+        client = cls.return_value
+        client.async_read_input_registers = AsyncMock(
+            side_effect=lambda _address, count: [0] * count
+        )
+        client.async_read_power_limit_register = AsyncMock(
+            side_effect=lambda address: 0xFFFF if address == 0xD014 else 50
+        )
+        coordinator = DtuProSCoordinator(hass, entry)
+        await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is True
+    assert coordinator.temporary_limits_ready
+    health = coordinator.power_limit_health(0xD014)
+    assert health["value"] is None
+    assert health["available"] is False
+    assert "raw value=65535" in str(health["last_error"])
+    assert "raw value: 65535" in caplog.text
+
+
+async def test_unsupported_permanent_register_is_diagnostic_only(hass) -> None:
+    """A Modbus exception for an optional register never marks the DTU offline."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502}
+    )
+    with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
+        client = cls.return_value
+        client.async_read_input_registers = AsyncMock(
+            side_effect=lambda _address, count: [0] * count
+        )
+        client.async_read_power_limit_register = AsyncMock(
+            side_effect=lambda address: DtuConnectionError("Modbus exception 0x02")
+            if address == 0xD008
+            else 50
+        )
+        client.connection_diagnostics.return_value = {"connected": True}
+        coordinator = DtuProSCoordinator(hass, entry)
+        await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is True
+    assert coordinator.data.connected is True
+    assert coordinator.temporary_limits_ready
+    assert coordinator.power_limit_health(0xD008)["value"] is None
 
 
 async def test_permanent_limits_are_not_read_on_each_fast_cycle(hass) -> None:

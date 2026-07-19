@@ -55,11 +55,11 @@ class OpenEMSControllerModeSelect(CoordinatorEntity[DtuProSCoordinator], SelectE
         return True
 
     async def async_select_option(self, option: str) -> None:
-        """Apply an explicit mode choice; no mode is restored automatically."""
+        """Apply and persist an explicit local mode choice."""
         modes = {
             "Désactivé": ControllerMode.DISABLED.value,
             "Simulation": ControllerMode.SIMULATION.value,
             "Production": ControllerMode.PRODUCTION.value,
         }
-        await self.coordinator.controller.async_set_mode(modes[option])
+        await self.coordinator.async_set_controller_mode(modes[option])
         self.async_write_ha_state()

@@ -40,6 +40,7 @@
       "last_simulated_limit": {"name": "Last simulated limit"},
       "simulated_limit": {"name": "Currently recommended limit"},
       "waiting_state": {"name": "Waiting state"},
+      "scheduler_inactive_reason": {"name": "Scheduler inactivity reason"},
       "watts_per_percent": {"name": "Power corresponding to 1%"},
       "energy_manager_battery_count": {"name": "Detected battery count"},
       "energy_manager_total_max_charge_power_w": {"name": "Total maximum charge power"},

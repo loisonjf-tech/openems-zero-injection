@@ -77,6 +77,7 @@ async def async_get_config_entry_diagnostics(
         },
         "controller": {
             "mode": controller.mode.value,
+            "mode_restore_source": controller.mode_restore_source,
             "state": controller.status.state,
             "grid_power_entity_id": entry.options.get(
                 CONF_GRID_POWER_ENTITY_ID, DEFAULT_GRID_POWER_ENTITY_ID
@@ -85,6 +86,7 @@ async def async_get_config_entry_diagnostics(
                 CONF_GRID_POWER_INVERTED, DEFAULT_GRID_POWER_INVERTED
             ),
             "scheduler_state": controller.scheduler.state.value,
+            "scheduler_inactive_reason": controller.status.scheduler_inactive_reason,
             "next_command_allowed_in_seconds": controller.scheduler.remaining_seconds(),
             "last_error": controller.status.last_error,
             "last_decision_code": controller.status.last_decision,

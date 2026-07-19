@@ -12,6 +12,7 @@ CONF_DTU_PORT = "dtu_port"
 CONF_GRID_POWER_ENTITY_ID = "grid_power_entity_id"
 CONF_GRID_POWER_INVERTED = "grid_power_inverted"
 CONF_INSTALLED_NOMINAL_POWER_W = "installed_nominal_power_w"
+CONF_CONTROLLER_MODE = "controller_mode"
 
 DEFAULT_DTU_PORT = 502
 DEFAULT_DEVICE_ID = 1

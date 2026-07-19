@@ -17,6 +17,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .const import (
     CONF_DTU_HOST,
     CONF_DTU_PORT,
+    CONF_CONTROLLER_MODE,
     CONF_INSTALLED_NOMINAL_POWER_W,
     DEFAULT_INSTALLED_NOMINAL_POWER_W,
     DOMAIN,
@@ -29,6 +30,7 @@ from .const import (
     SCAN_INTERVAL,
     TEMPORARY_LIMIT_SCAN_INTERVAL,
     TEMPORARY_LIMIT_MAX_AGE_SECONDS,
+    ControllerMode,
 )
 from .acquisition import AcquisitionEngine
 from .controller import ZeroInjectionController
@@ -141,6 +143,7 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         # Passive EMS inventory. It intentionally has no adapter or scheduler
         # dependency in Build004, so it cannot change DTU control behaviour.
         self.energy_manager = EnergyManager()
+        initial_mode, mode_restore_source = self._restore_controller_mode(entry)
         self.controller = ZeroInjectionController(
             hass,
             self,
@@ -154,7 +157,24 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
                 DEFAULT_INSTALLED_NOMINAL_POWER_W,
             ),
             installed_power_source=installed_power_source,
+            initial_mode=initial_mode,
+            mode_restore_source=mode_restore_source,
         )
+
+    @staticmethod
+    def _restore_controller_mode(entry: ConfigEntry) -> tuple[ControllerMode, str]:
+        """Read a persisted mode safely without ever silently accepting bad data."""
+        raw_mode = entry.options.get(CONF_CONTROLLER_MODE)
+        if raw_mode is None:
+            return ControllerMode.DISABLED, "default"
+        try:
+            return ControllerMode(raw_mode), "options"
+        except (TypeError, ValueError):
+            _LOGGER.warning(
+                "Controller mode fallback to disabled: invalid config-entry option %r",
+                raw_mode,
+            )
+            return ControllerMode.DISABLED, "fallback"
 
     async def _async_refresh_telemetry(
         self,
@@ -186,12 +206,24 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             self._mark_stale_after_global_failure(health)
             return
         try:
-            value = decode_power_limit_percent(
-                [await self._modbus.async_read_power_limit_register(address)]
-            )
-        except (DtuConnectionError, RegisterDecodeError) as err:
+            raw_value = await self._modbus.async_read_power_limit_register(address)
+            _LOGGER.debug("DTU power-limit register 0x%04X raw value: %s", address, raw_value)
+            value = decode_power_limit_percent([raw_value])
+        except DtuConnectionError as err:
+            if (
+                address in PORT_PERMANENT_POWER_LIMIT_REGISTERS.values()
+                and str(err).startswith("Modbus exception")
+            ):
+                self._mark_unsupported_permanent_limit(address, None, str(err))
+                return
             self._mark_power_limit_failure(address, str(err))
             self._mark_transport_failure_if_disconnected()
+            return
+        except RegisterDecodeError as err:
+            if address in PORT_PERMANENT_POWER_LIMIT_REGISTERS.values():
+                self._mark_unsupported_permanent_limit(address, raw_value, str(err))
+            else:
+                self._mark_power_limit_failure(address, str(err))
             return
 
         self._mark_register_success(address, health, value)
@@ -213,6 +245,14 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
 
     def _mark_power_limit_failure(self, address: int, error: str) -> None:
         self._mark_register_failure(address, self._limit_health[address], error)
+
+    def _mark_unsupported_permanent_limit(
+        self, address: int, raw_value: int | None, error: str
+    ) -> None:
+        """Treat a permanent-register sentinel as optional unavailable data."""
+        health = self._limit_health[address]
+        health.value = None
+        self._mark_register_failure(address, health, f"{error}; raw value={raw_value}")
 
     def _mark_register_failure(
         self, address: int, health: _PowerLimitHealth, error: str
@@ -532,6 +572,13 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         """Persist a user-configured nominal PV power without DTU I/O."""
         self.controller.set_installed_nominal_power(value, source="entity")
         options = {**self.config_entry.options, CONF_INSTALLED_NOMINAL_POWER_W: int(value)}
+        self.hass.config_entries.async_update_entry(self.config_entry, options=options)
+        self.async_update_listeners()
+
+    async def async_set_controller_mode(self, mode: str) -> None:
+        """Persist an explicit local mode selection without any Modbus I/O."""
+        await self.controller.async_set_mode(mode)
+        options = {**self.config_entry.options, CONF_CONTROLLER_MODE: mode}
         self.hass.config_entries.async_update_entry(self.config_entry, options=options)
         self.async_update_listeners()
 
