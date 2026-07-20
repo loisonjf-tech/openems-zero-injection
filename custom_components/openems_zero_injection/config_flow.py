@@ -17,10 +17,12 @@ from .const import (
     CONF_GRID_POWER_ENTITY_ID,
     CONF_GRID_POWER_INVERTED,
     CONF_INSTALLED_NOMINAL_POWER_W,
+    CONF_TEMPORARY_LIMIT_VALIDATION_MODE,
     DEFAULT_DTU_PORT,
     DEFAULT_GRID_POWER_ENTITY_ID,
     DEFAULT_GRID_POWER_INVERTED,
     DEFAULT_INSTALLED_NOMINAL_POWER_W,
+    DEFAULT_TEMPORARY_LIMIT_VALIDATION_MODE,
     MAX_INSTALLED_NOMINAL_POWER_W,
     MIN_INSTALLED_NOMINAL_POWER_W,
     DOMAIN,
@@ -129,6 +131,18 @@ class OpenEMSOptionsFlow(config_entries.OptionsFlow):
                             min=MIN_INSTALLED_NOMINAL_POWER_W,
                             max=MAX_INSTALLED_NOMINAL_POWER_W,
                         ),
+                    ),
+                    vol.Required(
+                        CONF_TEMPORARY_LIMIT_VALIDATION_MODE,
+                        default=options.get(
+                            CONF_TEMPORARY_LIMIT_VALIDATION_MODE,
+                            DEFAULT_TEMPORARY_LIMIT_VALIDATION_MODE,
+                        ),
+                    ): vol.In(
+                        {
+                            "compatibility": "Mode compatibilité",
+                            "strict": "Mode strict",
+                        }
                     ),
                 }
             ),

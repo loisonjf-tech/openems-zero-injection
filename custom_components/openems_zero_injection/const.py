@@ -13,6 +13,8 @@ CONF_GRID_POWER_ENTITY_ID = "grid_power_entity_id"
 CONF_GRID_POWER_INVERTED = "grid_power_inverted"
 CONF_INSTALLED_NOMINAL_POWER_W = "installed_nominal_power_w"
 CONF_CONTROLLER_MODE = "controller_mode"
+CONF_TEMPORARY_LIMIT_VALIDATION_MODE = "temporary_limit_validation_mode"
+CONF_LAST_CONFIRMED_TEMPORARY_LIMIT = "last_confirmed_temporary_limit"
 
 DEFAULT_DTU_PORT = 502
 DEFAULT_DEVICE_ID = 1
@@ -37,6 +39,7 @@ MIN_INSTALLED_NOMINAL_POWER_W = 100
 MAX_INSTALLED_NOMINAL_POWER_W = 50_000
 INSTALLED_NOMINAL_POWER_STEP_W = 10
 DEFAULT_MAXIMUM_STEP_PERCENT = 5
+DEFAULT_TEMPORARY_LIMIT_VALIDATION_MODE = "compatibility"
 GRID_POWER_MIN_W = -20_000
 GRID_POWER_MAX_W = 20_000
 CONTROLLER_INTERVAL = timedelta(seconds=3)
@@ -70,3 +73,10 @@ class SchedulerState(StrEnum):
     VERIFYING = "Verifying"
     ERROR = "Error"
     PAUSED = "Paused"
+
+
+class TemporaryLimitValidationMode(StrEnum):
+    """How Production validates temporary DTU power-limit registers."""
+
+    STRICT = "strict"
+    COMPATIBILITY = "compatibility"

@@ -25,7 +25,8 @@
         "data": {
           "grid_power_entity_id": "Capteur de puissance réseau",
           "grid_power_inverted": "Inverser le signe de la puissance réseau",
-          "installed_nominal_power_w": "Puissance nominale de l’installation photovoltaïque"
+          "installed_nominal_power_w": "Puissance nominale de l’installation photovoltaïque",
+          "temporary_limit_validation_mode": "Mode de validation des limites temporaires"
         }
       }
     }

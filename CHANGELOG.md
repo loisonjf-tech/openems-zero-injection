@@ -6,6 +6,9 @@ Toutes les évolutions notables sont documentées dans ce fichier.
 
 ### Added
 
+- Mode de validation des limites temporaires : **Compatibilité** par défaut, avec conservation d'une limite locale uniquement après les trois accusés de réception `0x06`; le mode **Strict** conserve l'exigence de relectures `0x03` fraîches et cohérentes.
+- Le passage explicite du sélecteur vers Production active automatiquement l'interrupteur des écritures manuelles DTU; ce verrou repasse sur arrêt au démarrage et reste indépendant de l'autorisation automatique du scheduler.
+
 - Acquisition configurable de la puissance réseau locale et contrôleur déterministe avec cible, zone morte, estimation W/% et pas maximal.
 - Modes Disabled, Simulation et Production ; scheduler central avec délai de stabilisation de 12 secondes par défaut.
 - Historique borné des décisions, diagnostics de contrôleur et collecte passive des données d'apprentissage.

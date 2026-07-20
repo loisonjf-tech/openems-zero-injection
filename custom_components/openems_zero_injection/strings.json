@@ -25,7 +25,8 @@
         "data": {
           "grid_power_entity_id": "Grid power sensor",
           "grid_power_inverted": "Invert grid-power sign",
-          "installed_nominal_power_w": "Installed nominal photovoltaic power"
+          "installed_nominal_power_w": "Installed nominal photovoltaic power",
+          "temporary_limit_validation_mode": "Temporary limit validation mode"
         }
       }
     }

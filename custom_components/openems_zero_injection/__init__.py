@@ -31,4 +31,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def _async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload safely after changing the selected local grid-power sensor."""
+    coordinator: DtuProSCoordinator | None = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if coordinator is not None and coordinator._skip_next_options_reload:
+        coordinator._skip_next_options_reload = False
+        return
     await hass.config_entries.async_reload(entry.entry_id)

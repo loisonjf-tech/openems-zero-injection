@@ -70,6 +70,12 @@ async def async_get_config_entry_diagnostics(
         "manual_writes_enabled": coordinator.manual_writes_enabled,
         "manual_write_allowed": coordinator.manual_write_allowed,
         "automatic_write_allowed": coordinator.automatic_write_allowed,
+        "temporary_limit_validation": {
+            "mode": coordinator.temporary_limit_validation_mode.value,
+            "last_confirmed_limit": coordinator.last_confirmed_temporary_limit,
+            "compatibility_limit_available": coordinator.compatibility_limit_available,
+            "temporary_registers_fresh": coordinator.temporary_limits_fresh,
+        },
         "energy_manager": {
             "state": energy_manager.state,
             "battery_count": energy_manager.battery_count,

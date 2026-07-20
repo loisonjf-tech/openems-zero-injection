@@ -682,8 +682,17 @@ class ZeroInjectionController:
         data = self._coordinator.data
         if data is None or not data.connected:
             return None
-        if require_fresh and not self._coordinator.temporary_limits_ready:
+        validation_mode = getattr(self._coordinator, "temporary_limit_validation_mode", None)
+        compatibility_mode = getattr(validation_mode, "value", validation_mode) == "compatibility"
+        if (
+            require_fresh
+            and not compatibility_mode
+            and not self._coordinator.temporary_limits_ready
+        ):
             return None
+        effective_limit = getattr(self._coordinator, "effective_temporary_limit", None)
+        if effective_limit is not None:
+            return effective_limit
         limits = [
             data.port_1_temporary_power_limit_percent,
             data.port_2_temporary_power_limit_percent,
@@ -716,19 +725,15 @@ class ZeroInjectionController:
             > MEASUREMENT_SYNC_MAX_DIFFERENCE_SECONDS
         ):
             return None
-        limits = (
-            data.port_1_temporary_power_limit_percent,
-            data.port_2_temporary_power_limit_percent,
-            data.port_3_temporary_power_limit_percent,
-        )
-        if any(value is None for value in limits):
+        current_limit = self._current_consistent_limit(require_fresh=True)
+        if current_limit is None:
             return None
         return DecisionSnapshot(
             grid_power_w=grid_power_w,
             grid_power_timestamp=grid_timestamp,
             dtu_power_w=data.active_power_w,
             dtu_power_timestamp=dtu_timestamp,
-            temporary_limits=(limits[0], limits[1], limits[2]),
+            temporary_limits=(current_limit, current_limit, current_limit),
             temporary_limits_timestamp=limits_timestamp,
             target_power_w=self._target_grid_power_w,
             created_at=now,

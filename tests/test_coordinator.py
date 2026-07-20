@@ -11,6 +11,7 @@ from custom_components.openems_zero_injection.const import (
     CONF_CONTROLLER_MODE,
     CONF_DTU_HOST,
     CONF_DTU_PORT,
+    CONF_TEMPORARY_LIMIT_VALIDATION_MODE,
     DOMAIN,
     TEMPORARY_LIMIT_SCAN_INTERVAL,
     ControllerMode,
@@ -569,6 +570,80 @@ async def test_manual_and_automatic_permissions_are_separate(hass) -> None:
     await coordinator.controller.async_set_mode(ControllerMode.PRODUCTION.value)
     assert coordinator.manual_write_allowed
     assert coordinator.automatic_write_allowed
+
+
+async def test_explicit_production_mode_enables_manual_write_interlock(hass) -> None:
+    """Selecting Production in the UI enables manual writes for this session."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502}
+    )
+    with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
+        client = cls.return_value
+        client.async_read_input_registers = AsyncMock(
+            side_effect=lambda _address, count: [0] * count
+        )
+        client.async_read_power_limit_register = AsyncMock(return_value=50)
+        coordinator = DtuProSCoordinator(hass, entry)
+        await coordinator.async_refresh()
+        assert not coordinator.manual_writes_enabled
+
+        await coordinator.async_set_controller_mode(ControllerMode.PRODUCTION.value)
+
+    assert coordinator.manual_writes_enabled
+    assert coordinator.manual_write_allowed
+    assert coordinator.automatic_write_allowed
+
+
+async def test_compatibility_mode_uses_all_port_write_echo_when_reads_are_unavailable(hass) -> None:
+    """Compatibility defaults to the safe all-port echo cache, never a fallback value."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502}
+    )
+    with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
+        client = cls.return_value
+        client.async_read_input_registers = AsyncMock(
+            side_effect=lambda _address, count: [0] * count
+        )
+        client.async_read_power_limit_register = AsyncMock(return_value=50)
+        client.async_write_temporary_power_limit = AsyncMock()
+        coordinator = DtuProSCoordinator(hass, entry)
+        await coordinator.async_refresh()
+        await coordinator.async_set_controller_mode(ControllerMode.PRODUCTION.value)
+        client.async_read_power_limit_register.reset_mock()
+
+        await coordinator.async_set_all_temporary_power_limits(55)
+
+    client.async_read_power_limit_register.assert_not_awaited()
+    assert coordinator.last_confirmed_temporary_limit == 55
+    assert coordinator.effective_temporary_limit == 55
+    assert coordinator.automatic_write_allowed
+
+
+async def test_strict_mode_still_requires_temporary_readback(hass) -> None:
+    """Strict mode never substitutes an acknowledged write for a 0x03 readback."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502},
+        options={CONF_TEMPORARY_LIMIT_VALIDATION_MODE: "strict"},
+    )
+    with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
+        client = cls.return_value
+        client.async_read_input_registers = AsyncMock(
+            side_effect=lambda _address, count: [0] * count
+        )
+        client.async_read_power_limit_register = AsyncMock(return_value=50)
+        client.async_write_temporary_power_limit = AsyncMock()
+        coordinator = DtuProSCoordinator(hass, entry)
+        await coordinator.async_refresh()
+        await coordinator.async_set_controller_mode(ControllerMode.PRODUCTION.value)
+        client.async_read_power_limit_register.side_effect = DtuConnectionError("no readback")
+
+        from homeassistant.exceptions import HomeAssistantError
+
+        with pytest.raises(HomeAssistantError, match="command failed"):
+            await coordinator.async_set_all_temporary_power_limits(55)
+
+    assert coordinator.last_confirmed_temporary_limit is None
 
 
 @pytest.mark.parametrize("value", [1, 101])
