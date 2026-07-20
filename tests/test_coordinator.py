@@ -671,7 +671,11 @@ async def test_automatic_write_rejects_out_of_range_values(hass, value: int) -> 
 
 async def test_automatic_write_readback_mismatch_keeps_last_confirmed_values(hass) -> None:
     """A partial or inconsistent command is never treated as confirmed."""
-    entry = MockConfigEntry(domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502})
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502},
+        options={CONF_TEMPORARY_LIMIT_VALIDATION_MODE: "strict"},
+    )
     entry.add_to_hass(hass)
     with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
         client = cls.return_value
