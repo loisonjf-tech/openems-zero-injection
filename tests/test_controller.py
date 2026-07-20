@@ -17,7 +17,6 @@ from custom_components.openems_zero_injection.controller import ZeroInjectionCon
 def fake_coordinator(*, automatic_writes_enabled: bool = True):
     timestamp = datetime.now(UTC)
     coordinator = SimpleNamespace(
-        manual_writes_enabled=False,
         automatic_write_allowed=automatic_writes_enabled,
         temporary_limits_ready=True,
         temporary_limits_timestamp=timestamp,
@@ -406,11 +405,10 @@ async def test_production_requires_three_valid_measurements_then_writes(hass) ->
     assert controller.scheduler.state is SchedulerState.WAITING
 
 
-async def test_production_writes_when_manual_switch_is_off(hass) -> None:
-    """The manual NumberEntity lock never blocks the Production scheduler."""
+async def test_production_writes_while_manual_control_is_locked(hass) -> None:
+    """The Manual slider never blocks the Production scheduler."""
     hass.states.async_set("sensor.grid", "-220")
     coordinator = fake_coordinator()
-    assert coordinator.manual_writes_enabled is False
     assert coordinator.automatic_write_allowed is True
     controller = ZeroInjectionController(
         hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
@@ -423,11 +421,10 @@ async def test_production_writes_when_manual_switch_is_off(hass) -> None:
     coordinator.async_set_all_temporary_power_limits.assert_awaited_once_with(45)
 
 
-async def test_simulation_never_writes_when_manual_switch_is_on(hass) -> None:
-    """Manual permission cannot turn a simulated proposal into a DTU command."""
+async def test_simulation_never_writes(hass) -> None:
+    """Simulation cannot turn a proposal into a DTU command."""
     hass.states.async_set("sensor.grid", "-220")
     coordinator = fake_coordinator()
-    coordinator.manual_writes_enabled = True
     controller = ZeroInjectionController(
         hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
     )

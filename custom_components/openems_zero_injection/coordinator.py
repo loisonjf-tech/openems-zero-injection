@@ -19,6 +19,7 @@ from .const import (
     CONF_DTU_PORT,
     CONF_CONTROLLER_MODE,
     CONF_LAST_CONFIRMED_TEMPORARY_LIMIT,
+    CONF_LAST_CONFIRMED_TEMPORARY_LIMIT_SOURCE,
     CONF_AUTO_RESUME_PRODUCTION,
     CONF_INSTALLED_NOMINAL_POWER_W,
     CONF_PRODUCTION_STARTUP_STRATEGY,
@@ -111,9 +112,6 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         self._modbus = DtuProSModbusClient(
             entry.data[CONF_DTU_HOST], entry.data[CONF_DTU_PORT]
         )
-        # Deliberately reset on every integration startup. The switch is a
-        # physical safety interlock, never an automation setting.
-        self._manual_writes_enabled = False
         self._skip_next_options_reload = False
         self._temporary_limit_validation_mode = self._restore_temporary_limit_validation_mode(
             entry
@@ -121,6 +119,14 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         self._last_confirmed_temporary_limit = self._restore_confirmed_temporary_limit(
             entry
         )
+        self._last_confirmed_temporary_limit_source = entry.options.get(
+            CONF_LAST_CONFIRMED_TEMPORARY_LIMIT_SOURCE, "unknown"
+        )
+        if self._last_confirmed_temporary_limit_source == "last_confirmed_command":
+            self._last_confirmed_temporary_limit_source = "automatic_correction"
+        self._temporary_limits_synchronized = True
+        self._last_manual_command_confirmed: datetime | None = None
+        self._last_manual_command_error: str | None = None
         self._production_startup_strategy = self._restore_production_startup_strategy(
             entry
         )
@@ -582,6 +588,21 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         return self._last_confirmed_temporary_limit is not None
 
     @property
+    def temporary_limits_synchronized(self) -> bool:
+        """Return whether no partial common-limit command is known."""
+        return self._temporary_limits_synchronized
+
+    @property
+    def last_manual_command_confirmed(self) -> datetime | None:
+        """Return the time of the last successful common manual command."""
+        return self._last_manual_command_confirmed
+
+    @property
+    def last_manual_command_error(self) -> str | None:
+        """Return the latest explicit common manual command error."""
+        return self._last_manual_command_error
+
+    @property
     def last_confirmed_temporary_limit(self) -> int | None:
         """Return the locally retained all-port limit confirmed by Modbus writes."""
         return self._last_confirmed_temporary_limit
@@ -625,7 +646,7 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             is TemporaryLimitValidationMode.COMPATIBILITY
             and self.compatibility_limit_available
         ):
-            return "last_confirmed_command"
+            return self._last_confirmed_temporary_limit_source
         return "unknown"
 
     @property
@@ -702,16 +723,12 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         return dict(self._cycle_timings_ms)
 
     @property
-    def manual_writes_enabled(self) -> bool:
-        """Return the state of the manual-write safety interlock."""
-        return self._manual_writes_enabled
-
-    @property
     def manual_write_allowed(self) -> bool:
-        """Return whether a NumberEntity may issue a manual DTU write."""
+        """Return whether Manual mode owns the one common DTU command."""
         return (
-            self._manual_writes_enabled
-            and self.controller.mode is not ControllerMode.SIMULATION
+            self.controller.mode is ControllerMode.DISABLED
+            and self.data is not None
+            and self.data.connected
         )
 
     @property
@@ -721,6 +738,7 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             self.controller.mode is ControllerMode.PRODUCTION
             and self.data is not None
             and self.data.connected
+            and self._temporary_limits_synchronized
             and (
                 self.temporary_limits_fresh
                 or (
@@ -746,15 +764,6 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         """Return whether an opted-in Production restart may take over again."""
         return self._auto_resume_production
 
-    async def async_set_manual_writes_enabled(self, enabled: bool) -> None:
-        """Change only the local manual-write safety interlock."""
-        self._manual_writes_enabled = enabled
-        _LOGGER.warning(
-            "Manual DTU temporary power-limit writes %s",
-            "enabled" if enabled else "disabled",
-        )
-        self.async_update_listeners()
-
     async def async_set_installed_nominal_power(self, value: float) -> None:
         """Persist a user-configured nominal PV power without DTU I/O."""
         self.controller.set_installed_nominal_power(value, source="entity")
@@ -765,92 +774,50 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
     async def async_set_controller_mode(self, mode: str) -> None:
         """Persist an explicit local mode selection without any Modbus I/O."""
         await self.controller.async_set_mode(mode)
-        if (
-            self.controller.mode is ControllerMode.PRODUCTION
-            and not self._manual_writes_enabled
-        ):
-            # This is an explicit user transition in the UI, not a startup
-            # restore. It makes the manual controls immediately usable while
-            # keeping their safety interlock reset after a restart.
-            await self.async_set_manual_writes_enabled(True)
         options = {**self.config_entry.options, CONF_CONTROLLER_MODE: mode}
         # The live controller has already applied this explicit mode change.
-        # Reloading would immediately reset the manual safety interlock and
-        # defeat the intentional Production transition above.
+        # Avoid a needless reload that would interrupt an active scheduler.
         self._skip_next_options_reload = True
         self.hass.config_entries.async_update_entry(self.config_entry, options=options)
         self.async_update_listeners()
 
-    async def _async_store_confirmed_temporary_limit(self, value: int) -> None:
+    async def _async_store_confirmed_temporary_limit(
+        self, value: int, source: str
+    ) -> None:
         """Persist a value only after all requested 0x06 writes were acknowledged."""
         self._last_confirmed_temporary_limit = value
-        options = {**self.config_entry.options, CONF_LAST_CONFIRMED_TEMPORARY_LIMIT: value}
+        self._last_confirmed_temporary_limit_source = source
+        options = {
+            **self.config_entry.options,
+            CONF_LAST_CONFIRMED_TEMPORARY_LIMIT: value,
+            CONF_LAST_CONFIRMED_TEMPORARY_LIMIT_SOURCE: source,
+        }
         self._skip_next_options_reload = True
         self.hass.config_entries.async_update_entry(self.config_entry, options=options)
 
-    def active_temporary_power_limit_ports(self) -> tuple[int, ...]:
-        """Return ports whose temporary limit was read as a valid percentage."""
-        if self.data is None:
-            return ()
-        return tuple(
-            port
-            for port in PORT_TEMPORARY_POWER_LIMIT_REGISTERS
-            if getattr(self.data, f"port_{port}_temporary_power_limit_percent")
-            is not None
-        )
-
-    async def async_set_temporary_power_limit(self, port: int, value: int) -> None:
-        """Manually set, acknowledge, and immediately re-read one temporary limit."""
+    async def async_set_manual_temporary_power_limit(self, value: int) -> None:
+        """Apply one explicit Manual-mode value to all three temporary ports."""
         if not self.manual_write_allowed:
-            raise HomeAssistantError("Manual DTU writes are disabled")
-        if port not in PORT_TEMPORARY_POWER_LIMIT_REGISTERS:
-            raise HomeAssistantError("Unsupported DTU port")
+            raise HomeAssistantError("Manual DTU control is available only in Manual mode")
         if not isinstance(value, int) or not 2 <= value <= 100:
             raise HomeAssistantError("DTU power limit must be between 2 and 100%")
-
-        address = PORT_TEMPORARY_POWER_LIMIT_REGISTERS[port]
-        _LOGGER.info("Manual temporary DTU power-limit request: port %s, %s%%", port, value)
         try:
-            await self._modbus.async_write_temporary_power_limit(address, value)
-            confirmed = await self._modbus.async_read_power_limit_register(address)
-        except DtuConnectionError as err:
-            _LOGGER.error(
-                "Manual temporary DTU power-limit write failed for port %s: %s",
-                port,
-                err,
-            )
-            raise HomeAssistantError(
-                f"DTU temporary power-limit write failed for port {port}: {err}"
-            ) from err
-
-        if confirmed != value:
-            _LOGGER.error(
-                "DTU temporary power-limit verification failed for port %s: requested %s%%, read %s%%",
-                port,
+            await self._async_write_all_temporary_power_limits(
                 value,
-                confirmed,
+                require_existing_limit=False,
+                source="manual_command",
+                allowed_mode=ControllerMode.DISABLED,
+                require_readback=False,
             )
-            raise HomeAssistantError(
-                f"DTU did not confirm {value}% for port {port}; read {confirmed}%"
-            )
-
-        if self.data is not None:
-            self.async_set_updated_data(
-                replace(
-                    self.data,
-                    **{f"port_{port}_temporary_power_limit_percent": confirmed},
-                )
-            )
-        health = self._limit_health[address]
-        health.value = confirmed
-        health.last_success = datetime.now(UTC)
-        health.available = True
-        health.error = None
-        health.last_failure_log_time = None
-        health.consecutive_failures = 0
-        _LOGGER.info(
-            "Manual temporary DTU power limit confirmed: port %s, %s%%", port, value
-        )
+        except HomeAssistantError as err:
+            self._last_manual_command_error = str(err)
+            self._temporary_limits_synchronized = False
+            self.controller.scheduler.pause()
+            self.async_update_listeners()
+            raise
+        self._last_manual_command_confirmed = datetime.now(UTC)
+        self._last_manual_command_error = None
+        self.async_update_listeners()
 
     async def async_set_all_temporary_power_limits(self, value: int) -> None:
         """Apply one verified automatic temporary limit to all three ports.
@@ -859,7 +826,14 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         retries, restoration write, global register, or permanent register.
         """
         await self._async_write_all_temporary_power_limits(
-            value, require_existing_limit=True
+            value,
+            require_existing_limit=True,
+            source="automatic_correction",
+            allowed_mode=ControllerMode.PRODUCTION,
+            require_readback=(
+                self._temporary_limit_validation_mode
+                is TemporaryLimitValidationMode.STRICT
+            ),
         )
 
     async def async_takeover_temporary_power_limits(self, value: int) -> None:
@@ -872,18 +846,28 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         if self._temporary_limit_validation_mode is TemporaryLimitValidationMode.STRICT:
             raise HomeAssistantError("DTU takeover requires Compatibility mode")
         await self._async_write_all_temporary_power_limits(
-            value, require_existing_limit=False
+            value,
+            require_existing_limit=False,
+            source="takeover_confirmed",
+            allowed_mode=ControllerMode.PRODUCTION,
+            require_readback=False,
         )
 
     async def _async_write_all_temporary_power_limits(
-        self, value: int, *, require_existing_limit: bool
+        self,
+        value: int,
+        *,
+        require_existing_limit: bool,
+        source: str,
+        allowed_mode: ControllerMode,
+        require_readback: bool,
     ) -> None:
         """Write one safe value to all temporary ports with no retry."""
         if not isinstance(value, int) or not 2 <= value <= 100:
             raise HomeAssistantError("DTU power limit must be between 2 and 100%")
 
-        if self.controller.mode is not ControllerMode.PRODUCTION:
-            raise HomeAssistantError("Automatic DTU writes require Production mode")
+        if self.controller.mode is not allowed_mode:
+            raise HomeAssistantError("DTU write is not allowed in the current controller mode")
         if self.data is None or not self.data.connected:
             raise HomeAssistantError("DTU is not connected")
         if require_existing_limit and not self.automatic_write_allowed:
@@ -891,31 +875,46 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
                 "DTU temporary power limits are stale or inconsistent"
             )
 
-        addresses = tuple(PORT_TEMPORARY_POWER_LIMIT_REGISTERS.values())
+        ports_and_addresses = tuple(PORT_TEMPORARY_POWER_LIMIT_REGISTERS.items())
         _LOGGER.warning(
-            "Automatic temporary DTU power-limit request: all ports, %s%%", value
+            "%s temporary DTU power-limit request: all ports, %s%%",
+            source,
+            value,
         )
+        confirmed_ports: list[int] = []
         try:
-            for address in addresses:
+            for port, address in ports_and_addresses:
                 await self._modbus.async_write_temporary_power_limit(address, value)
-            if self._temporary_limit_validation_mode is TemporaryLimitValidationMode.STRICT:
+                confirmed_ports.append(port)
+            if require_readback:
                 confirmed = {
                     address: decode_power_limit_percent(
                         [await self._modbus.async_read_power_limit_register(address)]
                     )
-                    for address in addresses
+                    for _, address in ports_and_addresses
                 }
             else:
                 # async_write_temporary_power_limit has already checked the
                 # 0x06 echo. Some DTUs cannot reliably re-read 0xD00x.
-                confirmed = {address: value for address in addresses}
+                confirmed = {address: value for _, address in ports_and_addresses}
         except (DtuConnectionError, RegisterDecodeError) as err:
-            _LOGGER.error("Automatic temporary DTU power-limit write failed: %s", err)
+            failed_ports = [
+                port for port, _ in ports_and_addresses if port not in confirmed_ports
+            ]
+            self._temporary_limits_synchronized = False
+            _LOGGER.error(
+                "Common temporary DTU power-limit write failed; confirmed ports=%s, failed ports=%s: %s",
+                confirmed_ports,
+                failed_ports,
+                err,
+            )
             raise HomeAssistantError(
-                f"DTU temporary power-limit command failed: {err}"
+                "DTU temporary power-limit command failed for ports "
+                f"{failed_ports}: {err}"
             ) from err
 
         if any(read_value != value for read_value in confirmed.values()):
+            self._temporary_limits_synchronized = False
             _LOGGER.error(
                 "Automatic temporary DTU power-limit verification failed: requested %s%%, read %s",
                 value,
@@ -940,23 +939,21 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             )
         now = datetime.now(UTC)
         self._last_temporary_limit_read = now
-        for address in addresses:
+        for _, address in ports_and_addresses:
             health = self._limit_health[address]
             health.value = value
             health.last_success = now
             # Strict mode has a successful 0x03 readback. Compatibility mode
             # has only the verified 0x06 echo: retain the value locally but
             # never describe it as a fresh register read.
-            health.available = (
-                self._temporary_limit_validation_mode
-                is TemporaryLimitValidationMode.STRICT
-            )
+            health.available = require_readback
             health.error = None
             health.last_failure_log_time = None
             health.consecutive_failures = 0
-        await self._async_store_confirmed_temporary_limit(value)
+        self._temporary_limits_synchronized = True
+        await self._async_store_confirmed_temporary_limit(value, source)
         _LOGGER.warning(
-            "Automatic temporary DTU power limit confirmed on all ports: %s%%", value
+            "%s temporary DTU power limit confirmed on all ports: %s%%", source, value
         )
 
     async def async_shutdown(self) -> None:

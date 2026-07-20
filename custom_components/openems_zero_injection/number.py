@@ -7,7 +7,9 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, PERCENTAGE, UnitOfPower
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_registry import RegistryEntryDisabler
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_DTU_HOST, CONF_DTU_PORT, DOMAIN
@@ -22,13 +24,28 @@ from .coordinator import DtuProSCoordinator
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    """Set up one temporary manual power-limit control per confirmed active port."""
+    """Set up the one common Manual-mode temporary power-limit control."""
     coordinator: DtuProSCoordinator = hass.data[DOMAIN][entry.entry_id]
+    registry = er.async_get(hass)
+    for port in (1, 2, 3):
+        old_entity_id = registry.async_get_entity_id(
+            "number", DOMAIN, f"{entry.entry_id}_port_{port}_temporary_power_limit"
+        )
+        if old_entity_id is not None:
+            # Keep historical registry entries but disable them permanently:
+            # no old per-port command remains active or becomes orphaned.
+            registry.async_update_entity(
+                old_entity_id, disabled_by=RegistryEntryDisabler.INTEGRATION
+            )
+    old_switch_id = registry.async_get_entity_id(
+        "switch", DOMAIN, f"{entry.entry_id}_enable_manual_dtu_writes"
+    )
+    if old_switch_id is not None:
+        registry.async_update_entity(
+            old_switch_id, disabled_by=RegistryEntryDisabler.INTEGRATION
+        )
     async_add_entities(
-        [
-            DtuTemporaryPowerLimitNumber(coordinator, entry, port)
-            for port in coordinator.active_temporary_power_limit_ports()
-        ]
+        [DtuCommonTemporaryPowerLimitNumber(coordinator, entry)]
         + [
             OpenEMSControllerNumber(
                 coordinator, entry, "target_grid_power", "Puissance cible réseau", -200, 200, 5, UnitOfPower.WATT
@@ -56,26 +73,22 @@ async def async_setup_entry(
     )
 
 
-class DtuTemporaryPowerLimitNumber(CoordinatorEntity[DtuProSCoordinator], NumberEntity):
-    """A gated manual control for one temporary, per-port limit only."""
+class DtuCommonTemporaryPowerLimitNumber(
+    CoordinatorEntity[DtuProSCoordinator], NumberEntity
+):
+    """One slider that writes the same verified limit to all temporary ports."""
 
     _attr_native_min_value = 2
     _attr_native_max_value = 100
     _attr_native_step = 1
     _attr_native_unit_of_measurement = PERCENTAGE
-    _attr_mode = NumberMode.BOX
+    _attr_mode = NumberMode.SLIDER
     _attr_entity_category = EntityCategory.CONFIG
 
-    def __init__(
-        self, coordinator: DtuProSCoordinator, entry: ConfigEntry, port: int
-    ) -> None:
+    def __init__(self, coordinator: DtuProSCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
-        self._port = port
-        self._field = f"port_{port}_temporary_power_limit_percent"
-        self._attr_unique_id = f"{entry.entry_id}_port_{port}_temporary_power_limit"
-        # Keep the unique ID stable: Home Assistant therefore retains the
-        # existing entity_id while making the manual nature unmistakable.
-        self._attr_name = f"Commande manuelle limite temporaire DTU port {port}"
+        self._attr_unique_id = f"{entry.entry_id}_manual_temporary_power_limit"
+        self._attr_name = "Limite temporaire manuelle DTU"
         endpoint = f"{entry.data[CONF_DTU_HOST]}:{entry.data[CONF_DTU_PORT]}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, endpoint)},
@@ -90,19 +103,18 @@ class DtuTemporaryPowerLimitNumber(CoordinatorEntity[DtuProSCoordinator], Number
             super().available
             and self.coordinator.manual_write_allowed
             and self.coordinator.data is not None
-            and getattr(self.coordinator.data, self._field) is not None
         )
 
     @property
     def native_value(self) -> float | None:
-        data = self.coordinator.data
-        return float(getattr(data, self._field)) if data else None
+        value = self.coordinator.effective_temporary_limit
+        return float(value) if value is not None else None
 
     async def async_set_native_value(self, value: float) -> None:
-        """Request one gated manual temporary-limit write and its verification."""
+        """Request one verified common temporary-limit write."""
         if not isinstance(value, (int, float)) or int(value) != value:
             raise ValueError("DTU power limit must be a whole percentage")
-        await self.coordinator.async_set_temporary_power_limit(self._port, int(value))
+        await self.coordinator.async_set_manual_temporary_power_limit(int(value))
 
 
 class OpenEMSControllerNumber(CoordinatorEntity[DtuProSCoordinator], NumberEntity):

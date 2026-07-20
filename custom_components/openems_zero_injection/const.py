@@ -15,6 +15,7 @@ CONF_INSTALLED_NOMINAL_POWER_W = "installed_nominal_power_w"
 CONF_CONTROLLER_MODE = "controller_mode"
 CONF_TEMPORARY_LIMIT_VALIDATION_MODE = "temporary_limit_validation_mode"
 CONF_LAST_CONFIRMED_TEMPORARY_LIMIT = "last_confirmed_temporary_limit"
+CONF_LAST_CONFIRMED_TEMPORARY_LIMIT_SOURCE = "last_confirmed_temporary_limit_source"
 CONF_PRODUCTION_STARTUP_STRATEGY = "production_startup_strategy"
 CONF_TAKEOVER_LIMIT_PERCENT = "takeover_limit_percent"
 CONF_AUTO_RESUME_PRODUCTION = "auto_resume_production"
@@ -23,7 +24,7 @@ DEFAULT_DTU_PORT = 502
 DEFAULT_DEVICE_ID = 1
 MODBUS_TIMEOUT_SECONDS = 5
 MODBUS_RECONNECT_BACKOFF_MAX_SECONDS = 30
-PLATFORMS = ("sensor", "number", "switch", "select")
+PLATFORMS = ("sensor", "number", "select")
 SCAN_INTERVAL = timedelta(seconds=10)
 ENERGY_SCAN_INTERVAL = timedelta(seconds=30)
 TEMPORARY_LIMIT_SCAN_INTERVAL = timedelta(seconds=30)

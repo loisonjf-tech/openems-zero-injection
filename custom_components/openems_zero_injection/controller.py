@@ -57,13 +57,13 @@ DISPLAY_LABELS_FR = {
     "Simulation awaiting measurements": "Simulation en attente de nouvelles mesures",
     "Simulation mode": "Mode simulation",
     "Production mode": "Mode production",
-    "Disabled": "Désactivé",
+    "Disabled": "Manuel",
     "Simulation": "Simulation",
-    "Production": "Production",
+    "Production": "Régulation automatique",
     "Paused": "En pause",
     "Error": "Erreur",
     "Idle": "Inactif",
-    "Monitoring": "Surveillance",
+    "Monitoring": "Régulation active",
     "Waiting": "En attente",
     "Writing": "Écriture en cours",
     "Verifying": "Vérification en cours",
@@ -81,7 +81,7 @@ DISPLAY_LABELS_FR = {
     "Data unavailable": "Données indisponibles",
     "Temporary limit unavailable": "Limite temporaire indisponible",
     "Limits inconsistent": "Limites DTU incohérentes",
-    "Controller disabled": "Contrôleur désactivé",
+    "Controller disabled": "Mode manuel",
 }
 
 

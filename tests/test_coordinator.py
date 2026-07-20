@@ -51,7 +51,7 @@ async def test_coordinator_decodes_measurements(hass) -> None:
     assert coordinator.cycle_timings_ms["power"] is not None
     assert coordinator.cycle_timings_ms["total_cycle"] is not None
     assert coordinator.data.port_1_temporary_power_limit_percent == 50
-    assert coordinator.active_temporary_power_limit_ports() == (1, 2, 3)
+    assert coordinator.temporary_limits_identical
 
 
 async def test_controller_mode_is_restored_from_config_entry_options(hass, caplog) -> None:
@@ -459,68 +459,73 @@ async def test_permanent_registers_are_suppressed_after_two_failures(hass) -> No
     assert client.async_read_power_limit_register.await_count == 0
 
 
-async def test_manual_write_is_gated_and_verified(hass) -> None:
-    """A temporary write is blocked by default then updates only after re-read."""
+async def test_manual_common_slider_writes_all_three_temporary_ports(hass) -> None:
+    """Manual mode owns one common command, confirmed by three 0x06 echoes."""
     entry = MockConfigEntry(domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502})
+    entry.add_to_hass(hass)
     with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
         client = cls.return_value
-        client.async_read_input_registers = AsyncMock(
-            side_effect=lambda _address, count: [0] * count
-        )
+        client.async_read_input_registers = AsyncMock(side_effect=lambda _address, count: [0] * count)
         client.async_read_power_limit_register = AsyncMock(return_value=50)
         client.async_write_temporary_power_limit = AsyncMock()
         coordinator = DtuProSCoordinator(hass, entry)
         await coordinator.async_refresh()
-        from homeassistant.exceptions import HomeAssistantError
 
-        with pytest.raises(HomeAssistantError, match="disabled"):
-            await coordinator.async_set_temporary_power_limit(1, 60)
-        client.async_write_temporary_power_limit.assert_not_awaited()
+        assert coordinator.manual_write_allowed
+        await coordinator.async_set_manual_temporary_power_limit(60)
 
-        await coordinator.async_set_manual_writes_enabled(True)
-        client.async_read_power_limit_register.side_effect = [60]
-        await coordinator.async_set_temporary_power_limit(1, 60)
-
-    client.async_write_temporary_power_limit.assert_awaited_once_with(0xD007, 60)
-    assert coordinator.data.port_1_temporary_power_limit_percent == 60
+    assert client.async_write_temporary_power_limit.await_args_list == [
+        call(0xD007, 60), call(0xD00D, 60), call(0xD013, 60)
+    ]
+    assert coordinator.temporary_limits_synchronized
+    assert coordinator.temporary_limit_source == "manual_command"
 
 
 @pytest.mark.parametrize("value", [1, 101])
-async def test_manual_write_rejects_out_of_range_values(hass, value: int) -> None:
-    """The coordinator never forwards an out-of-range manual command."""
+async def test_manual_common_slider_rejects_out_of_range_values(hass, value: int) -> None:
+    """Manual mode never forwards an out-of-range common command."""
     entry = MockConfigEntry(domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502})
+    entry.add_to_hass(hass)
     coordinator = DtuProSCoordinator(hass, entry)
-    await coordinator.async_set_manual_writes_enabled(True)
+    coordinator.data = Mock(connected=True)
     from homeassistant.exceptions import HomeAssistantError
 
     with pytest.raises(HomeAssistantError, match="between 2 and 100"):
-        await coordinator.async_set_temporary_power_limit(1, value)
+        await coordinator.async_set_manual_temporary_power_limit(value)
 
 
-async def test_manual_write_different_readback_preserves_last_confirmed_value(hass) -> None:
-    """A mismatch does not overwrite the last confirmed Home Assistant value."""
+async def test_manual_partial_failure_marks_ports_uncertain_until_resynchronized(hass) -> None:
+    """A failed port pauses automation; a later explicit Manual command repairs it."""
     entry = MockConfigEntry(domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502})
+    entry.add_to_hass(hass)
     with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
         client = cls.return_value
-        client.async_read_input_registers = AsyncMock(
-            side_effect=lambda _address, count: [0] * count
-        )
+        client.async_read_input_registers = AsyncMock(side_effect=lambda _address, count: [0] * count)
         client.async_read_power_limit_register = AsyncMock(return_value=50)
-        client.async_write_temporary_power_limit = AsyncMock()
+        client.async_write_temporary_power_limit = AsyncMock(
+            side_effect=[None, DtuConnectionError("port 2 rejected")]
+        )
         coordinator = DtuProSCoordinator(hass, entry)
         await coordinator.async_refresh()
-        await coordinator.async_set_manual_writes_enabled(True)
-        client.async_read_power_limit_register.side_effect = [40]
         from homeassistant.exceptions import HomeAssistantError
 
-        with pytest.raises(HomeAssistantError, match="did not confirm"):
-            await coordinator.async_set_temporary_power_limit(1, 60)
+        with pytest.raises(HomeAssistantError, match="ports \[2, 3\]"):
+            await coordinator.async_set_manual_temporary_power_limit(60)
 
-    assert coordinator.data.port_1_temporary_power_limit_percent == 50
+        assert not coordinator.temporary_limits_synchronized
+        await coordinator.controller.async_set_mode(ControllerMode.PRODUCTION.value)
+        assert not coordinator.automatic_write_allowed
+
+        await coordinator.controller.async_set_mode(ControllerMode.DISABLED.value)
+        client.async_write_temporary_power_limit.side_effect = None
+        await coordinator.async_set_manual_temporary_power_limit(60)
+
+    assert coordinator.temporary_limits_synchronized
+    assert coordinator.last_manual_command_error is None
 
 
 async def test_automatic_write_updates_all_three_temporary_ports_only(hass) -> None:
-    """Production writes despite the manual NumberEntity switch being off."""
+    """Production writes independently from the locked Manual slider."""
     entry = MockConfigEntry(domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502})
     entry.add_to_hass(hass)
     with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
@@ -544,8 +549,8 @@ async def test_automatic_write_updates_all_three_temporary_ports_only(hass) -> N
     assert coordinator.data.port_3_temporary_power_limit_percent == 55
 
 
-async def test_manual_and_automatic_permissions_are_separate(hass) -> None:
-    """Manual and automatic writes are authorized by independent conditions."""
+async def test_manual_simulation_and_automatic_modes_have_exclusive_write_owners(hass) -> None:
+    """Manual controls are enabled only in Manual mode; Production owns automation."""
     entry = MockConfigEntry(
         domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502}
     )
@@ -561,7 +566,6 @@ async def test_manual_and_automatic_permissions_are_separate(hass) -> None:
     assert not coordinator.manual_write_allowed
     assert not coordinator.automatic_write_allowed
 
-    await coordinator.async_set_manual_writes_enabled(True)
     assert coordinator.manual_write_allowed
 
     await coordinator.controller.async_set_mode(ControllerMode.SIMULATION.value)
@@ -569,30 +573,7 @@ async def test_manual_and_automatic_permissions_are_separate(hass) -> None:
     assert not coordinator.automatic_write_allowed
 
     await coordinator.controller.async_set_mode(ControllerMode.PRODUCTION.value)
-    assert coordinator.manual_write_allowed
-    assert coordinator.automatic_write_allowed
-
-
-async def test_explicit_production_mode_enables_manual_write_interlock(hass) -> None:
-    """Selecting Production in the UI enables manual writes for this session."""
-    entry = MockConfigEntry(
-        domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502}
-    )
-    entry.add_to_hass(hass)
-    with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
-        client = cls.return_value
-        client.async_read_input_registers = AsyncMock(
-            side_effect=lambda _address, count: [0] * count
-        )
-        client.async_read_power_limit_register = AsyncMock(return_value=50)
-        coordinator = DtuProSCoordinator(hass, entry)
-        await coordinator.async_refresh()
-        assert not coordinator.manual_writes_enabled
-
-        await coordinator.async_set_controller_mode(ControllerMode.PRODUCTION.value)
-
-    assert coordinator.manual_writes_enabled
-    assert coordinator.manual_write_allowed
+    assert not coordinator.manual_write_allowed
     assert coordinator.automatic_write_allowed
 
 
@@ -647,7 +628,7 @@ async def test_compatibility_takeover_writes_without_a_prior_limit_read(hass) ->
     )
     client.async_read_power_limit_register.assert_not_awaited()
     assert coordinator.last_confirmed_temporary_limit == 90
-    assert coordinator.temporary_limit_source == "last_confirmed_command"
+    assert coordinator.temporary_limit_source == "automatic_correction"
 
 
 async def test_strict_mode_refuses_takeover_without_readback(hass) -> None:

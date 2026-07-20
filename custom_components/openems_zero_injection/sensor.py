@@ -79,6 +79,8 @@ async def async_setup_entry(
             OpenEMSControllerSensor(coordinator, entry, "controller_state", "État du contrôleur"),
             OpenEMSControllerSensor(coordinator, entry, "scheduler_state", "État du planificateur"),
             OpenEMSControllerSensor(coordinator, entry, "current_limit", "Limite DTU réelle", unit="%"),
+            OpenEMSControllerSensor(coordinator, entry, "current_limit_source", "Source de la limite courante", EntityCategory.DIAGNOSTIC),
+            OpenEMSControllerSensor(coordinator, entry, "ports_synchronization", "État de synchronisation des ports", EntityCategory.DIAGNOSTIC),
             OpenEMSControllerSensor(coordinator, entry, "last_simulated_limit", "Dernière limite simulée", unit="%"),
             OpenEMSControllerSensor(coordinator, entry, "simulated_limit", "Limite actuellement recommandée", unit="%"),
             OpenEMSControllerSensor(coordinator, entry, "calculated_limit", "Limite théorique calculée", unit="%"),
@@ -297,6 +299,18 @@ class OpenEMSControllerSensor(_DtuSensorBase):
             "controller_state": status.state,
             "scheduler_state": controller.scheduler_display_state,
             "current_limit": status.real_dtu_limit_percent,
+            "current_limit_source": {
+                "modbus_readback": "Relecture Modbus",
+                "takeover_confirmed": "Prise de contrôle confirmée",
+                "automatic_correction": "Dernière correction automatique confirmée",
+                "manual_command": "Commande manuelle confirmée",
+                "unknown": "Inconnue",
+            }.get(self.coordinator.temporary_limit_source, "Inconnue"),
+            "ports_synchronization": (
+                "Synchronisés"
+                if self.coordinator.temporary_limits_synchronized
+                else "Incertains"
+            ),
             "calculated_limit": status.calculated_limit_percent,
             # In Simulation this is intentionally only a displayed proposal:
             # it is never submitted to the DTU.

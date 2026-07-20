@@ -17,6 +17,8 @@ def test_french_translation_keys_exist_for_controller_entities() -> None:
         ("sensor", "controller_state"),
         ("sensor", "scheduler_state"),
         ("sensor", "current_limit"),
+        ("sensor", "current_limit_source"),
+        ("sensor", "ports_synchronization"),
         ("sensor", "calculated_limit"),
         ("sensor", "commanded_limit"),
         ("sensor", "last_simulated_limit"),
@@ -26,7 +28,6 @@ def test_french_translation_keys_exist_for_controller_entities() -> None:
         ("sensor", "last_command_result"),
         ("sensor", "commands_simulated"),
         ("select", "controller_mode"),
-        ("switch", "enable_manual_dtu_writes"),
     ):
         assert source["entity"][platform][key]["name"]
         assert french["entity"][platform][key]["name"]
@@ -41,5 +42,5 @@ def test_internal_codes_have_french_display_labels() -> None:
         == "Simulation en attente de nouvelles mesures significatives"
     )
     assert display_label("Command simulated") == "Commande simulée"
-    assert display_label("Disabled") == "Désactivé"
+    assert display_label("Disabled") == "Manuel"
     assert display_label("Grid import") != "Grid import"

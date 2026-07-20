@@ -39,6 +39,8 @@
       "controller_state": {"name": "État du contrôleur"},
       "scheduler_state": {"name": "État du planificateur"},
       "current_limit": {"name": "Limite DTU réelle"},
+      "current_limit_source": {"name": "Source de la limite courante"},
+      "ports_synchronization": {"name": "État de synchronisation des ports"},
       "calculated_limit": {"name": "Limite théorique calculée"},
       "commanded_limit": {"name": "Prochaine limite commandée"},
       "last_simulated_limit": {"name": "Dernière limite simulée"},
@@ -60,9 +62,6 @@
     },
     "select": {
       "controller_mode": {"name": "Mode du contrôleur"}
-    },
-    "switch": {
-      "enable_manual_dtu_writes": {"name": "Autoriser les écritures manuelles DTU"}
     }
   },
   "exceptions": {

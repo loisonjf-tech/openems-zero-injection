@@ -28,7 +28,7 @@ Dans l'assistant d'ajout de l'intégration, indiquez l'adresse IP du Hoymiles DT
 
 Configurez l'entité Home Assistant de puissance réseau dans les options de l'intégration. La convention par défaut est positive = consommation réseau et négative = injection. La cible par défaut est `-40 W`, avec une zone morte de `±30 W`.
 
-Le mode du contrôleur est **Désactivé** après chaque démarrage. **Simulation** calcule et explique les décisions sans écrire ni utiliser le délai de stabilisation de Production. La limite DTU réelle reste exclusivement celle lue dans les registres Modbus ; la limite simulée est une recommandation distincte, recalculée uniquement lors d'une mesure significativement différente. Lors d'un passage explicite vers **Production**, **Autoriser les écritures manuelles DTU** est activé automatiquement pour rendre les commandes manuelles disponibles ; il repasse volontairement sur arrêt après un redémarrage. L'autorisation automatique du scheduler est distincte de cet interrupteur.
+Les valeurs internes restent `Disabled`, `Simulation` et `Production`, mais l’interface affiche respectivement **Manuel**, **Simulation** et **Régulation automatique**. En mode **Manuel**, le curseur **Limite temporaire manuelle DTU** est disponible lorsque le DTU est connecté et écrit une même valeur sur les trois ports temporaires. En **Simulation**, aucune écriture n’est possible. En **Régulation automatique**, le scheduler est le seul pilote du DTU et le curseur est verrouillé.
 
 Le mode de validation des limites temporaires est **Compatibilité** par défaut. Après trois écritures temporaires réussies et leurs accusés de réception `0x06`, il conserve localement la consigne confirmée si certains DTU ne permettent pas de relire fiablement `0xD007`, `0xD00D` ou `0xD013`. Le mode **Strict** exige au contraire trois relectures `0x03` fraîches, identiques et valides. Dans les deux cas, une erreur d'écriture ou une perte de communication arrête les commandes ; aucune valeur `0`, `2` ou `100` n'est inventée.
 
@@ -48,15 +48,13 @@ Le contrôleur vérifie son tick toutes les trois secondes, mais n'évalue qu'un
 
 En **Simulation**, l’état du planificateur indique explicitement qu’il attend de nouvelles mesures après une proposition. La capteur **Prochaine limite commandée** affiche alors cette proposition avec les attributs `execution_mode: Simulation` et `is_simulation: true` : aucune écriture DTU n’est effectuée. Le nombre de compteurs déclaré par le DTU est seulement diagnostique ; la régulation utilise exclusivement le capteur de puissance réseau configuré dans Home Assistant.
 
-Le mode sélectionné du contrôleur est enregistré dans les options de l’intégration et restauré après un redémarrage ou un rechargement. Le journal indique le mode restauré et sa source. En mode **Désactivé**, la puissance réseau reste visible lorsqu’elle est lisible : cela distingue explicitement une désactivation volontaire d’un capteur réseau indisponible.
+Le mode sélectionné du contrôleur est enregistré dans les options de l’intégration et restauré après un redémarrage ou un rechargement. Le journal indique le mode restauré et sa source. En mode **Manuel**, la puissance réseau reste visible lorsqu’elle est lisible : cela distingue explicitement une absence de régulation automatique d’un capteur réseau indisponible.
 
 Une limite permanente hors de la plage documentée est traitée comme une donnée diagnostique indisponible. Sa valeur brute est journalisée une fois, puis le registre optionnel est temporairement suspendu ; elle ne modifie ni l’état de connexion ni les limites temporaires utilisées par le contrôleur.
 
-Les trois `number` de limites temporaires sont des **commandes manuelles** par port. Les trois `sensor` portant le terme **réelle** sont des lectures du dernier snapshot du coordinator, donc la valeur lue ou mise en cache après vérification DTU. Ils conservent leur `entity_id` existant lors du renommage. Le scheduler automatique appelle directement le coordinator et ne lit jamais ces entités `number`.
+Le curseur unique écrit `0xD007`, `0xD00D` et `0xD013`, avec une plage de `2` à `100 %` et un pas de `1 %`. Les trois capteurs réels restent diagnostiques. Les trois anciennes commandes par port restent dans le registre Home Assistant mais sont automatiquement désactivées par l’intégration : elles ne sont donc ni supprimées brutalement ni actives. Un échec partiel marque les ports **Incertains**, suspend la régulation automatique et exige une nouvelle commande explicite en mode Manuel pour les resynchroniser.
 
-L’interrupteur **Autoriser les écritures manuelles DTU** ne déverrouille que les commandes `number` manuelles. En Production, le scheduler utilise une autorisation distincte : mode Production, connexion DTU valide et limites temporaires fraîches et identiques (**Strict**) ou dernière consigne confirmée par les trois échos d’écriture (**Compatibilité**), puis valeur de `2` à `100 %`. En Simulation, aucune autorisation ne permet d’envoyer une écriture Modbus réelle.
-
-Les entités de configuration et du moteur local (mode, interrupteur de sécurité, paramètres, compteurs et dernier état) restent disponibles lors d'une indisponibilité DTU. Seules les entités dont la valeur provient directement du Modbus peuvent devenir indisponibles.
+Les diagnostics indiquent aussi si les ports sont synchronisés et la source de la limite courante : relecture Modbus, prise de contrôle confirmée, correction automatique confirmée, commande manuelle confirmée ou inconnue.
 
 ## Préparation EMS passive
 

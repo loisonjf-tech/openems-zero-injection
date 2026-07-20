@@ -6,11 +6,14 @@ Toutes les évolutions notables sont documentées dans ce fichier.
 
 ### Added
 
+- Interface V1 simplifiée : modes affichés **Manuel**, **Simulation** et **Régulation automatique**, sans modifier les valeurs internes historiques.
+- Curseur unique de limite temporaire manuelle, limité de 2 à 100 %, appliqué et confirmé sur les trois ports temporaires.
+- Migration non destructive : les trois anciennes commandes manuelles par port sont conservées dans le registre Home Assistant, mais désactivées automatiquement par l’intégration.
+
 - Stratégie Production optionnelle **Prise de contrôle** : trois écritures temporaires `0x06` confirmées établissent une limite de départ locale sans dépendre d'une relecture `0x03`; le délai de stabilisation reste obligatoire avant toute régulation.
 - Option explicite de reprise automatique après redémarrage : elle ne s'applique qu'à un mode Production précédemment enregistré, à une stratégie Prise de contrôle, et après une connexion DTU réussie.
 - Diagnostics séparant connexion DTU, lisibilité et cohérence des limites temporaires, source de la limite active, stratégie de démarrage et reprise automatique.
 - Mode de validation des limites temporaires : **Compatibilité** par défaut, avec conservation d'une limite locale uniquement après les trois accusés de réception `0x06`; le mode **Strict** conserve l'exigence de relectures `0x03` fraîches et cohérentes.
-- Le passage explicite du sélecteur vers Production active automatiquement l'interrupteur des écritures manuelles DTU; ce verrou repasse sur arrêt au démarrage et reste indépendant de l'autorisation automatique du scheduler.
 
 - Acquisition configurable de la puissance réseau locale et contrôleur déterministe avec cible, zone morte, estimation W/% et pas maximal.
 - Modes Disabled, Simulation et Production ; scheduler central avec délai de stabilisation de 12 secondes par défaut.
@@ -26,7 +29,7 @@ Toutes les évolutions notables sont documentées dans ce fichier.
 
 ### Safety
 
-- Production exige trois mesures réseau valides, des limites temporaires cohérentes et l'interrupteur Build003 activé.
+- La régulation automatique est suspendue après une écriture manuelle partielle ; aucune correction automatique n’est tentée avant une resynchronisation explicite réussie.
 - Les seules écritures automatiques sont les limites temporaires des trois ports, suivies d'une relecture complète.
 - Aucune intégration Zendure/SolarFlow, aucune écriture permanente, aucun PID ni retry automatique.
 - Une erreur isolée d'une limite temporaire conserve la dernière valeur avec un état périmé et suspend les commandes Production jusqu'à trois lectures temporaires fraîches et cohérentes.

@@ -1,6 +1,7 @@
 """Tests for the OpenEMS connection diagnostic sensor."""
 
 from unittest.mock import AsyncMock, patch
+from dataclasses import replace
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from homeassistant.helpers import entity_registry as er
@@ -9,6 +10,7 @@ from custom_components.openems_zero_injection.const import (
     CONF_DTU_HOST,
     CONF_DTU_PORT,
     DOMAIN,
+    ControllerMode,
 )
 
 
@@ -36,6 +38,7 @@ async def test_connection_sensor_reports_connected(hass) -> None:
         await hass.async_block_till_done()
 
     registry = er.async_get(hass)
+    coordinator = hass.data[DOMAIN][entry.entry_id]
     registry_entry = registry.async_get_entity_id(
         "sensor", DOMAIN, f"{entry.entry_id}_connection_status"
     )
@@ -45,22 +48,36 @@ async def test_connection_sensor_reports_connected(hass) -> None:
     assert state.state == "Connecté"
 
     power_limit_entity = registry.async_get_entity_id(
-        "number", DOMAIN, f"{entry.entry_id}_port_1_temporary_power_limit"
+        "number", DOMAIN, f"{entry.entry_id}_manual_temporary_power_limit"
     )
     assert power_limit_entity is not None
+    assert hass.states.get(power_limit_entity).state == "50"
+
+    # The slider belongs exclusively to Manual mode and requires a connected DTU.
+    await coordinator.controller.async_set_mode(ControllerMode.SIMULATION.value)
+    coordinator.async_update_listeners()
+    await hass.async_block_till_done()
     assert hass.states.get(power_limit_entity).state == "unavailable"
+
+    await coordinator.controller.async_set_mode(ControllerMode.PRODUCTION.value)
+    coordinator.async_update_listeners()
+    await hass.async_block_till_done()
+    assert hass.states.get(power_limit_entity).state == "unavailable"
+
+    await coordinator.controller.async_set_mode(ControllerMode.DISABLED.value)
+    coordinator.async_set_updated_data(replace(coordinator.data, connected=False))
+    await hass.async_block_till_done()
+    assert hass.states.get(power_limit_entity).state == "unavailable"
+
+    coordinator.async_set_updated_data(replace(coordinator.data, connected=True))
+    await hass.async_block_till_done()
+    assert hass.states.get(power_limit_entity).state == "50"
 
     temporary_limit_sensor = registry.async_get_entity_id(
         "sensor", DOMAIN, f"{entry.entry_id}_port_1_temporary_power_limit_percent"
     )
     assert temporary_limit_sensor is not None
     assert hass.states.get(temporary_limit_sensor).state == "50"
-
-    safety_switch = registry.async_get_entity_id(
-        "switch", DOMAIN, f"{entry.entry_id}_enable_manual_dtu_writes"
-    )
-    assert safety_switch is not None
-    assert hass.states.get(safety_switch).state == "off"
 
     expected_energy_manager_states = {
         "energy_manager_battery_count": "0",
@@ -76,7 +93,6 @@ async def test_connection_sensor_reports_connected(hass) -> None:
         assert entity_id is not None
         assert hass.states.get(entity_id).state == expected_state
 
-    coordinator = hass.data[DOMAIN][entry.entry_id]
     coordinator.last_update_success = False
     coordinator.async_update_listeners()
     await hass.async_block_till_done()
@@ -87,7 +103,6 @@ async def test_connection_sensor_reports_connected(hass) -> None:
 
     for platform, unique_id in (
         ("select", f"{entry.entry_id}_controller_mode"),
-        ("switch", f"{entry.entry_id}_enable_manual_dtu_writes"),
         ("number", f"{entry.entry_id}_installed_nominal_power"),
         ("sensor", f"{entry.entry_id}_controller_state"),
         ("sensor", f"{entry.entry_id}_commands_simulated"),

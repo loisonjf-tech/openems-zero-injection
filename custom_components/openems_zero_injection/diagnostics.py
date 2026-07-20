@@ -67,7 +67,6 @@ async def async_get_config_entry_diagnostics(
             "cycle_timings_ms": coordinator.cycle_timings_ms,
             **coordinator.connection_diagnostics(),
         },
-        "manual_writes_enabled": coordinator.manual_writes_enabled,
         "manual_write_allowed": coordinator.manual_write_allowed,
         "automatic_write_allowed": coordinator.automatic_write_allowed,
         "temporary_limit_validation": {
@@ -78,6 +77,19 @@ async def async_get_config_entry_diagnostics(
             "temporary_registers_fresh": coordinator.temporary_limits_fresh,
             "temporary_registers_identical": coordinator.temporary_limits_identical,
             "current_limit_source": coordinator.temporary_limit_source,
+            "current_limit_source_label": {
+                "modbus_readback": "Relecture Modbus",
+                "takeover_confirmed": "Prise de contrôle confirmée",
+                "automatic_correction": "Dernière correction automatique confirmée",
+                "manual_command": "Commande manuelle confirmée",
+            }.get(coordinator.temporary_limit_source, "Inconnue"),
+            "ports_synchronized": coordinator.temporary_limits_synchronized,
+            "last_manual_command_confirmed": (
+                coordinator.last_manual_command_confirmed.isoformat()
+                if coordinator.last_manual_command_confirmed
+                else None
+            ),
+            "last_manual_command_error": coordinator.last_manual_command_error,
         },
         "energy_manager": {
             "state": energy_manager.state,
