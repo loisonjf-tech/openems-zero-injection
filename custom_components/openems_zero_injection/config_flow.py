@@ -17,12 +17,18 @@ from .const import (
     CONF_GRID_POWER_ENTITY_ID,
     CONF_GRID_POWER_INVERTED,
     CONF_INSTALLED_NOMINAL_POWER_W,
+    CONF_AUTO_RESUME_PRODUCTION,
+    CONF_PRODUCTION_STARTUP_STRATEGY,
+    CONF_TAKEOVER_LIMIT_PERCENT,
     CONF_TEMPORARY_LIMIT_VALIDATION_MODE,
     DEFAULT_DTU_PORT,
     DEFAULT_GRID_POWER_ENTITY_ID,
     DEFAULT_GRID_POWER_INVERTED,
     DEFAULT_INSTALLED_NOMINAL_POWER_W,
+    DEFAULT_AUTO_RESUME_PRODUCTION,
+    DEFAULT_PRODUCTION_STARTUP_STRATEGY,
     DEFAULT_TEMPORARY_LIMIT_VALIDATION_MODE,
+    DEFAULT_TAKEOVER_LIMIT_PERCENT,
     MAX_INSTALLED_NOMINAL_POWER_W,
     MIN_INSTALLED_NOMINAL_POWER_W,
     DOMAIN,
@@ -144,6 +150,32 @@ class OpenEMSOptionsFlow(config_entries.OptionsFlow):
                             "strict": "Mode strict",
                         }
                     ),
+                    vol.Required(
+                        CONF_PRODUCTION_STARTUP_STRATEGY,
+                        default=options.get(
+                            CONF_PRODUCTION_STARTUP_STRATEGY,
+                            DEFAULT_PRODUCTION_STARTUP_STRATEGY,
+                        ),
+                    ): vol.In(
+                        {
+                            "safe": "Mode sécurisé",
+                            "takeover": "Prise de contrôle",
+                        }
+                    ),
+                    vol.Required(
+                        CONF_TAKEOVER_LIMIT_PERCENT,
+                        default=options.get(
+                            CONF_TAKEOVER_LIMIT_PERCENT,
+                            DEFAULT_TAKEOVER_LIMIT_PERCENT,
+                        ),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=2, max=100)),
+                    vol.Required(
+                        CONF_AUTO_RESUME_PRODUCTION,
+                        default=options.get(
+                            CONF_AUTO_RESUME_PRODUCTION,
+                            DEFAULT_AUTO_RESUME_PRODUCTION,
+                        ),
+                    ): selector.BooleanSelector(),
                 }
             ),
         )

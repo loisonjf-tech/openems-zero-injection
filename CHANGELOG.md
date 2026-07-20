@@ -6,6 +6,9 @@ Toutes les évolutions notables sont documentées dans ce fichier.
 
 ### Added
 
+- Stratégie Production optionnelle **Prise de contrôle** : trois écritures temporaires `0x06` confirmées établissent une limite de départ locale sans dépendre d'une relecture `0x03`; le délai de stabilisation reste obligatoire avant toute régulation.
+- Option explicite de reprise automatique après redémarrage : elle ne s'applique qu'à un mode Production précédemment enregistré, à une stratégie Prise de contrôle, et après une connexion DTU réussie.
+- Diagnostics séparant connexion DTU, lisibilité et cohérence des limites temporaires, source de la limite active, stratégie de démarrage et reprise automatique.
 - Mode de validation des limites temporaires : **Compatibilité** par défaut, avec conservation d'une limite locale uniquement après les trois accusés de réception `0x06`; le mode **Strict** conserve l'exigence de relectures `0x03` fraîches et cohérentes.
 - Le passage explicite du sélecteur vers Production active automatiquement l'interrupteur des écritures manuelles DTU; ce verrou repasse sur arrêt au démarrage et reste indépendant de l'autorisation automatique du scheduler.
 

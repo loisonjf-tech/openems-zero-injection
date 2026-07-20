@@ -6,7 +6,11 @@ from datetime import UTC, datetime, timedelta
 from dataclasses import replace
 
 from custom_components.openems_zero_injection.acquisition import AcquisitionEngine
-from custom_components.openems_zero_injection.const import ControllerMode, SchedulerState
+from custom_components.openems_zero_injection.const import (
+    ControllerMode,
+    ProductionStartupStrategy,
+    SchedulerState,
+)
 from custom_components.openems_zero_injection.controller import ZeroInjectionController
 
 
@@ -26,9 +30,53 @@ def fake_coordinator(*, automatic_writes_enabled: bool = True):
             port_3_temporary_power_limit_percent=50,
         ),
         async_set_all_temporary_power_limits=AsyncMock(),
+        async_takeover_temporary_power_limits=AsyncMock(),
         async_update_listeners=lambda: None,
     )
     return coordinator
+
+
+async def test_takeover_establishes_a_reference_before_first_production_decision(hass) -> None:
+    """Takeover is a single all-port command before normal Production control."""
+    coordinator = fake_coordinator()
+    controller = ZeroInjectionController(
+        hass,
+        coordinator,
+        AcquisitionEngine(hass, "sensor.grid", False),
+        production_startup_strategy=ProductionStartupStrategy.TAKEOVER,
+        takeover_limit_percent=85,
+    )
+
+    await controller.async_set_mode(ControllerMode.PRODUCTION.value)
+    await controller.async_tick()
+
+    coordinator.async_takeover_temporary_power_limits.assert_awaited_once_with(85)
+    coordinator.async_set_all_temporary_power_limits.assert_not_awaited()
+    assert controller.commands_sent == 1
+    assert controller.commands_succeeded == 1
+    assert not controller.takeover_pending
+    assert controller.status.current_limit_percent == 85
+    assert controller.scheduler.state is SchedulerState.WAITING
+
+
+async def test_auto_resume_runs_takeover_only_for_restored_production(hass) -> None:
+    """An explicit opt-in restores Production through the same takeover path."""
+    coordinator = fake_coordinator()
+    controller = ZeroInjectionController(
+        hass,
+        coordinator,
+        AcquisitionEngine(hass, "sensor.grid", False),
+        initial_mode=ControllerMode.PRODUCTION,
+        mode_restore_source="options",
+        production_startup_strategy=ProductionStartupStrategy.TAKEOVER,
+        takeover_limit_percent=90,
+        auto_resume_production=True,
+    )
+
+    await controller.async_tick()
+
+    coordinator.async_takeover_temporary_power_limits.assert_awaited_once_with(90)
+    assert not controller.takeover_pending
 
 
 async def test_disabled_and_simulation_never_write(hass) -> None:

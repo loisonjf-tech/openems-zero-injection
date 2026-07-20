@@ -74,7 +74,10 @@ async def async_get_config_entry_diagnostics(
             "mode": coordinator.temporary_limit_validation_mode.value,
             "last_confirmed_limit": coordinator.last_confirmed_temporary_limit,
             "compatibility_limit_available": coordinator.compatibility_limit_available,
+            "temporary_registers_readable": coordinator.temporary_limits_readable,
             "temporary_registers_fresh": coordinator.temporary_limits_fresh,
+            "temporary_registers_identical": coordinator.temporary_limits_identical,
+            "current_limit_source": coordinator.temporary_limit_source,
         },
         "energy_manager": {
             "state": energy_manager.state,
@@ -131,6 +134,10 @@ async def async_get_config_entry_diagnostics(
             ),
             "temporary_limits_ready": coordinator.temporary_limits_ready,
             "temporary_limits_fresh": coordinator.temporary_limits_fresh,
+            "takeover_pending": controller.takeover_pending,
+            "production_startup_strategy": coordinator.production_startup_strategy.value,
+            "takeover_limit_percent": coordinator.takeover_limit_percent,
+            "auto_resume_production": coordinator.auto_resume_production,
             "refresh_schedule_seconds": {
                 "power": 10,
                 "energy": 30,

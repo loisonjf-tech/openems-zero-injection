@@ -26,7 +26,10 @@
           "grid_power_entity_id": "Grid power sensor",
           "grid_power_inverted": "Invert grid-power sign",
           "installed_nominal_power_w": "Installed nominal photovoltaic power",
-          "temporary_limit_validation_mode": "Temporary limit validation mode"
+          "temporary_limit_validation_mode": "Temporary limit validation mode",
+          "production_startup_strategy": "Production startup strategy",
+          "takeover_limit_percent": "Takeover power limit",
+          "auto_resume_production": "Automatically resume Production after restart"
         }
       }
     }

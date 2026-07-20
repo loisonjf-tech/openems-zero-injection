@@ -29,6 +29,7 @@ from .const import (
     SIGNIFICANT_POWER_CHANGE_W,
     SIMULATION_DIAGNOSTIC_REFRESH_SECONDS,
     ControllerMode,
+    ProductionStartupStrategy,
     SchedulerState,
     VALID_GRID_MEASUREMENTS_REQUIRED,
 )
@@ -70,6 +71,10 @@ DISPLAY_LABELS_FR = {
     "Command failed": "Échec de la commande",
     "Command simulated": "Commande simulée",
     "DTU unavailable": "DTU indisponible",
+    "Temporary limit reference unavailable": "Référence de limite temporaire indisponible",
+    "Takeover waiting for DTU connection": "Prise de contrôle en attente de connexion DTU",
+    "Takeover confirmed": "Prise de contrôle confirmée",
+    "Takeover failed": "Échec de la prise de contrôle",
     "Grid sensor unavailable": "Compteur réseau indisponible",
     "Limit unchanged": "Limite inchangée",
     "Maximum step applied": "Pas maximal appliqué",
@@ -133,6 +138,9 @@ class ZeroInjectionController:
         installed_power_source: str = "initial_configuration",
         initial_mode: ControllerMode = ControllerMode.DISABLED,
         mode_restore_source: str = "default",
+        production_startup_strategy: ProductionStartupStrategy = ProductionStartupStrategy.SAFE,
+        takeover_limit_percent: int = 100,
+        auto_resume_production: bool = False,
         battery_manager: BatteryManager | None = None,
     ) -> None:
         self._hass = hass
@@ -143,6 +151,14 @@ class ZeroInjectionController:
         self._battery_manager: BatteryManager = battery_manager or NullBatteryManager()
         self._mode = initial_mode
         self._mode_restore_source = mode_restore_source
+        self._production_startup_strategy = production_startup_strategy
+        self._takeover_limit_percent = takeover_limit_percent
+        self._auto_resume_production = auto_resume_production
+        self._takeover_pending = (
+            initial_mode is ControllerMode.PRODUCTION
+            and auto_resume_production
+            and production_startup_strategy is ProductionStartupStrategy.TAKEOVER
+        )
         self._target_grid_power_w = DEFAULT_TARGET_GRID_POWER_W
         self._deadband_w = DEFAULT_DEADBAND_W
         self._stabilization_delay_seconds = DEFAULT_STABILIZATION_DELAY_SECONDS
@@ -199,6 +215,11 @@ class ZeroInjectionController:
     def mode_restore_source(self) -> str:
         """Return how the controller mode was selected at startup."""
         return self._mode_restore_source
+
+    @property
+    def takeover_pending(self) -> bool:
+        """Return whether a deliberate Production takeover still has to run."""
+        return self._takeover_pending
 
     @property
     def status(self) -> ControllerStatus:
@@ -338,6 +359,7 @@ class ZeroInjectionController:
             self._last_simulated_limit = None
             self._last_simulated_command_time = None
             self._last_evaluated_snapshot = None
+            self._takeover_pending = False
         elif self._scheduler.state is SchedulerState.PAUSED:
             self._scheduler.reset()
         if self._mode is ControllerMode.SIMULATION and previous_mode is not ControllerMode.SIMULATION:
@@ -351,6 +373,10 @@ class ZeroInjectionController:
             self._last_simulated_limit = None
             self._last_simulated_command_time = None
             self.commands_simulated = 0
+            self._takeover_pending = (
+                self._production_startup_strategy
+                is ProductionStartupStrategy.TAKEOVER
+            )
         self._set_status(
             state=self._mode.value,
             simulated_limit_percent=self._simulated_current_limit,
@@ -446,6 +472,10 @@ class ZeroInjectionController:
                 )
                 return
 
+            if self._mode is ControllerMode.PRODUCTION and self._takeover_pending:
+                await self._async_run_takeover()
+                return
+
             measurement = self._acquisition.read_grid_power()
             if measurement.power_w is None:
                 self._valid_grid_measurements = 0
@@ -460,12 +490,19 @@ class ZeroInjectionController:
 
             self._valid_grid_measurements += 1
             if self._valid_grid_measurements < VALID_GRID_MEASUREMENTS_REQUIRED:
-                self._scheduler.pause()
-                self._record(measurement.power_w, None, None, "Waiting for valid grid data", False, False, None)
+                stabilizing = self._scheduler.remaining_seconds() > 0
+                if not stabilizing:
+                    self._scheduler.pause()
+                reason = (
+                    "Waiting for stabilization"
+                    if stabilizing
+                    else "Waiting for valid grid data"
+                )
+                self._record(measurement.power_w, None, None, reason, False, False, None)
                 self._set_status(
-                    state="Paused",
+                    state=self._scheduler.state.value if stabilizing else "Paused",
                     grid_power_w=measurement.power_w,
-                    last_decision="Waiting for valid grid data",
+                    last_decision=reason,
                     last_error=None,
                 )
                 return
@@ -475,9 +512,10 @@ class ZeroInjectionController:
             real_limit = self._current_consistent_limit(require_fresh=True)
             current_limit = real_limit
             if current_limit is None:
+                dtu_connected = bool(self._coordinator.data and self._coordinator.data.connected)
                 limit_error = (
                     "Temporary limits are stale or inconsistent"
-                    if self._mode is ControllerMode.PRODUCTION
+                    if dtu_connected and self._mode is ControllerMode.PRODUCTION
                     else "Temporary limits are unavailable or inconsistent"
                 )
                 self._scheduler.pause()
@@ -485,7 +523,11 @@ class ZeroInjectionController:
                     measurement.power_w,
                     None,
                     None,
-                    "DTU unavailable",
+                    (
+                        "Temporary limit reference unavailable"
+                        if dtu_connected
+                        else "DTU unavailable"
+                    ),
                     False,
                     False,
                     limit_error,
@@ -493,7 +535,11 @@ class ZeroInjectionController:
                 self._set_status(
                     state="Paused",
                     grid_power_w=measurement.power_w,
-                    last_decision="DTU unavailable",
+                    last_decision=(
+                        "Temporary limit reference unavailable"
+                        if dtu_connected
+                        else "DTU unavailable"
+                    ),
                     last_error=limit_error,
                 )
                 return
@@ -532,6 +578,7 @@ class ZeroInjectionController:
                 maximum_limit_percent=100,
                 maximum_step_percent=self._maximum_step_percent,
             )
+
             if self._mode is ControllerMode.SIMULATION:
                 # Simulation has no stabilization loop and never models a DTU
                 # response. Every meaningful snapshot is an independent,
@@ -677,6 +724,53 @@ class ZeroInjectionController:
                 simulated_limit_percent=None,
                 last_error=None if success else result,
             )
+
+    async def _async_run_takeover(self) -> None:
+        """Write one configured reference before normal Production decisions."""
+        data = self._coordinator.data
+        if data is None or not data.connected:
+            self._set_status(
+                state="Paused",
+                last_decision="Takeover waiting for DTU connection",
+                last_error="DTU is not connected",
+                scheduler_inactive_reason="Takeover waiting for DTU connection",
+            )
+            return
+
+        self.commands_sent += 1
+        self._last_command_sequence = (self._last_command_sequence or 0) + 1
+        success, result = await self._scheduler.async_execute(
+            ControllerMode.PRODUCTION,
+            lambda: self._coordinator.async_takeover_temporary_power_limits(
+                self._takeover_limit_percent
+            ),
+        )
+        if success:
+            self.commands_succeeded += 1
+            self._takeover_pending = False
+            self._set_status(
+                state=self._scheduler.state.value,
+                current_limit_percent=self._takeover_limit_percent,
+                real_dtu_limit_percent=self._takeover_limit_percent,
+                commanded_limit_percent=self._takeover_limit_percent,
+                last_decision="Takeover confirmed",
+                last_command_result=result,
+                last_command_time=datetime.now(UTC),
+                last_error=None,
+                scheduler_inactive_reason=None,
+            )
+            return
+
+        self.commands_failed += 1
+        self._takeover_pending = False
+        self._set_status(
+            state=self._scheduler.state.value,
+            last_decision="Takeover failed",
+            last_command_result=result,
+            last_command_time=datetime.now(UTC),
+            last_error=result,
+            scheduler_inactive_reason="Takeover failed",
+        )
 
     def _current_consistent_limit(self, *, require_fresh: bool) -> int | None:
         data = self._coordinator.data

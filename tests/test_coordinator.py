@@ -622,6 +622,51 @@ async def test_compatibility_mode_uses_all_port_write_echo_when_reads_are_unavai
     assert coordinator.automatic_write_allowed
 
 
+async def test_compatibility_takeover_writes_without_a_prior_limit_read(hass) -> None:
+    """A configured takeover safely creates the first Compatibility reference."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502}
+    )
+    entry.add_to_hass(hass)
+    with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
+        client = cls.return_value
+        client.async_read_input_registers = AsyncMock(
+            side_effect=lambda _address, count: [0] * count
+        )
+        client.async_read_power_limit_register = AsyncMock(return_value=50)
+        client.async_write_temporary_power_limit = AsyncMock()
+        coordinator = DtuProSCoordinator(hass, entry)
+        await coordinator.async_refresh()
+        await coordinator.controller.async_set_mode(ControllerMode.PRODUCTION.value)
+        client.async_read_power_limit_register.reset_mock()
+
+        await coordinator.async_takeover_temporary_power_limits(90)
+
+    client.async_write_temporary_power_limit.assert_has_awaits(
+        [call(0xD007, 90), call(0xD00D, 90), call(0xD013, 90)]
+    )
+    client.async_read_power_limit_register.assert_not_awaited()
+    assert coordinator.last_confirmed_temporary_limit == 90
+    assert coordinator.temporary_limit_source == "last_confirmed_command"
+
+
+async def test_strict_mode_refuses_takeover_without_readback(hass) -> None:
+    """Takeover never weakens the configured Strict validation policy."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502},
+        options={CONF_TEMPORARY_LIMIT_VALIDATION_MODE: "strict"},
+    )
+    entry.add_to_hass(hass)
+    coordinator = DtuProSCoordinator(hass, entry)
+    await coordinator.controller.async_set_mode(ControllerMode.PRODUCTION.value)
+
+    from homeassistant.exceptions import HomeAssistantError
+
+    with pytest.raises(HomeAssistantError, match="requires Compatibility"):
+        await coordinator.async_takeover_temporary_power_limits(90)
+
+
 async def test_strict_mode_still_requires_temporary_readback(hass) -> None:
     """Strict mode never substitutes an acknowledged write for a 0x03 readback."""
     entry = MockConfigEntry(

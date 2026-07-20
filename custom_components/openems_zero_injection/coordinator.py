@@ -19,10 +19,16 @@ from .const import (
     CONF_DTU_PORT,
     CONF_CONTROLLER_MODE,
     CONF_LAST_CONFIRMED_TEMPORARY_LIMIT,
+    CONF_AUTO_RESUME_PRODUCTION,
     CONF_INSTALLED_NOMINAL_POWER_W,
+    CONF_PRODUCTION_STARTUP_STRATEGY,
+    CONF_TAKEOVER_LIMIT_PERCENT,
     CONF_TEMPORARY_LIMIT_VALIDATION_MODE,
     DEFAULT_TEMPORARY_LIMIT_VALIDATION_MODE,
+    DEFAULT_AUTO_RESUME_PRODUCTION,
     DEFAULT_INSTALLED_NOMINAL_POWER_W,
+    DEFAULT_PRODUCTION_STARTUP_STRATEGY,
+    DEFAULT_TAKEOVER_LIMIT_PERCENT,
     DOMAIN,
     ENERGY_SCAN_INTERVAL,
     GENERAL_INFO_SCAN_INTERVAL,
@@ -34,6 +40,7 @@ from .const import (
     TEMPORARY_LIMIT_SCAN_INTERVAL,
     TEMPORARY_LIMIT_MAX_AGE_SECONDS,
     ControllerMode,
+    ProductionStartupStrategy,
     TemporaryLimitValidationMode,
 )
 from .acquisition import AcquisitionEngine
@@ -114,6 +121,15 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         self._last_confirmed_temporary_limit = self._restore_confirmed_temporary_limit(
             entry
         )
+        self._production_startup_strategy = self._restore_production_startup_strategy(
+            entry
+        )
+        self._takeover_limit_percent = self._restore_takeover_limit_percent(entry)
+        self._auto_resume_production = bool(
+            entry.options.get(
+                CONF_AUTO_RESUME_PRODUCTION, DEFAULT_AUTO_RESUME_PRODUCTION
+            )
+        )
         installed_power_source = (
             "options"
             if CONF_INSTALLED_NOMINAL_POWER_W in entry.options
@@ -170,6 +186,11 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             installed_power_source=installed_power_source,
             initial_mode=initial_mode,
             mode_restore_source=mode_restore_source,
+            production_startup_strategy=self._production_startup_strategy,
+            takeover_limit_percent=self._takeover_limit_percent,
+            auto_resume_production=(
+                self._auto_resume_production and mode_restore_source == "options"
+            ),
         )
 
     @staticmethod
@@ -208,6 +229,30 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         """Restore only a previously Modbus-confirmed, safe local limit."""
         value = entry.options.get(CONF_LAST_CONFIRMED_TEMPORARY_LIMIT)
         return value if isinstance(value, int) and 2 <= value <= 100 else None
+
+    @staticmethod
+    def _restore_production_startup_strategy(
+        entry: ConfigEntry,
+    ) -> ProductionStartupStrategy:
+        """Restore a safe strategy if an option value is invalid."""
+        try:
+            return ProductionStartupStrategy(
+                entry.options.get(
+                    CONF_PRODUCTION_STARTUP_STRATEGY,
+                    DEFAULT_PRODUCTION_STARTUP_STRATEGY,
+                )
+            )
+        except (TypeError, ValueError):
+            _LOGGER.warning("Invalid Production startup strategy; using safe mode")
+            return ProductionStartupStrategy.SAFE
+
+    @staticmethod
+    def _restore_takeover_limit_percent(entry: ConfigEntry) -> int:
+        """Restore only a documented, safe takeover percentage."""
+        value = entry.options.get(
+            CONF_TAKEOVER_LIMIT_PERCENT, DEFAULT_TAKEOVER_LIMIT_PERCENT
+        )
+        return value if isinstance(value, int) and 2 <= value <= 100 else DEFAULT_TAKEOVER_LIMIT_PERCENT
 
     async def _async_refresh_telemetry(
         self,
@@ -557,6 +602,33 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         return None
 
     @property
+    def temporary_limits_readable(self) -> bool:
+        """Return whether all three limits have fresh, successful 0x03 reads."""
+        return self.temporary_limits_fresh
+
+    @property
+    def temporary_limits_identical(self) -> bool:
+        """Return whether the currently retained three values agree."""
+        values = [
+            self._limit_health[address].value
+            for address in PORT_TEMPORARY_POWER_LIMIT_REGISTERS.values()
+        ]
+        return all(value is not None for value in values) and len(set(values)) == 1
+
+    @property
+    def temporary_limit_source(self) -> str:
+        """Describe whether the active reference is read, confirmed, or absent."""
+        if self.temporary_limits_fresh:
+            return "modbus_readback"
+        if (
+            self._temporary_limit_validation_mode
+            is TemporaryLimitValidationMode.COMPATIBILITY
+            and self.compatibility_limit_available
+        ):
+            return "last_confirmed_command"
+        return "unknown"
+
+    @property
     def temporary_limits_fresh(self) -> bool:
         """Return whether the three limits were read successfully in this cycle."""
         values = [
@@ -658,6 +730,21 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
                 )
             )
         )
+
+    @property
+    def production_startup_strategy(self) -> ProductionStartupStrategy:
+        """Return the configured Production initialization strategy."""
+        return self._production_startup_strategy
+
+    @property
+    def takeover_limit_percent(self) -> int:
+        """Return the explicitly configured, safe takeover reference limit."""
+        return self._takeover_limit_percent
+
+    @property
+    def auto_resume_production(self) -> bool:
+        """Return whether an opted-in Production restart may take over again."""
+        return self._auto_resume_production
 
     async def async_set_manual_writes_enabled(self, enabled: bool) -> None:
         """Change only the local manual-write safety interlock."""
@@ -771,12 +858,35 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         This is the only automatic-write entry point. It intentionally uses no
         retries, restoration write, global register, or permanent register.
         """
+        await self._async_write_all_temporary_power_limits(
+            value, require_existing_limit=True
+        )
+
+    async def async_takeover_temporary_power_limits(self, value: int) -> None:
+        """Establish a local reference from three verified 0x06 acknowledgements.
+
+        This deliberately does not issue a 0x03 readback: it is intended only
+        for DTUs where those documented temporary holding registers cannot be
+        read reliably. It remains unavailable in Strict mode.
+        """
+        if self._temporary_limit_validation_mode is TemporaryLimitValidationMode.STRICT:
+            raise HomeAssistantError("DTU takeover requires Compatibility mode")
+        await self._async_write_all_temporary_power_limits(
+            value, require_existing_limit=False
+        )
+
+    async def _async_write_all_temporary_power_limits(
+        self, value: int, *, require_existing_limit: bool
+    ) -> None:
+        """Write one safe value to all temporary ports with no retry."""
         if not isinstance(value, int) or not 2 <= value <= 100:
             raise HomeAssistantError("DTU power limit must be between 2 and 100%")
 
         if self.controller.mode is not ControllerMode.PRODUCTION:
             raise HomeAssistantError("Automatic DTU writes require Production mode")
-        if not self.automatic_write_allowed:
+        if self.data is None or not self.data.connected:
+            raise HomeAssistantError("DTU is not connected")
+        if require_existing_limit and not self.automatic_write_allowed:
             raise HomeAssistantError(
                 "DTU temporary power limits are stale or inconsistent"
             )

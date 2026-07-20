@@ -15,6 +15,9 @@ CONF_INSTALLED_NOMINAL_POWER_W = "installed_nominal_power_w"
 CONF_CONTROLLER_MODE = "controller_mode"
 CONF_TEMPORARY_LIMIT_VALIDATION_MODE = "temporary_limit_validation_mode"
 CONF_LAST_CONFIRMED_TEMPORARY_LIMIT = "last_confirmed_temporary_limit"
+CONF_PRODUCTION_STARTUP_STRATEGY = "production_startup_strategy"
+CONF_TAKEOVER_LIMIT_PERCENT = "takeover_limit_percent"
+CONF_AUTO_RESUME_PRODUCTION = "auto_resume_production"
 
 DEFAULT_DTU_PORT = 502
 DEFAULT_DEVICE_ID = 1
@@ -40,6 +43,9 @@ MAX_INSTALLED_NOMINAL_POWER_W = 50_000
 INSTALLED_NOMINAL_POWER_STEP_W = 10
 DEFAULT_MAXIMUM_STEP_PERCENT = 5
 DEFAULT_TEMPORARY_LIMIT_VALIDATION_MODE = "compatibility"
+DEFAULT_PRODUCTION_STARTUP_STRATEGY = "safe"
+DEFAULT_TAKEOVER_LIMIT_PERCENT = 100
+DEFAULT_AUTO_RESUME_PRODUCTION = False
 GRID_POWER_MIN_W = -20_000
 GRID_POWER_MAX_W = 20_000
 CONTROLLER_INTERVAL = timedelta(seconds=3)
@@ -80,3 +86,10 @@ class TemporaryLimitValidationMode(StrEnum):
 
     STRICT = "strict"
     COMPATIBILITY = "compatibility"
+
+
+class ProductionStartupStrategy(StrEnum):
+    """How Production establishes a first trustworthy limit reference."""
+
+    SAFE = "safe"
+    TAKEOVER = "takeover"

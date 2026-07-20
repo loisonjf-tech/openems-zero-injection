@@ -26,7 +26,10 @@
           "grid_power_entity_id": "Capteur de puissance réseau",
           "grid_power_inverted": "Inverser le signe de la puissance réseau",
           "installed_nominal_power_w": "Puissance nominale de l’installation photovoltaïque",
-          "temporary_limit_validation_mode": "Mode de validation des limites temporaires"
+          "temporary_limit_validation_mode": "Mode de validation des limites temporaires",
+          "production_startup_strategy": "Stratégie de démarrage Production",
+          "takeover_limit_percent": "Limite de puissance de prise de contrôle",
+          "auto_resume_production": "Reprendre automatiquement Production après redémarrage"
         }
       }
     }
