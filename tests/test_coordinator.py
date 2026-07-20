@@ -2,7 +2,7 @@
 
 import asyncio
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, call, patch
+from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -51,7 +51,9 @@ async def test_coordinator_decodes_measurements(hass) -> None:
     assert coordinator.cycle_timings_ms["power"] is not None
     assert coordinator.cycle_timings_ms["total_cycle"] is not None
     assert coordinator.data.port_1_temporary_power_limit_percent == 50
-    assert coordinator.temporary_limits_identical
+    # These deliberately different per-port values are diagnostic only; a
+    # coherent common limit must not be inferred from them.
+    assert not coordinator.temporary_limits_identical
 
 
 async def test_controller_mode_is_restored_from_config_entry_options(hass, caplog) -> None:
@@ -509,7 +511,7 @@ async def test_manual_partial_failure_marks_ports_uncertain_until_resynchronized
         await coordinator.async_refresh()
         from homeassistant.exceptions import HomeAssistantError
 
-        with pytest.raises(HomeAssistantError, match="ports \[2, 3\]"):
+        with pytest.raises(HomeAssistantError, match=r"ports \[2, 3\]"):
             await coordinator.async_set_manual_temporary_power_limit(60)
 
         assert not coordinator.temporary_limits_synchronized
@@ -563,10 +565,8 @@ async def test_manual_simulation_and_automatic_modes_have_exclusive_write_owners
         coordinator = DtuProSCoordinator(hass, entry)
         await coordinator.async_refresh()
 
-    assert not coordinator.manual_write_allowed
-    assert not coordinator.automatic_write_allowed
-
     assert coordinator.manual_write_allowed
+    assert not coordinator.automatic_write_allowed
 
     await coordinator.controller.async_set_mode(ControllerMode.SIMULATION.value)
     assert not coordinator.manual_write_allowed
@@ -628,7 +628,7 @@ async def test_compatibility_takeover_writes_without_a_prior_limit_read(hass) ->
     )
     client.async_read_power_limit_register.assert_not_awaited()
     assert coordinator.last_confirmed_temporary_limit == 90
-    assert coordinator.temporary_limit_source == "automatic_correction"
+    assert coordinator.temporary_limit_source == "takeover_confirmed"
 
 
 async def test_strict_mode_refuses_takeover_without_readback(hass) -> None:

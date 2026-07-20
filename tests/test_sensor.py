@@ -51,7 +51,8 @@ async def test_connection_sensor_reports_connected(hass) -> None:
         "number", DOMAIN, f"{entry.entry_id}_manual_temporary_power_limit"
     )
     assert power_limit_entity is not None
-    assert hass.states.get(power_limit_entity).state == "50"
+    # Home Assistant serializes NumberEntity states as floating-point values.
+    assert hass.states.get(power_limit_entity).state == "50.0"
 
     # The slider belongs exclusively to Manual mode and requires a connected DTU.
     await coordinator.controller.async_set_mode(ControllerMode.SIMULATION.value)
@@ -71,7 +72,7 @@ async def test_connection_sensor_reports_connected(hass) -> None:
 
     coordinator.async_set_updated_data(replace(coordinator.data, connected=True))
     await hass.async_block_till_done()
-    assert hass.states.get(power_limit_entity).state == "50"
+    assert hass.states.get(power_limit_entity).state == "50.0"
 
     temporary_limit_sensor = registry.async_get_entity_id(
         "sensor", DOMAIN, f"{entry.entry_id}_port_1_temporary_power_limit_percent"
