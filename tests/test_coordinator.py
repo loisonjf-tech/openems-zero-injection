@@ -522,6 +522,7 @@ async def test_manual_write_different_readback_preserves_last_confirmed_value(ha
 async def test_automatic_write_updates_all_three_temporary_ports_only(hass) -> None:
     """Production writes despite the manual NumberEntity switch being off."""
     entry = MockConfigEntry(domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502})
+    entry.add_to_hass(hass)
     with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
         client = cls.return_value
         client.async_read_input_registers = AsyncMock(
@@ -577,6 +578,7 @@ async def test_explicit_production_mode_enables_manual_write_interlock(hass) -> 
     entry = MockConfigEntry(
         domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502}
     )
+    entry.add_to_hass(hass)
     with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
         client = cls.return_value
         client.async_read_input_registers = AsyncMock(
@@ -599,6 +601,7 @@ async def test_compatibility_mode_uses_all_port_write_echo_when_reads_are_unavai
     entry = MockConfigEntry(
         domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502}
     )
+    entry.add_to_hass(hass)
     with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
         client = cls.return_value
         client.async_read_input_registers = AsyncMock(
@@ -626,6 +629,7 @@ async def test_strict_mode_still_requires_temporary_readback(hass) -> None:
         data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502},
         options={CONF_TEMPORARY_LIMIT_VALIDATION_MODE: "strict"},
     )
+    entry.add_to_hass(hass)
     with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
         client = cls.return_value
         client.async_read_input_registers = AsyncMock(
@@ -668,6 +672,7 @@ async def test_automatic_write_rejects_out_of_range_values(hass, value: int) -> 
 async def test_automatic_write_readback_mismatch_keeps_last_confirmed_values(hass) -> None:
     """A partial or inconsistent command is never treated as confirmed."""
     entry = MockConfigEntry(domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502})
+    entry.add_to_hass(hass)
     with patch("custom_components.openems_zero_injection.coordinator.DtuProSModbusClient") as cls:
         client = cls.return_value
         client.async_read_input_registers = AsyncMock(
