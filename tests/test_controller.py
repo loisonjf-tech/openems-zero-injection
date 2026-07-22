@@ -94,7 +94,7 @@ async def test_disabled_and_simulation_never_write(hass) -> None:
         await controller.async_tick()
     coordinator.async_set_all_temporary_power_limits.assert_not_awaited()
     assert controller.commands_simulated == 1
-    assert controller.simulated_current_limit == 45
+    assert controller.simulated_current_limit == 48
 
     await controller.async_tick()
     assert controller.commands_simulated == 1
@@ -125,7 +125,7 @@ async def test_simulation_does_not_chain_virtual_commands(hass) -> None:
     await controller.async_set_mode(ControllerMode.SIMULATION.value)
     for _ in range(3):
         await controller.async_tick()
-    assert controller.simulated_current_limit == 45
+    assert controller.simulated_current_limit == 48
     assert coordinator.data.port_1_temporary_power_limit_percent == 50
 
     await controller.async_tick()
@@ -136,7 +136,7 @@ async def test_simulation_does_not_chain_virtual_commands(hass) -> None:
     await controller.async_tick()
     assert controller.decisions_evaluated == 2
     assert controller.commands_simulated == 1
-    assert controller.simulated_current_limit == 45
+    assert controller.simulated_current_limit == 48
     coordinator.async_set_all_temporary_power_limits.assert_not_awaited()
 
 
@@ -173,9 +173,9 @@ async def test_simulation_exposes_each_power_limit_role_separately(hass) -> None
         await controller.async_tick()
 
     assert controller.status.real_dtu_limit_percent == 50
-    assert controller.last_simulated_limit == 45
-    assert controller.simulated_current_limit == 45
-    assert controller.status.calculated_limit_percent == 40
+    assert controller.last_simulated_limit == 20
+    assert controller.simulated_current_limit == 20
+    assert controller.status.calculated_limit_percent == 20
     assert controller.commands_simulated == 1
     assert controller.commands_sent == 0
     assert controller.scheduler_display_state == "Simulation awaiting measurements"
@@ -348,7 +348,7 @@ async def test_nominal_power_derives_conversion_coefficient_and_updates_decision
     for _ in range(3):
         await controller.async_tick()
 
-    assert controller.simulated_current_limit == 46
+    assert controller.simulated_current_limit == 48
     coordinator.async_set_all_temporary_power_limits.assert_not_awaited()
 
 
@@ -400,7 +400,7 @@ async def test_production_requires_three_valid_measurements_then_writes(hass) ->
     await controller.async_tick()
     coordinator.async_set_all_temporary_power_limits.assert_not_awaited()
     await controller.async_tick()
-    coordinator.async_set_all_temporary_power_limits.assert_awaited_once_with(45)
+    coordinator.async_set_all_temporary_power_limits.assert_awaited_once_with(48)
     assert controller.commands_succeeded == 1
     assert controller.scheduler.state is SchedulerState.WAITING
 
@@ -418,7 +418,7 @@ async def test_production_writes_while_manual_control_is_locked(hass) -> None:
     for _ in range(3):
         await controller.async_tick()
 
-    coordinator.async_set_all_temporary_power_limits.assert_awaited_once_with(45)
+    coordinator.async_set_all_temporary_power_limits.assert_awaited_once_with(48)
 
 
 async def test_simulation_never_writes(hass) -> None:
@@ -450,8 +450,8 @@ async def test_production_exposes_theoretical_and_next_commanded_limits(hass) ->
         await controller.async_tick()
 
     assert controller.status.real_dtu_limit_percent == 50
-    assert controller.status.calculated_limit_percent == 40
-    assert controller.status.commanded_limit_percent == 48
+    assert controller.status.calculated_limit_percent == 20
+    assert controller.status.commanded_limit_percent == 20
 
 
 async def test_expired_stabilization_displays_monitoring(hass) -> None:
@@ -495,8 +495,8 @@ async def test_stabilization_wait_creates_no_failed_or_counted_command(hass) -> 
     assert controller.status.last_error is None
 
 
-async def test_production_steps_use_confirmed_real_limit_and_never_simulate(hass) -> None:
-    """Each verified write becomes the sole base for the next Production step."""
+async def test_production_predictive_command_uses_confirmed_real_limit_and_never_simulate(hass) -> None:
+    """A strong deviation reaches the bounded predictive target in one command."""
     hass.states.async_set("sensor.grid", "-1_000")
     coordinator = fake_coordinator()
 
@@ -511,27 +511,19 @@ async def test_production_steps_use_confirmed_real_limit_and_never_simulate(hass
     controller = ZeroInjectionController(
         hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
     )
-    controller.set_maximum_step(2)
     await controller.async_set_mode(ControllerMode.PRODUCTION.value)
     for _ in range(3):
         await controller.async_tick()
 
-    for expected_limit in (46, 44, 42):
-        controller.scheduler._next_allowed_at = datetime.now(UTC) - timedelta(seconds=1)
-        await controller.async_tick()
-        assert controller.status.real_dtu_limit_percent == expected_limit
-        assert controller.status.calculated_limit_percent is None
-
-    assert controller.commands_sent == 4
-    assert controller.commands_succeeded == 4
+    assert controller.status.real_dtu_limit_percent == 2
+    assert controller.commands_sent == 1
+    assert controller.commands_succeeded == 1
     assert controller.commands_failed == 0
     assert controller.commands_simulated == 0
     assert controller.last_simulated_limit is None
     assert controller.simulated_current_limit is None
-    assert controller.last_command_sequence == 4
-    assert coordinator.async_set_all_temporary_power_limits.await_args_list == [
-        call(48), call(46), call(44), call(42)
-    ]
+    assert controller.last_command_sequence == 1
+    assert coordinator.async_set_all_temporary_power_limits.await_args_list == [call(2)]
 
 
 async def test_entering_production_clears_simulation_values(hass) -> None:

@@ -4,6 +4,7 @@ import pytest
 
 from custom_components.openems_zero_injection.decision import (
     DecisionReason,
+    calculate_predictive_power_limit,
     calculate_power_limit,
 )
 
@@ -56,3 +57,43 @@ def test_small_correction_and_unchanged_limit_are_not_sent() -> None:
 def test_invalid_watts_per_percent_is_rejected() -> None:
     with pytest.raises(ValueError):
         decide(-200, watts_per_percent=0)
+
+
+def test_predictive_limit_directly_targets_estimated_house_load() -> None:
+    """A strong export uses PV plus grid power, not a long step chain."""
+    decision = calculate_predictive_power_limit(
+        grid_power_w=-1660,
+        pv_power_w=2000,
+        target_grid_power_w=-40,
+        deadband_w=30,
+        current_limit_percent=100,
+        installed_nominal_power_w=3000,
+        predictive_error_threshold_w=250,
+        fine_correction_step_percent=2,
+        minimum_limit_percent=2,
+        maximum_limit_percent=100,
+    )
+    assert decision.estimated_load_w == 340
+    assert decision.calculated_limit_percent == 13
+    assert decision.applied_limit_percent == 13
+    assert decision.reason is DecisionReason.PREDICTIVE_LIMIT_APPLIED
+    assert decision.strategy == "predictive"
+
+
+def test_predictive_controller_uses_fine_step_for_small_residual_error() -> None:
+    """Near the target the direct estimate cannot bypass the fine correction."""
+    decision = calculate_predictive_power_limit(
+        grid_power_w=-180,
+        pv_power_w=900,
+        target_grid_power_w=-40,
+        deadband_w=30,
+        current_limit_percent=50,
+        installed_nominal_power_w=3000,
+        predictive_error_threshold_w=250,
+        fine_correction_step_percent=2,
+        minimum_limit_percent=2,
+        maximum_limit_percent=100,
+    )
+    assert decision.applied_limit_percent == 48
+    assert decision.reason is DecisionReason.FINE_CORRECTION_APPLIED
+    assert decision.strategy == "fine_correction"

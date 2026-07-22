@@ -6,7 +6,7 @@ Intégration Home Assistant locale destinée à piloter un Hoymiles DTU Pro-S af
 
 **Build004 — fondation expérimentale du contrôleur de zéro injection.** Le projet acquiert une puissance réseau locale, calcule une consigne DTU déterministe, et applique un scheduler de sécurité. Il n'intègre pas encore SolarFlow, Zendure ou une logique de batterie.
 
-Version actuelle : **V0.4.0-alpha.1 / Build004**.
+Version actuelle : **V0.4.0-alpha.2 / Build004 RC2**.
 
 ## Matériel de référence
 
@@ -45,6 +45,14 @@ Le client interne utilise uniquement les fonctions Modbus TCP `0x03`, `0x04` et 
 Les lectures Modbus sont strictement sérialisées, sans temporisation artificielle entre les trames, sur une connexion TCP persistante. Le capteur **Temps de réponse DTU** représente la dernière transaction Modbus, tandis que les diagnostics détaillent chaque phase et la durée totale du cycle. Une erreur ponctuelle conserve la dernière valeur connue, signalée comme périmée avec sa date et son compteur d'échecs ; elle ne devient jamais `0` artificiellement. Les erreurs de socket, timeout ou réponse incomplète ferment la connexion TCP. Les nouvelles tentatives respectent un backoff non bloquant de 5, 10, 20 puis 30 secondes.
 
 Le contrôleur vérifie son tick toutes les trois secondes, mais n'évalue qu'un seul snapshot cohérent par nouvelle génération de mesures. La puissance DTU est lue toutes les 10 secondes, l'énergie et les limites temporaires toutes les 30 secondes, et les informations générales ainsi que les limites permanentes toutes les cinq minutes. Les limites temporaires restent utilisables 65 secondes ; les limites permanentes sont diagnostiques et ne suspendent jamais le contrôleur.
+
+## Contrôleur prédictif — Build004 RC2
+
+Lorsque la puissance PV DTU, la puissance réseau et les limites temporaires sont valides et synchronisées, la régulation estime directement la consommation : `puissance PV + puissance réseau`. Elle en déduit une limite DTU cible bornée entre `2 %` et `100 %`. Une erreur importante (au moins `250 W` par défaut) utilise cette limite prédictive directement ; après stabilisation, une erreur plus faible utilise une correction fine limitée à `2 %`.
+
+Les protections existantes restent obligatoires : aucune commande pendant la stabilisation, aucune écriture en Simulation, aucune écriture si les limites temporaires sont incertaines et aucune répétition automatique après un échec. Si la puissance PV ne permet pas une prédiction fiable, le contrôleur utilise seulement la correction fine prudente.
+
+Build004 RC2 prépare aussi les contrats passifs **Context Analyzer**, **Calibration Manager** et **Energy Policy Engine**. La seule politique active est **Zero Injection**, qui transmet exactement la cible réseau configurée. Aucune logique SolarFlow ou batterie ne participe encore à la régulation. L’architecture de référence est [docs/Architecture-Specification.md](docs/Architecture-Specification.md).
 
 En **Simulation**, l’état du planificateur indique explicitement qu’il attend de nouvelles mesures après une proposition. La capteur **Prochaine limite commandée** affiche alors cette proposition avec les attributs `execution_mode: Simulation` et `is_simulation: true` : aucune écriture DTU n’est effectuée. Le nombre de compteurs déclaré par le DTU est seulement diagnostique ; la régulation utilise exclusivement le capteur de puissance réseau configuré dans Home Assistant.
 

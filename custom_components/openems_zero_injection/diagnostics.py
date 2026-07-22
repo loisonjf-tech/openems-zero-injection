@@ -120,6 +120,22 @@ async def async_get_config_entry_diagnostics(
             "current_recommended_limit": controller.simulated_current_limit,
             "next_proposed_limit": controller.status.calculated_limit_percent,
             "next_commanded_limit": controller.status.commanded_limit_percent,
+            "predictive": {
+                "strategy": controller.status.predictive_strategy,
+                "estimated_load_w": controller.status.estimated_load_w,
+                "policy_id": controller.status.policy_id,
+                "policy_reason": controller.status.policy_reason,
+                "context": {
+                    "kind": controller.context_analyzer.classify().kind.value,
+                    "confidence": controller.context_analyzer.classify().confidence,
+                    "reason": controller.context_analyzer.classify().reason,
+                },
+                "calibration": {
+                    "confidence": controller.calibration_manager.profile.confidence.value,
+                    "accepted_samples": controller.calibration_manager.profile.accepted_samples,
+                    "rejected_samples": controller.calibration_manager.profile.rejected_samples,
+                },
+            },
             "next_displayed_limit": (
                 controller.simulated_current_limit
                 if controller.mode.value == "Simulation"

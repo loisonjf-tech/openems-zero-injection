@@ -2,6 +2,29 @@
 
 Toutes les évolutions notables sont documentées dans ce fichier.
 
+## [0.4.0-alpha.2] - 2026-07-22 — Build004 RC2
+
+### Added
+
+- Contrôleur prédictif : lorsque la puissance PV DTU et la puissance réseau sont fraîches, il calcule directement une limite DTU à partir de la consommation estimée et de la cible réseau.
+- Correction fine bornée à 2 % pour les erreurs résiduelles sous le seuil prédictif ; le scheduler conserve le délai de stabilisation de 12 secondes.
+- Contrats passifs `ContextAnalyzer`, `CalibrationManager` et `EnergyPolicyEngine`, avec la politique compatible V1 `ZeroInjectionPolicy`.
+- Spécification d’architecture officielle dans `docs/Architecture-Specification.md`.
+
+### Safety
+
+- Les écritures, registres temporaires, confirmations sur les trois ports, modes Manuel/Simulation/Production et pauses de sécurité restent inchangés.
+- Les nouveaux contrats Context, Calibration et Policy n’émettent aucune écriture et ne modifient pas encore le comportement de sécurité.
+
+### Tests
+
+- Ajout de tests unitaires pour le calcul prédictif, la correction fine et les contrats passifs Build004 RC2.
+
+### Remaining validation
+
+- Validation réelle en mode Simulation puis en Régulation automatique avant activation sur l’installation.
+- Analyse de contexte avancée, calibration active et SolarFlow restent hors périmètre de Build004 RC2.
+
 ## [0.4.0-alpha.1] - 2026-07-17 — Build004
 
 ### Added

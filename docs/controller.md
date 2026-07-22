@@ -1,5 +1,9 @@
 # Build004 controller operation
 
+> This historical Build004 behavior overview is superseded by
+> [Architecture Specification](Architecture-Specification.md), the project's
+> official architecture reference for future evolution.
+
 Choose the grid sensor from the integration options. If its sign convention is
 opposite, enable inversion in the options.
 

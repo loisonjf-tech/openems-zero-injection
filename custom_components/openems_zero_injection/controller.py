@@ -19,6 +19,8 @@ from .const import (
     DEFAULT_DEADBAND_W,
     DEFAULT_INSTALLED_NOMINAL_POWER_W,
     DEFAULT_MAXIMUM_STEP_PERCENT,
+    DEFAULT_FINE_CORRECTION_STEP_PERCENT,
+    DEFAULT_PREDICTIVE_ERROR_THRESHOLD_W,
     DEFAULT_STABILIZATION_DELAY_SECONDS,
     DEFAULT_TARGET_GRID_POWER_W,
     DTU_MEASUREMENT_MAX_AGE_SECONDS,
@@ -33,7 +35,15 @@ from .const import (
     SchedulerState,
     VALID_GRID_MEASUREMENTS_REQUIRED,
 )
-from .decision import ControlDecision, calculate_power_limit
+from .calibration import CalibrationManager
+from .context import ContextAnalyzer
+from .decision import (
+    ControlDecision,
+    PredictiveControlDecision,
+    calculate_power_limit,
+    calculate_predictive_power_limit,
+)
+from .energy_policy import EnergyPolicyEngine
 from .history import DecisionHistory, DecisionRecord
 from .learning import LearningSample, PassiveLearningEngine
 from .scheduler import SafetyScheduler
@@ -82,6 +92,8 @@ DISPLAY_LABELS_FR = {
     "Temporary limit unavailable": "Limite temporaire indisponible",
     "Limits inconsistent": "Limites DTU incohérentes",
     "Controller disabled": "Mode manuel",
+    "Predictive limit applied": "Limite prédictive appliquée",
+    "Fine correction applied": "Correction fine appliquée",
 }
 
 
@@ -109,6 +121,10 @@ class ControllerStatus:
     last_command_time: datetime | None = None
     last_error: str | None = None
     scheduler_inactive_reason: str | None = None
+    estimated_load_w: float | None = None
+    predictive_strategy: str | None = None
+    policy_id: str | None = None
+    policy_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,9 +183,14 @@ class ZeroInjectionController:
         self._installed_power_updated_at: datetime | None = None
         self._previous_installed_nominal_power_w: int | None = None
         self._maximum_step_percent = DEFAULT_MAXIMUM_STEP_PERCENT
+        self._predictive_error_threshold_w = DEFAULT_PREDICTIVE_ERROR_THRESHOLD_W
+        self._fine_correction_step_percent = DEFAULT_FINE_CORRECTION_STEP_PERCENT
         self._scheduler = SafetyScheduler(self._stabilization_delay_seconds)
         self._history = DecisionHistory()
         self._learning = PassiveLearningEngine()
+        self._context_analyzer = ContextAnalyzer()
+        self._calibration_manager = CalibrationManager()
+        self._energy_policy_engine = EnergyPolicyEngine()
         self._status = ControllerStatus(
             mode=initial_mode,
             state=initial_mode.value,
@@ -241,6 +262,21 @@ class ZeroInjectionController:
     def battery_manager(self) -> BatteryManager:
         """Expose the future V1.1 battery contract without using it in V1."""
         return self._battery_manager
+
+    @property
+    def context_analyzer(self) -> ContextAnalyzer:
+        """Expose the passive Build005 contract without control authority."""
+        return self._context_analyzer
+
+    @property
+    def calibration_manager(self) -> CalibrationManager:
+        """Expose passive calibration diagnostics without control influence."""
+        return self._calibration_manager
+
+    @property
+    def energy_policy_engine(self) -> EnergyPolicyEngine:
+        """Expose the V1-compatible target policy boundary."""
+        return self._energy_policy_engine
 
     @property
     def target_grid_power_w(self) -> int:
@@ -442,7 +478,9 @@ class ZeroInjectionController:
         self._coordinator.async_update_listeners()
 
     def set_maximum_step(self, value: int) -> None:
+        """Keep the historical setting as the V2 fine-correction step."""
         self._maximum_step_percent = value
+        self._fine_correction_step_percent = value
         self._configuration_generation += 1
 
     def async_rearm(self) -> None:
@@ -568,16 +606,8 @@ class ZeroInjectionController:
             self._last_evaluated_snapshot = snapshot
             self._last_evaluated_configuration_generation = self._configuration_generation
 
-            decision = calculate_power_limit(
-                grid_power_w=snapshot.grid_power_w,
-                target_grid_power_w=snapshot.target_power_w,
-                deadband_w=self._deadband_w,
-                current_limit_percent=current_limit,
-                watts_per_percent=self.watts_per_percent,
-                minimum_limit_percent=2,
-                maximum_limit_percent=100,
-                maximum_step_percent=self._maximum_step_percent,
-            )
+            policy = self._energy_policy_engine.decide(snapshot.target_power_w)
+            decision = self._calculate_decision(snapshot, current_limit, policy.target_grid_power_w)
 
             if self._mode is ControllerMode.SIMULATION:
                 # Simulation has no stabilization loop and never models a DTU
@@ -620,6 +650,10 @@ class ZeroInjectionController:
                         else self._status.last_command_time
                     ),
                     last_error=None,
+                    estimated_load_w=getattr(decision, "estimated_load_w", None),
+                    predictive_strategy=getattr(decision, "strategy", "cautious_correction"),
+                    policy_id=policy.policy_id,
+                    policy_reason=policy.reason,
                 )
                 return
 
@@ -639,6 +673,10 @@ class ZeroInjectionController:
                         simulated_limit_percent=None,
                         last_decision=block_reason,
                         last_error=None,
+                        estimated_load_w=getattr(decision, "estimated_load_w", None),
+                        predictive_strategy=getattr(decision, "strategy", "cautious_correction"),
+                        policy_id=policy.policy_id,
+                        policy_reason=policy.reason,
                     )
                     return
 
@@ -655,6 +693,10 @@ class ZeroInjectionController:
                 simulated_limit_percent=self._simulated_current_limit,
                 last_decision=decision.reason.value,
                 last_error=None,
+                estimated_load_w=getattr(decision, "estimated_load_w", None),
+                predictive_strategy=getattr(decision, "strategy", "cautious_correction"),
+                policy_id=policy.policy_id,
+                policy_reason=policy.reason,
             )
             if not decision.command_needed:
                 if decision.reason.value == "Within deadband":
@@ -723,7 +765,39 @@ class ZeroInjectionController:
                 commanded_limit_percent=None if success else decision.applied_limit_percent,
                 simulated_limit_percent=None,
                 last_error=None if success else result,
+                estimated_load_w=getattr(decision, "estimated_load_w", None),
+                predictive_strategy=getattr(decision, "strategy", "cautious_correction"),
+                policy_id=policy.policy_id,
+                policy_reason=policy.reason,
             )
+
+    def _calculate_decision(
+        self, snapshot: DecisionSnapshot, current_limit: int, target_grid_power_w: float
+    ) -> ControlDecision | PredictiveControlDecision:
+        """Use prediction when PV telemetry is usable; otherwise retain safe fallback."""
+        if snapshot.dtu_power_w is not None:
+            return calculate_predictive_power_limit(
+                grid_power_w=snapshot.grid_power_w,
+                pv_power_w=snapshot.dtu_power_w,
+                target_grid_power_w=target_grid_power_w,
+                deadband_w=self._deadband_w,
+                current_limit_percent=current_limit,
+                installed_nominal_power_w=self._installed_nominal_power_w,
+                predictive_error_threshold_w=self._predictive_error_threshold_w,
+                fine_correction_step_percent=self._fine_correction_step_percent,
+                minimum_limit_percent=2,
+                maximum_limit_percent=100,
+            )
+        return calculate_power_limit(
+            grid_power_w=snapshot.grid_power_w,
+            target_grid_power_w=target_grid_power_w,
+            deadband_w=self._deadband_w,
+            current_limit_percent=current_limit,
+            watts_per_percent=self.watts_per_percent,
+            minimum_limit_percent=2,
+            maximum_limit_percent=100,
+            maximum_step_percent=self._fine_correction_step_percent,
+        )
 
     async def _async_run_takeover(self) -> None:
         """Write one configured reference before normal Production decisions."""
