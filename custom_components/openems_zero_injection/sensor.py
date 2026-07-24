@@ -103,6 +103,13 @@ async def async_setup_entry(
             OpenEMSControllerSensor(coordinator, entry, "commands_failed", "Commandes échouées", EntityCategory.DIAGNOSTIC),
             OpenEMSControllerSensor(coordinator, entry, "commands_simulated", "Commandes simulées", EntityCategory.DIAGNOSTIC),
             OpenEMSControllerSensor(coordinator, entry, "last_error", "Dernière erreur du contrôleur", EntityCategory.DIAGNOSTIC),
+            OpenEMSControllerSensor(coordinator, entry, "grid_source_timestamp", "Horodatage source puissance réseau", EntityCategory.DIAGNOSTIC, device_class=SensorDeviceClass.TIMESTAMP),
+            OpenEMSControllerSensor(coordinator, entry, "pv_source_timestamp", "Horodatage source puissance PV", EntityCategory.DIAGNOSTIC, device_class=SensorDeviceClass.TIMESTAMP),
+            OpenEMSControllerSensor(coordinator, entry, "grid_measurement_age", "Âge mesure réseau", EntityCategory.DIAGNOSTIC, unit=UnitOfTime.SECONDS),
+            OpenEMSControllerSensor(coordinator, entry, "pv_measurement_age", "Âge mesure PV", EntityCategory.DIAGNOSTIC, unit=UnitOfTime.SECONDS),
+            OpenEMSControllerSensor(coordinator, entry, "measurement_timestamp_difference", "Écart temporel réseau/PV", EntityCategory.DIAGNOSTIC, unit=UnitOfTime.SECONDS),
+            OpenEMSControllerSensor(coordinator, entry, "measurement_sync_tolerance", "Tolérance synchronisation mesures", EntityCategory.DIAGNOSTIC, unit=UnitOfTime.SECONDS),
+            OpenEMSControllerSensor(coordinator, entry, "measurement_sync_reason", "Motif de désynchronisation des mesures", EntityCategory.DIAGNOSTIC),
             TraceRecorderSensor(coordinator, entry, "mode", "Mode Trace Recorder"),
             TraceRecorderSensor(coordinator, entry, "session_active", "Session de régulation active"),
             TraceRecorderSensor(coordinator, entry, "session_started_at", "Début de la session de régulation", device_class=SensorDeviceClass.TIMESTAMP),
@@ -276,6 +283,21 @@ class EnergyManagerSensor(_DtuSensorBase):
         value = getattr(snapshot, self._field)
         return display_label(value) if self._field == "state" else value
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        if self._field in {
+            "total_max_charge_power_w",
+            "total_current_charge_power_w",
+            "total_remaining_charge_power_w",
+        }:
+            snapshot = self.coordinator.energy_manager.snapshot()
+            return (
+                {"unknown_reason": snapshot.unknown_reason}
+                if snapshot.unknown_reason
+                else {}
+            )
+        return {}
+
 
 class OpenEMSControllerSensor(_DtuSensorBase):
     """Expose local controller status; it does not trigger Modbus I/O."""
@@ -351,6 +373,13 @@ class OpenEMSControllerSensor(_DtuSensorBase):
             "commands_failed": controller.commands_failed,
             "commands_simulated": controller.commands_simulated,
             "last_error": status.last_error,
+            "grid_source_timestamp": controller.measurement_sync_diagnostics.grid_source_timestamp,
+            "pv_source_timestamp": controller.measurement_sync_diagnostics.pv_source_timestamp,
+            "grid_measurement_age": controller.measurement_sync_diagnostics.grid_age_seconds,
+            "pv_measurement_age": controller.measurement_sync_diagnostics.pv_age_seconds,
+            "measurement_timestamp_difference": controller.measurement_sync_diagnostics.difference_seconds,
+            "measurement_sync_tolerance": controller.measurement_sync_diagnostics.tolerance_seconds,
+            "measurement_sync_reason": controller.measurement_sync_diagnostics.reason,
         }
         value = fields[self._field]
         if self._field in {
@@ -360,6 +389,7 @@ class OpenEMSControllerSensor(_DtuSensorBase):
             "last_command_result",
             "last_error",
             "scheduler_inactive_reason",
+            "measurement_sync_reason",
         }:
             return display_label(value)
         return value

@@ -95,6 +95,12 @@ DISPLAY_LABELS_FR = {
     "Controller disabled": "Mode manuel",
     "Predictive limit applied": "Limite prédictive appliquée",
     "Fine correction applied": "Correction fine appliquée",
+    "Grid measurement is older than the allowed age": "Mesure réseau trop ancienne",
+    "PV measurement is older than the allowed age": "Mesure PV trop ancienne",
+    "Grid/PV timestamp difference exceeds the allowed tolerance": "Écart temporel réseau/PV trop élevé",
+    "Grid timestamp unavailable": "Horodatage réseau indisponible",
+    "PV timestamp unavailable": "Horodatage PV indisponible",
+    "DTU telemetry unavailable": "Télémétrie DTU indisponible",
 }
 
 
@@ -140,6 +146,19 @@ class DecisionSnapshot:
     temporary_limits_timestamp: datetime
     target_power_w: int
     created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class MeasurementSyncDiagnostics:
+    """Explain the exact timestamp validation of the latest control snapshot."""
+
+    grid_source_timestamp: datetime | None = None
+    pv_source_timestamp: datetime | None = None
+    grid_age_seconds: float | None = None
+    pv_age_seconds: float | None = None
+    difference_seconds: float | None = None
+    tolerance_seconds: float = MEASUREMENT_SYNC_MAX_DIFFERENCE_SECONDS
+    reason: str | None = None
 
 
 class ZeroInjectionController:
@@ -224,6 +243,7 @@ class ZeroInjectionController:
         self._last_decision_sequence = 0
         self._last_command_sequence: int | None = None
         self._last_evaluated_snapshot: DecisionSnapshot | None = None
+        self._measurement_sync_diagnostics = MeasurementSyncDiagnostics()
         self._last_evaluated_configuration_generation = -1
         self._configuration_generation = 0
         self.set_installed_nominal_power(
@@ -284,6 +304,11 @@ class ZeroInjectionController:
     def trace_recorder(self) -> TraceRecorder:
         """Expose the passive RC3 recorder for diagnostics only."""
         return self._trace_recorder
+
+    @property
+    def measurement_sync_diagnostics(self) -> MeasurementSyncDiagnostics:
+        """Expose the latest snapshot validation without triggering I/O."""
+        return self._measurement_sync_diagnostics
 
     @property
     def target_grid_power_w(self) -> int:
@@ -607,11 +632,12 @@ class ZeroInjectionController:
 
             snapshot = self._build_snapshot(measurement.power_w, measurement.timestamp)
             if snapshot is None:
+                sync_reason = self._measurement_sync_diagnostics.reason
                 self._set_status(
                     state="Paused",
                     grid_power_w=measurement.power_w,
                     last_decision="Measurements not synchronized",
-                    last_error="Measurements not synchronized",
+                    last_error=sync_reason or "Measurements not synchronized",
                 )
                 return
             self._trace_recorder.observe_measurement(
@@ -945,22 +971,56 @@ class ZeroInjectionController:
         """Return only a fresh, time-compatible control snapshot."""
         data = self._coordinator.data
         if data is None or grid_timestamp is None:
+            self._measurement_sync_diagnostics = MeasurementSyncDiagnostics(
+                grid_source_timestamp=grid_timestamp,
+                tolerance_seconds=MEASUREMENT_SYNC_MAX_DIFFERENCE_SECONDS,
+                reason=(
+                    "Grid timestamp unavailable"
+                    if grid_timestamp is None
+                    else "DTU telemetry unavailable"
+                ),
+            )
             return None
         now = datetime.now(UTC)
-        dtu_timestamp = getattr(data, "last_success", None) or now
+        telemetry_timestamp = getattr(self._coordinator, "telemetry_timestamp", None)
+        dtu_timestamp = (
+            telemetry_timestamp("active_power_w")
+            if callable(telemetry_timestamp)
+            else None
+        ) or getattr(data, "last_success", None) or now
         limits_timestamp = getattr(self._coordinator, "temporary_limits_timestamp", None)
         if callable(limits_timestamp):
             limits_timestamp = limits_timestamp()
         if limits_timestamp is None:
             limits_timestamp = dtu_timestamp
         if dtu_timestamp is None or limits_timestamp is None:
+            self._measurement_sync_diagnostics = MeasurementSyncDiagnostics(
+                grid_source_timestamp=grid_timestamp,
+                pv_source_timestamp=dtu_timestamp,
+                tolerance_seconds=MEASUREMENT_SYNC_MAX_DIFFERENCE_SECONDS,
+                reason="PV timestamp unavailable",
+            )
             return None
-        if (
-            (now - grid_timestamp).total_seconds() > GRID_MEASUREMENT_MAX_AGE_SECONDS
-            or (now - dtu_timestamp).total_seconds() > DTU_MEASUREMENT_MAX_AGE_SECONDS
-            or abs((grid_timestamp - dtu_timestamp).total_seconds())
-            > MEASUREMENT_SYNC_MAX_DIFFERENCE_SECONDS
-        ):
+        grid_age = max(0.0, (now - grid_timestamp).total_seconds())
+        pv_age = max(0.0, (now - dtu_timestamp).total_seconds())
+        difference = abs((grid_timestamp - dtu_timestamp).total_seconds())
+        reason = None
+        if grid_age > GRID_MEASUREMENT_MAX_AGE_SECONDS:
+            reason = "Grid measurement is older than the allowed age"
+        elif pv_age > DTU_MEASUREMENT_MAX_AGE_SECONDS:
+            reason = "PV measurement is older than the allowed age"
+        elif difference > MEASUREMENT_SYNC_MAX_DIFFERENCE_SECONDS:
+            reason = "Grid/PV timestamp difference exceeds the allowed tolerance"
+        self._measurement_sync_diagnostics = MeasurementSyncDiagnostics(
+            grid_source_timestamp=grid_timestamp,
+            pv_source_timestamp=dtu_timestamp,
+            grid_age_seconds=grid_age,
+            pv_age_seconds=pv_age,
+            difference_seconds=difference,
+            tolerance_seconds=MEASUREMENT_SYNC_MAX_DIFFERENCE_SECONDS,
+            reason=reason,
+        )
+        if reason is not None:
             return None
         current_limit = self._current_consistent_limit(require_fresh=True)
         if current_limit is None:

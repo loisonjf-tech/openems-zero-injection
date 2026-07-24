@@ -50,5 +50,9 @@ class AcquisitionEngine:
         return GridMeasurement(
             -power if self._inverted else power,
             None,
-            state.last_changed,
+            # ``last_changed`` remains frozen while a meter keeps reporting
+            # the same numeric value.  ``last_updated`` instead represents
+            # the latest state publication known by Home Assistant and avoids
+            # rejecting a fresh, stable grid measurement as stale.
+            state.last_updated,
         )

@@ -55,6 +55,7 @@ async def async_get_config_entry_diagnostics(
     }
     energy_manager = coordinator.energy_manager.snapshot()
     trace = controller.trace_recorder.diagnostics()
+    sync = controller.measurement_sync_diagnostics
     return {
         "dtu_ip": entry.data[CONF_DTU_HOST],
         "port": entry.data[CONF_DTU_PORT],
@@ -98,6 +99,7 @@ async def async_get_config_entry_diagnostics(
             "total_max_charge_power_w": energy_manager.total_max_charge_power_w,
             "total_current_charge_power_w": energy_manager.total_current_charge_power_w,
             "total_remaining_charge_power_w": energy_manager.total_remaining_charge_power_w,
+            "unknown_reason": energy_manager.unknown_reason,
         },
         "trace_recorder": trace,
         "controller": {
@@ -137,6 +139,23 @@ async def async_get_config_entry_diagnostics(
                     "accepted_samples": controller.calibration_manager.profile.accepted_samples,
                     "rejected_samples": controller.calibration_manager.profile.rejected_samples,
                 },
+            },
+            "measurement_synchronization": {
+                "grid_source_timestamp": (
+                    sync.grid_source_timestamp.isoformat()
+                    if sync.grid_source_timestamp
+                    else None
+                ),
+                "pv_source_timestamp": (
+                    sync.pv_source_timestamp.isoformat()
+                    if sync.pv_source_timestamp
+                    else None
+                ),
+                "grid_age_seconds": sync.grid_age_seconds,
+                "pv_age_seconds": sync.pv_age_seconds,
+                "difference_seconds": sync.difference_seconds,
+                "tolerance_seconds": sync.tolerance_seconds,
+                "reason": sync.reason,
             },
             "next_displayed_limit": (
                 controller.simulated_current_limit

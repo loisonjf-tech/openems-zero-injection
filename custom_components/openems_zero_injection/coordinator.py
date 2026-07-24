@@ -708,6 +708,10 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             "consecutive_failures": health.consecutive_failures,
         }
 
+    def telemetry_timestamp(self, field: str) -> datetime | None:
+        """Return the actual successful-read timestamp of one telemetry field."""
+        return self._telemetry_health[field].last_success
+
     def connection_diagnostics(self) -> dict[str, int | str | None | bool]:
         """Return connection counters from the serialized Modbus client."""
         return {

@@ -24,8 +24,8 @@ def test_energy_manager_aggregates_available_battery_charge_capacity() -> None:
     assert snapshot.state == "Passive"
 
 
-def test_unknown_or_over_limit_charge_capacity_is_safe() -> None:
-    """Missing values and excess charge cannot yield a negative capacity."""
+def test_unknown_or_over_limit_charge_capacity_is_explicitly_unknown() -> None:
+    """Missing values are never silently reinterpreted as zero capacity."""
     manager = EnergyManager(
         (
             BatteryResource("a", "Battery A", None, 1200, None, 1000, None, None, True, True),
@@ -33,4 +33,15 @@ def test_unknown_or_over_limit_charge_capacity_is_safe() -> None:
         )
     )
 
-    assert manager.snapshot().total_remaining_charge_power_w == 0
+    assert manager.snapshot().total_remaining_charge_power_w is None
+
+
+def test_no_configured_battery_has_unknown_power_totals() -> None:
+    """No battery configured is distinct from a configured 0 W battery."""
+    snapshot = EnergyManager().snapshot()
+
+    assert snapshot.state == "No batteries configured"
+    assert snapshot.total_max_charge_power_w is None
+    assert snapshot.total_current_charge_power_w is None
+    assert snapshot.total_remaining_charge_power_w is None
+    assert snapshot.unknown_reason == "No batteries configured"

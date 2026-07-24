@@ -2,6 +2,18 @@
 
 Toutes les évolutions notables sont documentées dans ce fichier.
 
+## [Unreleased] — Build004 RC3 corrective diagnostics
+
+### Fixed
+
+- La fraîcheur du capteur réseau utilise désormais sa dernière publication Home Assistant (`last_updated`) plutôt que son seul changement de valeur. Une mesure stable mais régulièrement actualisée ne provoque plus une fausse désynchronisation.
+- La synchronisation utilise l'horodatage de lecture propre à la puissance PV DTU lorsqu'il est disponible ; la tolérance reste de 25 s, sans nouveau polling.
+- Sans batterie configurée, les totaux de charge Energy Manager sont désormais inconnus (`None`) et non plus artificiellement égaux à `0 W`.
+
+### Added
+
+- Diagnostics et capteurs de diagnostic : horodatages réseau/PV, âges, écart, tolérance de synchronisation et motif détaillé d'un instantané refusé.
+
 ## [0.4.0-alpha.3] - 2026-07-24 — Build004 RC3
 
 ### Added

@@ -70,7 +70,14 @@
       "trace_median_energy_response_ms": {"name": "Temps de réponse énergétique médian"},
       "trace_weighted_time_in_tolerance_percent": {"name": "Temps pondéré dans la tolérance"},
       "trace_average_absolute_error_w": {"name": "Erreur absolue moyenne Trace Recorder"},
-      "trace_suspected_oscillations": {"name": "Oscillations suspectées Trace Recorder"}
+      "trace_suspected_oscillations": {"name": "Oscillations suspectées Trace Recorder"},
+      "grid_source_timestamp": {"name": "Horodatage source puissance réseau"},
+      "pv_source_timestamp": {"name": "Horodatage source puissance PV"},
+      "grid_measurement_age": {"name": "Âge mesure réseau"},
+      "pv_measurement_age": {"name": "Âge mesure PV"},
+      "measurement_timestamp_difference": {"name": "Écart temporel réseau/PV"},
+      "measurement_sync_tolerance": {"name": "Tolérance synchronisation mesures"},
+      "measurement_sync_reason": {"name": "Motif de désynchronisation des mesures"}
     },
     "select": {
       "controller_mode": {"name": "Mode du contrôleur"}

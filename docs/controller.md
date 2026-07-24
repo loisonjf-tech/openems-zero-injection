@@ -32,6 +32,16 @@ performs the next read attempt. Permanent limit registers are diagnostic only
 and read at startup then every five minutes; their availability does not affect
 Simulation or Production.
 
+## Measurement synchronization
+
+The controller accepts a grid/PV snapshot only when the grid publication is at
+most 10 seconds old, the last successful active-power DTU read is at most 25
+seconds old, and their timestamps differ by no more than 25 seconds. The grid
+timestamp is Home Assistant's `last_updated`, not `last_changed`: a stable
+numeric value can therefore remain usable when its source keeps publishing it.
+No extra polling is performed. Diagnostics expose both timestamps, ages, the
+difference, tolerance and the precise rejection reason.
+
 ## Trace Recorder (Build004 RC3)
 
 The Trace Recorder is an observer, not a control component. It receives only

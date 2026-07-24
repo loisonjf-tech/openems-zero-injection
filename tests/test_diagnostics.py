@@ -52,9 +52,12 @@ async def test_diagnostics_include_connection_state(hass) -> None:
     assert diagnostics["energy_manager"] == {
         "state": "No batteries configured",
         "battery_count": 0,
-        "total_max_charge_power_w": 0,
-        "total_current_charge_power_w": 0,
-        "total_remaining_charge_power_w": 0,
+        "total_max_charge_power_w": None,
+        "total_current_charge_power_w": None,
+        "total_remaining_charge_power_w": None,
+        "unknown_reason": "No batteries configured",
     }
     assert diagnostics["trace_recorder"]["mode"] == "normal"
     assert diagnostics["trace_recorder"]["session_active"] is False
+    sync = diagnostics["controller"]["measurement_synchronization"]
+    assert sync["tolerance_seconds"] == 25

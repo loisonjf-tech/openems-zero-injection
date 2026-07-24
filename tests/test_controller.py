@@ -115,6 +115,24 @@ async def test_disabled_controller_keeps_grid_power_visible(hass) -> None:
     assert controller.status.last_decision == "Controller disabled"
 
 
+def test_snapshot_sync_diagnostics_explain_an_old_grid_measurement(hass) -> None:
+    """A failed snapshot exposes its exact freshness reason for diagnostics."""
+    controller = ZeroInjectionController(
+        hass, fake_coordinator(), AcquisitionEngine(hass, "sensor.grid", False)
+    )
+
+    snapshot = controller._build_snapshot(
+        7.3, datetime.now(UTC) - timedelta(seconds=11)
+    )
+
+    assert snapshot is None
+    assert (
+        controller.measurement_sync_diagnostics.reason
+        == "Grid measurement is older than the allowed age"
+    )
+    assert controller.measurement_sync_diagnostics.tolerance_seconds == 25
+
+
 async def test_trace_recorder_follows_mode_without_affecting_scheduler(hass) -> None:
     """RC3 tracing starts and stops passively; it sends no DTU request itself."""
     coordinator = fake_coordinator()

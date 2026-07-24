@@ -82,9 +82,9 @@ async def test_connection_sensor_reports_connected(hass) -> None:
 
     expected_energy_manager_states = {
         "energy_manager_battery_count": "0",
-        "energy_manager_total_max_charge_power_w": "0",
-        "energy_manager_total_current_charge_power_w": "0",
-        "energy_manager_total_remaining_charge_power_w": "0",
+        "energy_manager_total_max_charge_power_w": "unknown",
+        "energy_manager_total_current_charge_power_w": "unknown",
+        "energy_manager_total_remaining_charge_power_w": "unknown",
         "energy_manager_state": "Aucune batterie configurée",
     }
     for suffix, expected_state in expected_energy_manager_states.items():

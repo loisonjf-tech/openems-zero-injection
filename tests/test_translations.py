@@ -34,6 +34,9 @@ def test_french_translation_keys_exist_for_controller_entities() -> None:
         ("sensor", "trace_commands_effective"),
         ("sensor", "trace_commands_ineffective"),
         ("sensor", "trace_commands_indeterminate"),
+        ("sensor", "grid_source_timestamp"),
+        ("sensor", "pv_source_timestamp"),
+        ("sensor", "measurement_sync_reason"),
         ("select", "controller_mode"),
     ):
         assert source["entity"][platform][key]["name"]
