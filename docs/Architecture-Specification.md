@@ -516,3 +516,16 @@ An implementation conforms to this specification only if it:
 - preserves compatibility through tested migration;
 - keeps vendor-specific battery detail outside the predictive controller;
 - passes automated tests and real-hardware validation appropriate to release scope.
+## 17. Build004 RC3 — Trace Recorder Foundation
+
+The Trace Recorder is an internal, passive observability boundary. It receives
+already-produced controller snapshots and coordinator write results, but it
+does not own a Modbus client, polling loop, scheduler transition, retry policy,
+or write authority. Its normal mode keeps the 100 newest command traces in
+memory only. A future diagnostic mode may request extra sampling through the
+coordinator, never directly through the recorder.
+
+Each command records wall-clock UTC, monotonic elapsed time, source timestamps
+and OpenEMS observation timestamps. Session metrics are interval weighted and
+publish their data coverage. Insufficient or gapped measurements produce an
+indeterminate result rather than an assertion of inefficiency.

@@ -2,6 +2,25 @@
 
 Toutes les évolutions notables sont documentées dans ce fichier.
 
+## [0.4.0-alpha.3] - 2026-07-24 — Build004 RC3
+
+### Added
+
+- Fondation passive `TraceRecorder` : buffer circulaire en mémoire limité aux 100 dernières commandes, sans écriture disque ni polling supplémentaire.
+- Traces horodatées séparant l'horodatage source, la réception OpenEMS et le temps monotone pour les décisions, les trois écritures temporaires et les observations déjà disponibles.
+- Sessions de régulation ouvertes en Production et clôturées au changement de mode, au rechargement, à l'arrêt ou après une modification majeure de configuration.
+- Métriques prudentes : durée Modbus, première variation PV observée, retour dans la tolérance, erreur finale, amplitude, sur-correction, oscillation suspectée et qualité/couverture de données.
+- Diagnostics et capteurs de diagnostic Trace Recorder en lecture seule.
+
+### Safety
+
+- Le recorder ne crée aucun client Modbus, aucune tâche, aucune temporisation, aucune écriture et ne retourne aucune décision au Scheduler.
+- Une commande avec télémétrie insuffisante ou trouée est classée **indéterminée**, jamais inefficace.
+
+### Remaining validation
+
+- Le mode diagnostic détaillé, le polling temporairement accéléré et les exports CSV/JSON restent réservés à Build004 RC4.
+
 ## [0.4.0-alpha.2] - 2026-07-22 — Build004 RC2
 
 ### Added

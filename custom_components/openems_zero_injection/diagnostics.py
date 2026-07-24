@@ -54,6 +54,7 @@ async def async_get_config_entry_diagnostics(
         )
     }
     energy_manager = coordinator.energy_manager.snapshot()
+    trace = controller.trace_recorder.diagnostics()
     return {
         "dtu_ip": entry.data[CONF_DTU_HOST],
         "port": entry.data[CONF_DTU_PORT],
@@ -98,6 +99,7 @@ async def async_get_config_entry_diagnostics(
             "total_current_charge_power_w": energy_manager.total_current_charge_power_w,
             "total_remaining_charge_power_w": energy_manager.total_remaining_charge_power_w,
         },
+        "trace_recorder": trace,
         "controller": {
             "mode": controller.mode.value,
             "mode_restore_source": controller.mode_restore_source,

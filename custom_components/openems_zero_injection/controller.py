@@ -47,6 +47,7 @@ from .energy_policy import EnergyPolicyEngine
 from .history import DecisionHistory, DecisionRecord
 from .learning import LearningSample, PassiveLearningEngine
 from .scheduler import SafetyScheduler
+from .trace import TraceRecorder
 
 if TYPE_CHECKING:
     from .coordinator import DtuProSCoordinator
@@ -191,6 +192,7 @@ class ZeroInjectionController:
         self._context_analyzer = ContextAnalyzer()
         self._calibration_manager = CalibrationManager()
         self._energy_policy_engine = EnergyPolicyEngine()
+        self._trace_recorder = TraceRecorder()
         self._status = ControllerStatus(
             mode=initial_mode,
             state=initial_mode.value,
@@ -277,6 +279,11 @@ class ZeroInjectionController:
     def energy_policy_engine(self) -> EnergyPolicyEngine:
         """Expose the V1-compatible target policy boundary."""
         return self._energy_policy_engine
+
+    @property
+    def trace_recorder(self) -> TraceRecorder:
+        """Expose the passive RC3 recorder for diagnostics only."""
+        return self._trace_recorder
 
     @property
     def target_grid_power_w(self) -> int:
@@ -370,12 +377,15 @@ class ZeroInjectionController:
         )
         _LOGGER.info("Controller mode restored: %s", restored_mode)
         _LOGGER.info("Controller mode source: %s", self._mode_restore_source)
+        if self._mode is ControllerMode.PRODUCTION:
+            self._trace_recorder.start_session(reason="controller_started_in_production")
         self._cancel_tick = async_track_time_interval(
             self._hass, self._async_scheduled_tick, CONTROLLER_INTERVAL
         )
 
     async def async_stop(self) -> None:
         """Stop periodic evaluation without changing DTU values."""
+        self._trace_recorder.stop_session(reason="integration_unload_or_reload")
         if self._cancel_tick is not None:
             self._cancel_tick()
             self._cancel_tick = None
@@ -387,6 +397,10 @@ class ZeroInjectionController:
         """Select an explicit mode; persistence is handled by the coordinator."""
         previous_mode = self._mode
         self._mode = ControllerMode(mode)
+        if previous_mode is ControllerMode.PRODUCTION and self._mode is not ControllerMode.PRODUCTION:
+            self._trace_recorder.stop_session(reason=f"mode_changed_to_{self._mode.value}")
+        elif previous_mode is not ControllerMode.PRODUCTION and self._mode is ControllerMode.PRODUCTION:
+            self._trace_recorder.start_session(reason="mode_changed_to_production")
         self._mode_restore_source = "options"
         self._configuration_generation += 1
         if self._mode is ControllerMode.DISABLED:
@@ -442,15 +456,18 @@ class ZeroInjectionController:
     def set_target_grid_power(self, value: int) -> None:
         self._target_grid_power_w = value
         self._configuration_generation += 1
+        self._rotate_trace_session("target_grid_power_changed")
 
     def set_deadband(self, value: int) -> None:
         self._deadband_w = value
         self._configuration_generation += 1
+        self._rotate_trace_session("deadband_changed")
 
     def set_stabilization_delay(self, value: int) -> None:
         self._stabilization_delay_seconds = value
         self._scheduler.configure(value)
         self._configuration_generation += 1
+        self._rotate_trace_session("stabilization_delay_changed")
 
     def set_installed_nominal_power(
         self, value: float, *, source: str, log_change: bool = True
@@ -471,6 +488,7 @@ class ZeroInjectionController:
         self._installed_power_source = source
         self._installed_power_updated_at = datetime.now(UTC)
         self._configuration_generation += 1
+        self._rotate_trace_session("installed_nominal_power_changed")
         if log_change:
             logging.getLogger(__name__).info(
                 "Installed nominal PV power updated from %s W to %s W", old_value, new_value
@@ -482,6 +500,7 @@ class ZeroInjectionController:
         self._maximum_step_percent = value
         self._fine_correction_step_percent = value
         self._configuration_generation += 1
+        self._rotate_trace_session("fine_correction_step_changed")
 
     def async_rearm(self) -> None:
         """Allow a user to clear a paused/error scheduler without a DTU write."""
@@ -595,6 +614,12 @@ class ZeroInjectionController:
                     last_error="Measurements not synchronized",
                 )
                 return
+            self._trace_recorder.observe_measurement(
+                grid_power_w=snapshot.grid_power_w,
+                grid_source_timestamp=snapshot.grid_power_timestamp,
+                pv_power_w=snapshot.dtu_power_w,
+                pv_source_timestamp=snapshot.dtu_power_timestamp,
+            )
             if not self._requires_new_decision(snapshot):
                 if (
                     self._mode is ControllerMode.PRODUCTION
@@ -725,6 +750,22 @@ class ZeroInjectionController:
 
             self.commands_sent += 1
             self._last_command_sequence = (self._last_command_sequence or 0) + 1
+            self._trace_recorder.start_command(
+                decision_id=self.decisions_evaluated + 1,
+                command_id=self._last_command_sequence,
+                controller_mode=self._mode.value,
+                grid_power_w=snapshot.grid_power_w,
+                grid_source_timestamp=snapshot.grid_power_timestamp,
+                pv_power_w=snapshot.dtu_power_w,
+                pv_source_timestamp=snapshot.dtu_power_timestamp,
+                real_limit_before_percent=current_limit,
+                calculated_limit_percent=decision.calculated_limit_percent,
+                requested_limit_percent=decision.applied_limit_percent,
+                decision_reason=decision.reason.value,
+                strategy=getattr(decision, "strategy", "cautious_correction"),
+                target_grid_power_w=policy.target_grid_power_w,
+                deadband_w=self._deadband_w,
+            )
             success, result = await self._scheduler.async_execute(
                 self._mode,
                 lambda: self._coordinator.async_set_all_temporary_power_limits(
@@ -750,6 +791,11 @@ class ZeroInjectionController:
                 )
             else:
                 self.commands_failed += 1
+            self._trace_recorder.finish_command(
+                confirmed=success,
+                confirmed_limit_percent=decision.applied_limit_percent if success else None,
+                error=None if success else result,
+            )
             self._record(measurement.power_w, current_limit, decision, result, success, success, None if success else result)
             confirmed_limit = (
                 self._current_consistent_limit(require_fresh=True) if success else real_limit
@@ -813,6 +859,22 @@ class ZeroInjectionController:
 
         self.commands_sent += 1
         self._last_command_sequence = (self._last_command_sequence or 0) + 1
+        self._trace_recorder.start_command(
+            decision_id=self.decisions_evaluated + 1,
+            command_id=self._last_command_sequence,
+            controller_mode=ControllerMode.PRODUCTION.value,
+            grid_power_w=None,
+            grid_source_timestamp=None,
+            pv_power_w=self._coordinator.data.active_power_w if self._coordinator.data else None,
+            pv_source_timestamp=self._coordinator.data.last_success if self._coordinator.data else None,
+            real_limit_before_percent=self._current_consistent_limit(require_fresh=False),
+            calculated_limit_percent=self._takeover_limit_percent,
+            requested_limit_percent=self._takeover_limit_percent,
+            decision_reason="Takeover",
+            strategy="takeover",
+            target_grid_power_w=self._target_grid_power_w,
+            deadband_w=self._deadband_w,
+        )
         success, result = await self._scheduler.async_execute(
             ControllerMode.PRODUCTION,
             lambda: self._coordinator.async_takeover_temporary_power_limits(
@@ -821,6 +883,10 @@ class ZeroInjectionController:
         )
         if success:
             self.commands_succeeded += 1
+            self._trace_recorder.finish_command(
+                confirmed=True,
+                confirmed_limit_percent=self._takeover_limit_percent,
+            )
             self._takeover_pending = False
             self._set_status(
                 state=self._scheduler.state.value,
@@ -836,6 +902,9 @@ class ZeroInjectionController:
             return
 
         self.commands_failed += 1
+        self._trace_recorder.finish_command(
+            confirmed=False, confirmed_limit_percent=None, error=result
+        )
         self._takeover_pending = False
         self._set_status(
             state=self._scheduler.state.value,
@@ -950,6 +1019,7 @@ class ZeroInjectionController:
     ) -> None:
         if decision is not None:
             self.decisions_evaluated += 1
+            self._trace_recorder.record_decision()
             self._last_decision_sequence = self.decisions_evaluated
             self._status = replace(self._status, last_decision_time=datetime.now(UTC))
             self._coordinator.async_update_listeners()
@@ -978,3 +1048,8 @@ class ZeroInjectionController:
             return
         self._status = updated
         self._coordinator.async_update_listeners()
+
+    def _rotate_trace_session(self, reason: str) -> None:
+        """Segment passive RC3 metrics after a material Production change."""
+        if self._mode is ControllerMode.PRODUCTION:
+            self._trace_recorder.rotate_session(reason=reason)

@@ -103,6 +103,18 @@ async def async_setup_entry(
             OpenEMSControllerSensor(coordinator, entry, "commands_failed", "Commandes échouées", EntityCategory.DIAGNOSTIC),
             OpenEMSControllerSensor(coordinator, entry, "commands_simulated", "Commandes simulées", EntityCategory.DIAGNOSTIC),
             OpenEMSControllerSensor(coordinator, entry, "last_error", "Dernière erreur du contrôleur", EntityCategory.DIAGNOSTIC),
+            TraceRecorderSensor(coordinator, entry, "mode", "Mode Trace Recorder"),
+            TraceRecorderSensor(coordinator, entry, "session_active", "Session de régulation active"),
+            TraceRecorderSensor(coordinator, entry, "session_started_at", "Début de la session de régulation", device_class=SensorDeviceClass.TIMESTAMP),
+            TraceRecorderSensor(coordinator, entry, "data_coverage_percent", "Couverture des données Trace Recorder", unit="%"),
+            TraceRecorderSensor(coordinator, entry, "commands_confirmed", "Commandes confirmées Trace Recorder"),
+            TraceRecorderSensor(coordinator, entry, "commands_effective", "Commandes efficaces Trace Recorder"),
+            TraceRecorderSensor(coordinator, entry, "commands_ineffective", "Commandes inefficaces Trace Recorder"),
+            TraceRecorderSensor(coordinator, entry, "commands_indeterminate", "Commandes indéterminées Trace Recorder"),
+            TraceRecorderSensor(coordinator, entry, "median_energy_response_ms", "Temps de réponse énergétique médian", unit=UnitOfTime.MILLISECONDS),
+            TraceRecorderSensor(coordinator, entry, "weighted_time_in_tolerance_percent", "Temps pondéré dans la tolérance", unit="%"),
+            TraceRecorderSensor(coordinator, entry, "average_absolute_error_w", "Erreur absolue moyenne Trace Recorder", unit=UnitOfPower.WATT),
+            TraceRecorderSensor(coordinator, entry, "suspected_oscillations", "Oscillations suspectées Trace Recorder"),
         ]
     )
 
@@ -362,3 +374,41 @@ class OpenEMSControllerSensor(_DtuSensorBase):
             "execution_mode": "Simulation" if is_simulation else "Production",
             "is_simulation": is_simulation,
         }
+
+
+class TraceRecorderSensor(_DtuSensorBase):
+    """Expose passive RC3 recorder diagnostics without any I/O."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: DtuProSCoordinator,
+        entry: ConfigEntry,
+        field: str,
+        name: str,
+        *,
+        unit: str | None = None,
+        device_class: SensorDeviceClass | None = None,
+    ) -> None:
+        super().__init__(coordinator, entry, f"trace_{field}")
+        self._field = field
+        self._attr_name = name
+        self._attr_native_unit_of_measurement = unit
+        self._attr_device_class = device_class
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    @property
+    def native_value(self) -> Any:
+        trace = self.coordinator.controller.trace_recorder.diagnostics()
+        if self._field == "session_started_at":
+            return self.coordinator.controller.trace_recorder.session_started_at
+        if self._field == "session_active":
+            return "Active" if trace[self._field] else "Inactive"
+        if self._field == "mode":
+            return trace[self._field]
+        metrics = trace["metrics"]
+        return metrics.get(self._field) if metrics else None

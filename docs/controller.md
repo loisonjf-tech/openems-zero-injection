@@ -31,3 +31,17 @@ diagnostics, marked as stale, but pauses Production. The next normal cycle
 performs the next read attempt. Permanent limit registers are diagnostic only
 and read at startup then every five minutes; their availability does not affect
 Simulation or Production.
+
+## Trace Recorder (Build004 RC3)
+
+The Trace Recorder is an observer, not a control component. It receives only
+snapshots and Modbus write outcomes that the controller and coordinator already
+have. It owns no Modbus client, timer, scheduler lock, retry loop, or persistent
+storage. Normal mode retains a circular in-memory buffer of 100 command traces.
+
+Every trace distinguishes `timestamp_utc`, `monotonic_ms`, `source_timestamp`
+and `observed_timestamp`. This prevents a Home Assistant chart timestamp from
+being confused with the original measurement timestamp or an elapsed duration.
+The recorder evaluates outcomes only when coverage is sufficient; otherwise it
+reports `indeterminate`. RC3 intentionally does not add diagnostic polling or
+exports; those belong to RC4.

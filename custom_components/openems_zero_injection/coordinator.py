@@ -876,6 +876,8 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             )
 
         ports_and_addresses = tuple(PORT_TEMPORARY_POWER_LIMIT_REGISTERS.items())
+        trace_recorder = self.controller.trace_recorder
+        trace_recorder.record_modbus_started()
         _LOGGER.warning(
             "%s temporary DTU power-limit request: all ports, %s%%",
             source,
@@ -886,6 +888,9 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             for port, address in ports_and_addresses:
                 await self._modbus.async_write_temporary_power_limit(address, value)
                 confirmed_ports.append(port)
+                trace_recorder.record_port_result(
+                    port=port, address=address, result="confirmed"
+                )
             if require_readback:
                 confirmed = {
                     address: decode_power_limit_percent(
@@ -901,6 +906,12 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             failed_ports = [
                 port for port, _ in ports_and_addresses if port not in confirmed_ports
             ]
+            for port, address in ports_and_addresses:
+                if port in failed_ports:
+                    trace_recorder.record_port_result(
+                        port=port, address=address, result="failed", error=str(err)
+                    )
+            trace_recorder.finish_modbus(result="failed", error=str(err))
             self._temporary_limits_synchronized = False
             _LOGGER.error(
                 "Common temporary DTU power-limit write failed; confirmed ports=%s, failed ports=%s: %s",
@@ -915,12 +926,15 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
 
         if any(read_value != value for read_value in confirmed.values()):
             self._temporary_limits_synchronized = False
+            trace_recorder.finish_modbus(result="readback_mismatch", error="readback mismatch")
             _LOGGER.error(
                 "Automatic temporary DTU power-limit verification failed: requested %s%%, read %s",
                 value,
                 confirmed,
             )
             raise HomeAssistantError("DTU temporary power-limit readback mismatch")
+
+        trace_recorder.finish_modbus(result="confirmed")
 
         if self.data is not None:
             self.async_set_updated_data(

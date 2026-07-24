@@ -56,3 +56,5 @@ async def test_diagnostics_include_connection_state(hass) -> None:
         "total_current_charge_power_w": 0,
         "total_remaining_charge_power_w": 0,
     }
+    assert diagnostics["trace_recorder"]["mode"] == "normal"
+    assert diagnostics["trace_recorder"]["session_active"] is False

@@ -111,3 +111,9 @@ async def test_connection_sensor_reports_connected(hass) -> None:
         entity_id = registry.async_get_entity_id(platform, DOMAIN, unique_id)
         assert entity_id is not None
         assert hass.states.get(entity_id).state != "unavailable"
+
+    trace_mode_entity = registry.async_get_entity_id(
+        "sensor", DOMAIN, f"{entry.entry_id}_trace_mode"
+    )
+    assert trace_mode_entity is not None
+    assert hass.states.get(trace_mode_entity).state == "normal"

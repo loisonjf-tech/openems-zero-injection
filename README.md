@@ -6,7 +6,7 @@ Intégration Home Assistant locale destinée à piloter un Hoymiles DTU Pro-S af
 
 **Build004 — fondation expérimentale du contrôleur de zéro injection.** Le projet acquiert une puissance réseau locale, calcule une consigne DTU déterministe, et applique un scheduler de sécurité. Il n'intègre pas encore SolarFlow, Zendure ou une logique de batterie.
 
-Version actuelle : **V0.4.0-alpha.2 / Build004 RC2**.
+Version actuelle : **V0.4.0-alpha.3 / Build004 RC3**.
 
 ## Matériel de référence
 
@@ -63,6 +63,14 @@ Une limite permanente hors de la plage documentée est traitée comme une donné
 Le curseur unique écrit `0xD007`, `0xD00D` et `0xD013`, avec une plage de `2` à `100 %` et un pas de `1 %`. Les trois capteurs réels restent diagnostiques. Les trois anciennes commandes par port restent dans le registre Home Assistant mais sont automatiquement désactivées par l’intégration : elles ne sont donc ni supprimées brutalement ni actives. Un échec partiel marque les ports **Incertains**, suspend la régulation automatique et exige une nouvelle commande explicite en mode Manuel pour les resynchroniser.
 
 Les diagnostics indiquent aussi si les ports sont synchronisés et la source de la limite courante : relecture Modbus, prise de contrôle confirmée, correction automatique confirmée, commande manuelle confirmée ou inconnue.
+
+## Trace Recorder — Build004 RC3
+
+Le Trace Recorder est la boîte noire passive d’OpenEMS. En mode normal, il conserve seulement les 100 dernières commandes en mémoire. Il ne déclenche ni lecture Modbus supplémentaire, ni écriture, ni tâche périodique, et ne peut pas modifier une décision ou le Scheduler.
+
+Pour chaque commande déjà décidée par le contrôleur, il enregistre les mesures réseau/PV utilisées, leur horodatage source et leur réception, la limite avant/calculée/demandée/confirmée, les confirmations des trois ports et les observations normales suivantes. Les diagnostics publient la session en cours, la couverture de données, les commandes confirmées, efficaces, inefficaces ou indéterminées, ainsi que les temps de réponse et d’éventuelles oscillations suspectées.
+
+Une absence de mesures ou une télémétrie trop espacée ne peut jamais conclure à une commande inefficace : le résultat est alors **indéterminé**. Le mode diagnostic détaillé, les lectures accélérées et les exports sont volontairement hors périmètre du RC3.
 
 ## Préparation EMS passive
 

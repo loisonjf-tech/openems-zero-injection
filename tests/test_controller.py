@@ -115,6 +115,25 @@ async def test_disabled_controller_keeps_grid_power_visible(hass) -> None:
     assert controller.status.last_decision == "Controller disabled"
 
 
+async def test_trace_recorder_follows_mode_without_affecting_scheduler(hass) -> None:
+    """RC3 tracing starts and stops passively; it sends no DTU request itself."""
+    coordinator = fake_coordinator()
+    controller = ZeroInjectionController(
+        hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
+    )
+
+    await controller.async_set_mode(ControllerMode.PRODUCTION.value)
+
+    assert controller.trace_recorder.session_active
+    assert controller.scheduler.state is SchedulerState.IDLE
+    coordinator.async_set_all_temporary_power_limits.assert_not_awaited()
+
+    await controller.async_set_mode(ControllerMode.SIMULATION.value)
+
+    assert not controller.trace_recorder.session_active
+    coordinator.async_set_all_temporary_power_limits.assert_not_awaited()
+
+
 async def test_simulation_does_not_chain_virtual_commands(hass) -> None:
     """A new measurement recalculates but never treats a virtual limit as real."""
     hass.states.async_set("sensor.grid", "-220")

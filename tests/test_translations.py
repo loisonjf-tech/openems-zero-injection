@@ -27,6 +27,13 @@ def test_french_translation_keys_exist_for_controller_entities() -> None:
         ("sensor", "last_decision"),
         ("sensor", "last_command_result"),
         ("sensor", "commands_simulated"),
+        ("sensor", "trace_mode"),
+        ("sensor", "trace_session_active"),
+        ("sensor", "trace_data_coverage_percent"),
+        ("sensor", "trace_commands_confirmed"),
+        ("sensor", "trace_commands_effective"),
+        ("sensor", "trace_commands_ineffective"),
+        ("sensor", "trace_commands_indeterminate"),
         ("select", "controller_mode"),
     ):
         assert source["entity"][platform][key]["name"]

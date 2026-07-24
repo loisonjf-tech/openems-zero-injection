@@ -58,7 +58,19 @@
       "energy_manager_state": {"name": "État Energy Manager"},
       "last_decision": {"name": "Motif de la dernière décision"},
       "last_command_result": {"name": "Résultat de la dernière commande"},
-      "commands_simulated": {"name": "Commandes simulées"}
+      "commands_simulated": {"name": "Commandes simulées"},
+      "trace_mode": {"name": "Mode Trace Recorder"},
+      "trace_session_active": {"name": "Session de régulation active"},
+      "trace_session_started_at": {"name": "Début de la session de régulation"},
+      "trace_data_coverage_percent": {"name": "Couverture des données Trace Recorder"},
+      "trace_commands_confirmed": {"name": "Commandes confirmées Trace Recorder"},
+      "trace_commands_effective": {"name": "Commandes efficaces Trace Recorder"},
+      "trace_commands_ineffective": {"name": "Commandes inefficaces Trace Recorder"},
+      "trace_commands_indeterminate": {"name": "Commandes indéterminées Trace Recorder"},
+      "trace_median_energy_response_ms": {"name": "Temps de réponse énergétique médian"},
+      "trace_weighted_time_in_tolerance_percent": {"name": "Temps pondéré dans la tolérance"},
+      "trace_average_absolute_error_w": {"name": "Erreur absolue moyenne Trace Recorder"},
+      "trace_suspected_oscillations": {"name": "Oscillations suspectées Trace Recorder"}
     },
     "select": {
       "controller_mode": {"name": "Mode du contrôleur"}
