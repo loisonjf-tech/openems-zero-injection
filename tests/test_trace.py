@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 from custom_components.openems_zero_injection.trace import (
@@ -11,7 +12,12 @@ from custom_components.openems_zero_injection.trace import (
 )
 
 
-def _start(recorder: TraceRecorder, command_id: int = 1):
+def _start(
+    recorder: TraceRecorder,
+    command_id: int = 1,
+    *,
+    before_modbus_finish: Callable[[], None] | None = None,
+):
     recorder.start_session(reason="test")
     trace = recorder.start_command(
         decision_id=command_id,
@@ -33,6 +39,8 @@ def _start(recorder: TraceRecorder, command_id: int = 1):
     recorder.record_modbus_started()
     for port in (1, 2, 3):
         recorder.record_port_result(port=port, result="confirmed")
+    if before_modbus_finish is not None:
+        before_modbus_finish()
     recorder.finish_modbus(result="confirmed")
     return trace
 
@@ -88,8 +96,7 @@ def test_confirmed_command_records_three_port_results(monkeypatch) -> None:
     clock = [0.0]
     monkeypatch.setattr("custom_components.openems_zero_injection.trace._monotonic_ms", lambda: clock[0])
     recorder = TraceRecorder()
-    trace = _start(recorder)
-    clock[0] = 120
+    trace = _start(recorder, before_modbus_finish=lambda: clock.__setitem__(0, 120))
     recorder.finish_command(confirmed=True, confirmed_limit_percent=20)
 
     assert trace.outcome is CommandOutcome.CONFIRMED
