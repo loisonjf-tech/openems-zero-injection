@@ -13,6 +13,16 @@ absente, stale, incohérente ou en défaut, annule immédiatement la confirmatio
 et restaure exactement la cible Zero Injection. `chargeMaxLimit` et le SOC ne
 servent pas au calcul de puissance disponible dans cet incrément.
 
+## Alpha.3 — observabilité cohérente
+
+Les diagnostics de dernière commande sont extraits d'une unique `CommandTrace`.
+Ils ne fusionnent jamais une limite DTU relue plus tard avec une décision plus
+ancienne. Lorsqu'aucune commande n'a de trace, ce fait est explicite.
+
+La SolarFlow expose aussi la fraîcheur indépendante de ses sources obligatoires
+SOC et puissance directionnelle. Cette observation n'assouplit pas encore les
+règles de santé ni les conditions de priorité batterie.
+
 ## Objective
 
 Build007 compares a generic `BatteryPriorityStrategy` with the established

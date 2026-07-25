@@ -14,10 +14,11 @@ from ..battery import (
     BatteryReasonCode,
     BatteryResource,
 )
+from ..const import VERSION
 
 
 ADAPTER_ID = "zendure_solarflow"
-ADAPTER_VERSION = "0.6.0-alpha.2"
+ADAPTER_VERSION = VERSION
 BAT_IN_OUT_ENTITY_ID = "sensor.solarflow_800_plus_bat_in_out"
 
 
@@ -58,6 +59,30 @@ class ZendureSolarFlowAdapter:
         required_times = [timestamp for timestamp in (soc_time, power_time) if timestamp]
         last_updated = min(required_times) if len(required_times) == 2 else None
         age = (now - last_updated).total_seconds() if last_updated else None
+        source_timestamps = {
+            "soc_percent": soc_time,
+            "directional_power_w": power_time,
+        }
+        source_ages = {
+            source: _source_age(now, timestamp)
+            for source, timestamp in source_timestamps.items()
+        }
+        source_freshness = {
+            "soc_percent": _source_freshness(
+                timestamp=soc_time,
+                age_seconds=source_ages["soc_percent"],
+                issue=soc_issue,
+                started_at=self._started_at,
+                max_age_seconds=self._max_age_seconds,
+            ),
+            "directional_power_w": _source_freshness(
+                timestamp=power_time,
+                age_seconds=source_ages["directional_power_w"],
+                issue=power_issue,
+                started_at=self._started_at,
+                max_age_seconds=self._max_age_seconds,
+            ),
+        }
 
         if any(issue is BatteryReasonCode.SOURCE_UNAVAILABLE for issue in anomalies):
             health = BatteryHealth.UNAVAILABLE
@@ -117,6 +142,9 @@ class ZendureSolarFlowAdapter:
                     else {}
                 ),
             },
+            source_timestamps=source_timestamps,
+            source_ages_seconds=source_ages,
+            source_freshness=source_freshness,
         )
 
     def _read_soc(self) -> tuple[float | None, datetime | None, BatteryReasonCode | None]:
@@ -170,3 +198,33 @@ def _numeric_state(
     if unit is not None and unit not in expected_units:
         return None, state.last_updated, BatteryReasonCode.POWER_UNIT_UNSUPPORTED
     return value, state.last_updated.astimezone(UTC), None
+
+
+def _source_age(now: datetime, timestamp: datetime | None) -> float | None:
+    """Return a non-negative source age without modifying entity state."""
+    return max(0.0, (now - timestamp).total_seconds()) if timestamp else None
+
+
+def _source_freshness(
+    *,
+    timestamp: datetime | None,
+    age_seconds: float | None,
+    issue: BatteryReasonCode | None,
+    started_at: datetime,
+    max_age_seconds: int,
+) -> str:
+    """Expose why one required source is fresh or unusable.
+
+    This does not alter the existing global BatteryHealth policy. It makes the
+    oldest required source visible so a stale aggregate can be diagnosed
+    without guessing whether the adapter or the source integration is late.
+    """
+    if issue is BatteryReasonCode.SOURCE_UNAVAILABLE:
+        return "unavailable"
+    if issue is not None:
+        return "invalid"
+    if timestamp is None or timestamp <= started_at:
+        return "not_refreshed"
+    if age_seconds is None or age_seconds > max_age_seconds:
+        return "stale"
+    return "fresh"

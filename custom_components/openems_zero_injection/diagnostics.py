@@ -121,6 +121,12 @@ async def async_get_config_entry_diagnostics(
                     "remaining_charge_power_w": battery.remaining_charge_power_w,
                     "anomalies": [reason.value for reason in battery.anomalies],
                     "source_entities": battery.source_entities,
+                    "source_timestamps": {
+                        source: timestamp.isoformat() if timestamp else None
+                        for source, timestamp in battery.source_timestamps.items()
+                    },
+                    "source_ages_seconds": battery.source_ages_seconds,
+                    "source_freshness": battery.source_freshness,
                 }
                 for battery in energy_manager.resources
             ],
@@ -159,6 +165,7 @@ async def async_get_config_entry_diagnostics(
                     else None
                 ),
                 "battery_priority": controller.energy_policy_engine.battery_priority_diagnostics,
+                "last_command_decision": trace["last_command_decision"],
                 "context": {
                     "kind": controller.context_analyzer.classify().kind.value,
                     "confidence": controller.context_analyzer.classify().confidence,

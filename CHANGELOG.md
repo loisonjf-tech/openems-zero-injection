@@ -2,6 +2,27 @@
 
 Toutes les évolutions notables sont documentées dans ce fichier.
 
+## [0.7.0-alpha.3] - 2026-07-25 — Decision and SolarFlow observability
+
+### Added
+
+- Bloc diagnostic `last_command_decision`, construit exclusivement depuis une
+  seule trace de commande : mesures, limites avant/calculée/demandée, résultat,
+  confirmations et motif restent donc temporellement cohérents.
+- Indication explicite lorsqu'aucune trace de commande n'existe encore.
+- Fraîcheur SolarFlow détaillée par source obligatoire (`soc_percent` et
+  `directional_power_w`) : entité source, horodatage, âge et état.
+
+### Changed
+
+- Les transitions de fraîcheur SolarFlow sont journalisées une seule fois lors
+  d'un changement d'état, sans avertissement répété à chaque cycle.
+
+### Safety
+
+- Aucun changement au moteur prédictif, au Scheduler, aux écritures DTU, au
+  trafic Modbus ou à la stratégie batterie.
+
 ## [0.7.0-alpha.2] - 2026-07-25 — Build007-B conservative activation
 
 ### Added

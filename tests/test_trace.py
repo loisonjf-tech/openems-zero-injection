@@ -116,6 +116,35 @@ def test_failed_command_is_not_classified_as_ineffective() -> None:
     assert trace.outcome is CommandOutcome.FAILED
 
 
+def test_last_command_diagnostic_comes_from_one_trace_only() -> None:
+    """The compact diagnostic never recombines controller state from other cycles."""
+    recorder = TraceRecorder()
+    trace = _start(recorder, command_id=7)
+    recorder.finish_command(confirmed=True, confirmed_limit_percent=20)
+
+    summary = recorder.diagnostics()["last_command_decision"]
+
+    assert summary["available"] is True
+    assert summary["trace_id"] == trace.trace_id
+    assert summary["command_id"] == 7
+    assert summary["grid_power_w"] == -500
+    assert summary["real_limit_before_percent"] == 50
+    assert summary["calculated_limit_percent"] == 20
+    assert summary["requested_limit_percent"] == 20
+    assert summary["command_sent"] is True
+    assert summary["confirmed_limit_percent"] == 20
+
+
+def test_last_command_diagnostic_explicitly_reports_absence_of_trace() -> None:
+    """No command trace is not presented as a partial current decision."""
+    summary = TraceRecorder().diagnostics()["last_command_decision"]
+
+    assert summary == {
+        "available": False,
+        "reason_code": "no_command_trace_recorded",
+    }
+
+
 def test_effective_command_requires_covered_post_command_measurements(monkeypatch) -> None:
     clock = [0.0]
     monkeypatch.setattr("custom_components.openems_zero_injection.trace._monotonic_ms", lambda: clock[0])

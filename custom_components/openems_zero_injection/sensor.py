@@ -343,6 +343,12 @@ class SolarFlowBatterySensor(_DtuSensorBase):
             "last_updated": resource.last_updated.isoformat() if resource.last_updated else None,
             "anomalies": [anomaly.value for anomaly in resource.anomalies],
             "source_entities": resource.source_entities,
+            "source_timestamps": {
+                source: timestamp.isoformat() if timestamp else None
+                for source, timestamp in resource.source_timestamps.items()
+            },
+            "source_ages_seconds": resource.source_ages_seconds,
+            "source_freshness": resource.source_freshness,
         }
 
 

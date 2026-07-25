@@ -7,5 +7,5 @@
   "integration_type": "hub",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/loisonjf-tech/openems-zero-injection/issues",
-  "version": "0.7.0-alpha.2"
+  "version": "0.7.0-alpha.3"
 }

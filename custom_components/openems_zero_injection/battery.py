@@ -82,6 +82,9 @@ class BatteryResource:
     autonomous: bool = True
     anomalies: tuple[BatteryReasonCode, ...] = ()
     source_entities: dict[str, str] = field(default_factory=dict)
+    source_timestamps: dict[str, datetime | None] = field(default_factory=dict)
+    source_ages_seconds: dict[str, float | None] = field(default_factory=dict)
+    source_freshness: dict[str, str] = field(default_factory=dict)
 
 
 class BatteryManager(Protocol):

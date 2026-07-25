@@ -147,6 +147,21 @@ def test_optional_grid_input_diagnostic_never_changes_required_source_health(has
     assert BatteryReasonCode.GRID_INPUT_POWER_UNAVAILABLE in resource.anomalies
 
 
+def test_required_source_freshness_identifies_the_stale_input(hass) -> None:
+    """Diagnostics identify SOC or directional power instead of a vague stale state."""
+    _set_fresh_required_states(hass, "-10")
+    adapter = _adapter(hass)
+    _make_fresh(adapter)
+    resource = adapter.read_resource()
+
+    assert resource.source_freshness == {
+        "soc_percent": "fresh",
+        "directional_power_w": "fresh",
+    }
+    assert resource.source_timestamps["soc_percent"] is not None
+    assert resource.source_ages_seconds["directional_power_w"] is not None
+
+
 def test_adapter_has_no_write_or_modbus_api(hass) -> None:
     """Build005 remains unable to command either the battery or the DTU."""
     adapter = _adapter(hass)

@@ -71,7 +71,7 @@ from .const import (
 from .acquisition import AcquisitionEngine
 from .controller import ZeroInjectionController
 from .energy_manager import EnergyManager
-from .battery import BatteryPowerSign
+from .battery import BatteryPowerSign, BatteryResource
 from .battery_adapters.zendure_solarflow import ZendureSolarFlowAdapter
 from .energy_strategy import BatteryPriorityContext
 from .const import (
@@ -200,6 +200,7 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         self._transport_failed_this_cycle = False
         self._total_register_errors = 0
         self._last_raw_error: str | None = None
+        self._last_battery_source_freshness: dict[str, str] = {}
         self.energy_manager = EnergyManager()
         self._solarflow_enabled = bool(
             entry.options.get(CONF_SOLARFLOW_ENABLED, DEFAULT_SOLARFLOW_ENABLED)
@@ -290,6 +291,20 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             total_remaining_charge_power_w=snapshot.total_remaining_charge_power_w,
             remaining_charge_coverage=snapshot.remaining_charge_coverage.status,
         )
+
+    def _log_battery_source_freshness(self, freshness: dict[str, str]) -> None:
+        """Log a SolarFlow source transition once, never once per coordinator cycle."""
+        for source, state in freshness.items():
+            previous = self._last_battery_source_freshness.get(source)
+            if state == previous:
+                continue
+            if state == "fresh":
+                _LOGGER.info("SolarFlow source %s is fresh", source)
+            elif previous is not None:
+                _LOGGER.warning("SolarFlow source %s is %s", source, state)
+            else:
+                _LOGGER.info("SolarFlow source %s initial state: %s", source, state)
+        self._last_battery_source_freshness = dict(freshness)
 
     @staticmethod
     def _restore_controller_mode(entry: ConfigEntry) -> tuple[ControllerMode, str]:
@@ -476,11 +491,12 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         """Read the approved registers and decode only confirmed value types."""
         started = monotonic()
         now = datetime.now(UTC)
-        self.energy_manager.set_batteries(
-            (self._solarflow_adapter.read_resource(now),)
-            if self._solarflow_enabled
-            else ()
-        )
+        batteries: tuple[BatteryResource, ...] = ()
+        if self._solarflow_enabled:
+            battery = self._solarflow_adapter.read_resource(now)
+            self._log_battery_source_freshness(battery.source_freshness)
+            batteries = (battery,)
+        self.energy_manager.set_batteries(batteries)
         self._cycle_timings_ms = {
             "connection": self._modbus.connection_diagnostics().get(
                 "last_connection_time_ms"

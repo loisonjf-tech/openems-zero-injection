@@ -689,6 +689,7 @@ class TraceRecorder:
             }
             for trace in list(self._traces)[-10:]
         ]
+        latest_trace = self._traces[-1] if self._traces else None
         return _to_primitives(
             {
                 "schema_version": TRACE_SCHEMA_VERSION,
@@ -704,6 +705,14 @@ class TraceRecorder:
                 "retained_traces": len(self._traces),
                 "detailed_trace_capacity": self._max_traces,
                 "recent_timeline": recent,
+                "last_command_decision": (
+                    _last_command_decision(latest_trace)
+                    if latest_trace is not None
+                    else {
+                        "available": False,
+                        "reason_code": "no_command_trace_recorded",
+                    }
+                ),
                 "battery_priority_comparisons": [
                     asdict(comparison)
                     for comparison in list(self._strategy_comparisons)[-10:]
@@ -929,6 +938,33 @@ def _has_overshoot(errors: list[float], deadband_w: float) -> bool:
 def _has_oscillation(errors: list[float], deadband_w: float) -> bool:
     signs = [1 if error > 0 else -1 for error in errors if abs(error) > deadband_w]
     return sum(left != right for left, right in zip(signs, signs[1:])) >= 2
+
+
+def _last_command_decision(trace: CommandTrace) -> dict[str, Any]:
+    """Build one coherent diagnostic summary from exactly one command trace."""
+    return {
+        "available": True,
+        "trace_id": trace.trace_id,
+        "decision_id": trace.decision_id,
+        "command_id": trace.command_id,
+        "timestamp_utc": trace.timestamp_utc,
+        "grid_power_w": trace.grid_power_w,
+        "grid_source_timestamp": trace.grid_source_timestamp,
+        "pv_power_w": trace.pv_power_w,
+        "pv_source_timestamp": trace.pv_source_timestamp,
+        "real_limit_before_percent": trace.real_limit_before_percent,
+        "calculated_limit_percent": trace.calculated_limit_percent,
+        "requested_limit_percent": trace.requested_limit_percent,
+        "command_sent": trace.write_started_monotonic_ms is not None,
+        "confirmed_limit_percent": trace.confirmed_limit_percent,
+        "outcome": trace.outcome.value,
+        "decision_reason": trace.decision_reason,
+        "policy_id": trace.policy_id,
+        "policy_reason": trace.policy_reason,
+        "strategy": trace.strategy,
+        "modbus_duration_ms": trace.modbus_duration_ms,
+        "port_results": trace.port_results,
+    }
 
 
 def _empty_metrics() -> SessionMetrics:
