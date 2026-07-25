@@ -29,6 +29,8 @@ class BatteryReasonCode(StrEnum):
     POWER_NON_FINITE = "power_non_finite"
     POWER_UNIT_UNSUPPORTED = "power_unit_unsupported"
     POWER_SIGN_UNKNOWN = "power_sign_unknown"
+    GRID_INPUT_POWER_UNAVAILABLE = "grid_input_power_unavailable"
+    GRID_INPUT_POWER_INVALID = "grid_input_power_invalid"
     CHARGE_LIMIT_UNVERIFIED = "charge_limit_unverified"
     CHARGE_LIMIT_INVALID = "charge_limit_invalid"
     REMAINING_POWER_UNAVAILABLE = "remaining_power_unavailable"
@@ -69,6 +71,7 @@ class BatteryResource:
     soc_percent: float | None = None
     charge_power_w: float | None = None
     discharge_power_w: float | None = None
+    grid_input_power_w: float | None = None
     max_charge_power_w: float | None = None
     max_discharge_power_w: float | None = None
     remaining_charge_power_w: float | None = None

@@ -15,8 +15,9 @@ aucune commande DTU supplémentaire et aucune décision énergétique.
 | Donnée candidate | Entité source | Statut | Précondition |
 | --- | --- | --- | --- |
 | SOC | `sensor.solarflow_800_plus_electric_level` | obligatoire | nombre fini de 0 à 100, unité `%` si fournie |
-| Puissance directionnelle | `sensor.solarflow_800_plus_grid_input_power` | obligatoire pour interpréter charge/décharge | nombre fini, unité `W` ou `kW`, convention de signe explicitement configurée |
-| Limite de charge | `sensor.solarflow_800_plus_charge_max_limit` | facultative | unité, échelle et signification validées sur le matériel réel |
+| Puissance directionnelle | `sensor.solarflow_800_plus_bat_in_out` | obligatoire | nombre fini, unité `W` ou `kW`, négatif = charge, positif = décharge |
+| Puissance `gridInputPower` | `sensor.solarflow_800_plus_grid_input_power` | facultative, diagnostic | comparaison de cohérence uniquement ; n'affecte jamais la santé principale |
+| Limite de charge | `sensor.solarflow_800_plus_charge_max_limit` | ignorée | la valeur `1000` ne correspond pas au curseur de charge ni à une limite exploitable |
 
 Les identifiants peuvent être remplacés dans les options de l’intégration. Une
 source facultative absente ne rend jamais la batterie indisponible ; elle rend
@@ -63,21 +64,20 @@ La santé prioritaire est calculée par `EnergyManager` selon cet ordre :
 5. `healthy` : toutes les sources obligatoires sont présentes, fraîches et
    cohérentes.
 
-`power_sign_unknown` est une anomalie de capacité : la source de puissance est
-disponible et fraîche, mais `charge_power_w`, `discharge_power_w` et
-`remaining_charge_power_w` restent inconnus. La santé générale reste `healthy`
-si les sources obligatoires sont par ailleurs valides ; les diagnostics exposent
-toujours ce motif. Les stratégies futures devront traiter cette capacité comme
-non disponible.
+Avec `bat_in_out`, la convention validée est appliquée directement : une valeur
+négative devient `charge_power_w = abs(value)`, une valeur positive devient
+`discharge_power_w = value` et zéro donne les deux puissances à `0 W`.
+`power_sign_unknown` n'est donc jamais publié pour cette source valide. Il reste
+réservé à un autre capteur directionnel sans convention confirmée.
 
 Toutes les anomalies sont conservées dans les diagnostics, même lorsqu’une seule
 santé prioritaire est affichée.
 
 ## Capacités et agrégats
 
-`max_charge_power_w` n’est renseignée depuis `charge_max_limit` que lorsque son
-unité, son échelle et sa signification ont été explicitement confirmées. Sinon
-elle vaut `None` avec l’anomalie `charge_limit_unverified`.
+`charge_max_limit` est ignoré dans cette révision : ses unités et sa valeur
+observée (`1000`) ne représentent pas une limite de charge utile. En conséquence
+`max_charge_power_w` et `remaining_charge_power_w` restent `None`.
 
 La formule de capacité restante est :
 
@@ -85,9 +85,8 @@ La formule de capacité restante est :
 remaining_charge_power_w = max_charge_power_w - charge_power_w
 ```
 
-Elle n’est calculée que si les deux valeurs sont finies, exprimées en watts,
-cohérentes et que `charge_power_w` représente une charge positive. Sinon elle
-vaut `None`.
+Elle sera calculée uniquement dans une évolution future, après identification
+d'une limite maximale fiable. Dans cette version, elle vaut toujours `None`.
 
 Pour plusieurs batteries, un agrégat est publié uniquement si toutes les
 batteries fonctionnellement éligibles fournissent la valeur concernée. Les

@@ -2,6 +2,42 @@
 
 Toutes les évolutions notables sont documentées dans ce fichier.
 
+## [0.6.0-alpha.2] - 2026-07-25 — SolarFlow directional-power correction
+
+### Changed
+
+- La source directionnelle par défaut est désormais
+  `sensor.solarflow_800_plus_bat_in_out` : négatif = charge, positif =
+  décharge et zéro = inactive.
+- `gridInputPower` est conservé comme information diagnostique facultative.
+- `chargeMaxLimit` est explicitement ignoré : aucune capacité maximale ou
+  restante n'est déduite de sa valeur `1000` non validée.
+
+### Safety
+
+- Aucune écriture batterie, aucun trafic Modbus, aucune modification du
+  contrôleur, du Scheduler ou du client DTU.
+
+## [0.6.0-alpha.1] - 2026-07-25 — Build006
+
+### Added
+
+- `EnergyStrategyEngine` pur et `ZeroInjectionStrategy`, avec des modèles de
+  décision horodatés, identifiants de snapshot et codes de motif stables.
+- Test de non-régression déterministe confirmant que l'encapsulation produit
+  strictement la même cible que Build005 pour un même instantané.
+
+### Compatibility
+
+- `EnergyPolicyEngine`, `EnergyPolicyDecision` et `ZeroInjectionPolicy` restent
+  disponibles comme alias compatibles. Le contrôleur, le Scheduler, le client
+  DTU et toutes les sorties de régulation restent inchangés.
+
+### Safety
+
+- `BatteryPriorityStrategy` est absente et inactive. Build006 ne crée ni
+  écriture batterie, ni trafic Modbus, ni tâche supplémentaire.
+
 ## [0.5.0-alpha.1] - 2026-07-25 — Build005
 
 ### Added

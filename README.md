@@ -6,7 +6,7 @@ Intégration Home Assistant locale destinée à piloter un Hoymiles DTU Pro-S af
 
 **Build004 — fondation expérimentale du contrôleur de zéro injection.** Le projet acquiert une puissance réseau locale, calcule une consigne DTU déterministe, et applique un scheduler de sécurité. Il n'intègre pas encore SolarFlow, Zendure ou une logique de batterie.
 
-Version actuelle : **V0.5.0-alpha.1 / Build005**.
+Version actuelle : **V0.6.0-alpha.2 / Build006**.
 
 ## Matériel de référence
 
@@ -77,13 +77,27 @@ Le mode diagnostic détaillé, le polling accéléré et les exports CSV/JSON re
 ## SolarFlow lecture seule — Build005
 
 L’adaptateur SolarFlow lit uniquement des entités déjà disponibles dans Home
-Assistant. Il normalise le SOC et, après confirmation explicite de la convention
-de signe, les puissances de charge/décharge. Il n’écrit jamais dans SolarFlow,
+Assistant. Il normalise le SOC et la puissance directionnelle
+`sensor.solarflow_800_plus_bat_in_out` : négatif = charge, positif = décharge
+et zéro = inactive. `gridInputPower` reste un repère diagnostique facultatif.
+Il n’écrit jamais dans SolarFlow,
 ne contacte aucun cloud et ne modifie ni la régulation DTU ni le Scheduler.
 
-Une limite de charge non vérifiée reste inconnue. Les diagnostics exposent la
-santé, la fraîcheur, les anomalies et les sources ; une donnée inconnue n’est
-jamais interprétée comme `0 W`.
+`chargeMaxLimit` reste ignoré : il ne correspond pas à une limite de charge
+exploitable. Les capacités maximale et restante restent donc inconnues. Les
+diagnostics exposent la santé, la fraîcheur, les anomalies et les sources ; une
+donnée inconnue n’est jamais interprétée comme `0 W`.
+
+## Energy Strategy Engine — Build006
+
+Build006 sépare formellement le choix de la cible énergétique de son application
+au DTU. `ZeroInjectionStrategy` est la seule stratégie active et transmet
+strictement la cible réseau actuelle : le comportement de régulation reste donc
+identique à Build005. Le moteur prédictif, le Scheduler et le client DTU ne
+sont pas modifiés. Les décisions reçoivent un identifiant de snapshot, un
+horodatage et un code de motif stable afin de préparer une comparaison future,
+en Simulation, avec une stratégie batterie. Aucune stratégie batterie n'est
+présente ni activée dans ce build.
 
 ## Tests
 

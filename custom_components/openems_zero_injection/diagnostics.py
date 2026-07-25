@@ -116,6 +116,7 @@ async def async_get_config_entry_diagnostics(
                     "soc_percent": battery.soc_percent,
                     "charge_power_w": battery.charge_power_w,
                     "discharge_power_w": battery.discharge_power_w,
+                    "grid_input_power_w": battery.grid_input_power_w,
                     "max_charge_power_w": battery.max_charge_power_w,
                     "remaining_charge_power_w": battery.remaining_charge_power_w,
                     "anomalies": [reason.value for reason in battery.anomalies],

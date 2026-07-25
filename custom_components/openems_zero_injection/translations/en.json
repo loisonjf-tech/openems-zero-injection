@@ -6,6 +6,7 @@
           "solarflow_soc_entity_id": "SolarFlow state-of-charge sensor",
           "solarflow_enabled": "Enable SolarFlow read-only adapter",
           "solarflow_power_entity_id": "SolarFlow directional power sensor",
+          "solarflow_grid_input_power_entity_id": "SolarFlow grid-input power sensor (diagnostic)",
           "solarflow_charge_limit_entity_id": "SolarFlow charge-limit sensor",
           "solarflow_power_sign": "SolarFlow power sign convention",
           "solarflow_charge_limit_verified": "Charge-limit unit and meaning verified",

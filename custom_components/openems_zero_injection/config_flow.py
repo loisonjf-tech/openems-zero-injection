@@ -24,6 +24,7 @@ from .const import (
     CONF_TEMPORARY_LIMIT_VALIDATION_MODE,
     CONF_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID,
     CONF_SOLARFLOW_CHARGE_LIMIT_VERIFIED,
+    CONF_SOLARFLOW_GRID_INPUT_POWER_ENTITY_ID,
     CONF_SOLARFLOW_POWER_ENTITY_ID,
     CONF_SOLARFLOW_POWER_SIGN,
     CONF_SOLARFLOW_SOC_ENTITY_ID,
@@ -42,6 +43,7 @@ from .const import (
     DEFAULT_SOLARFLOW_POWER_SIGN,
     DEFAULT_SOLARFLOW_SOC_ENTITY_ID,
     DEFAULT_SOLARFLOW_ENABLED,
+    DEFAULT_SOLARFLOW_GRID_INPUT_POWER_ENTITY_ID,
     DEFAULT_TAKEOVER_LIMIT_PERCENT,
     MAX_INSTALLED_NOMINAL_POWER_W,
     MIN_INSTALLED_NOMINAL_POWER_W,
@@ -210,6 +212,15 @@ class OpenEMSOptionsFlow(config_entries.OptionsFlow):
                             DEFAULT_SOLARFLOW_POWER_ENTITY_ID,
                         ),
                     ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+                    vol.Optional(
+                        CONF_SOLARFLOW_GRID_INPUT_POWER_ENTITY_ID,
+                        default=options.get(
+                            CONF_SOLARFLOW_GRID_INPUT_POWER_ENTITY_ID,
+                            DEFAULT_SOLARFLOW_GRID_INPUT_POWER_ENTITY_ID,
+                        ),
+                    ): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="sensor")
+                    ),
                     vol.Optional(
                         CONF_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID,
                         default=options.get(

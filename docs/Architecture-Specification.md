@@ -102,12 +102,15 @@ class ControlSnapshot:
     target_grid_power_w: float
 
 @dataclass(frozen=True, slots=True)
-class EnergyPolicyDecision:
+class EnergyStrategyDecision:
     target_grid_power_w: float
     policy_id: str
     reason: str
     confidence: float
     fallback_used: bool
+    decision_timestamp: datetime
+    input_snapshot_id: str
+    reason_code: EnergyStrategyReasonCode
 
 @dataclass(frozen=True, slots=True)
 class ControlPlan:
@@ -206,19 +209,20 @@ V1 aggregates passive BatteryResource information. Future adapters expose
 availability, state of charge, charge/discharge power, maximum charge/discharge
 power and autonomous state. Adapters never call the DTU controller directly.
 
-### 7.6 Energy Policy Engine
+### 7.6 Energy Strategy Engine
 
 **Purpose:** select desired net grid exchange from an explicit policy.
 
 **Input:** validated snapshot, context, calibration confidence, resources and
 policy configuration.
 
-**Output:** EnergyPolicyDecision. The canonical output is target_grid_power_w.
-A policy must not return a Modbus address or a DTU limit.
+**Output:** EnergyStrategyDecision. The canonical output is target_grid_power_w.
+A strategy must not return a Modbus address or a DTU limit.
 
-The V1 zero-injection policy returns the configured target, normally minus 40 W.
-A battery-aware policy with unavailable/low-confidence data visibly falls back
-to zero injection.
+The Build006 `ZeroInjectionStrategy` returns the configured target, normally
+minus 40 W, unchanged. `EnergyPolicyEngine` remains a compatibility alias for
+the earlier boundary. A battery-aware strategy with unavailable or low-confidence
+data must visibly fall back to zero injection.
 
 ### 7.7 Predictive Controller
 
@@ -399,16 +403,16 @@ sequenceDiagram
     Sched->>HA: explicit error; no automatic retry
 ~~~
 
-## 11. Energy policies
+## 11. Energy strategies
 
 ~~~python
-class EnergyPolicy(Protocol):
+class EnergyStrategy(Protocol):
     def decide(
         self,
         snapshot: ControlSnapshot,
         context: ContextClassification,
         resources: EnergyManagerSnapshot,
-    ) -> EnergyPolicyDecision: ...
+    ) -> EnergyStrategyDecision: ...
 ~~~
 
 | Policy | Status | Behavior |

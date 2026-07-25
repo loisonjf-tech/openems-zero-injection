@@ -28,6 +28,7 @@ from .const import (
     CONF_TEMPORARY_LIMIT_VALIDATION_MODE,
     CONF_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID,
     CONF_SOLARFLOW_CHARGE_LIMIT_VERIFIED,
+    CONF_SOLARFLOW_GRID_INPUT_POWER_ENTITY_ID,
     CONF_SOLARFLOW_POWER_ENTITY_ID,
     CONF_SOLARFLOW_POWER_SIGN,
     CONF_SOLARFLOW_SOC_ENTITY_ID,
@@ -40,6 +41,7 @@ from .const import (
     DEFAULT_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID,
     DEFAULT_SOLARFLOW_CHARGE_LIMIT_VERIFIED,
     DEFAULT_SOLARFLOW_ENABLED,
+    DEFAULT_SOLARFLOW_GRID_INPUT_POWER_ENTITY_ID,
     DEFAULT_SOLARFLOW_POWER_ENTITY_ID,
     DEFAULT_SOLARFLOW_POWER_SIGN,
     DEFAULT_SOLARFLOW_SOC_ENTITY_ID,
@@ -198,9 +200,11 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             soc_entity_id=entry.options.get(
                 CONF_SOLARFLOW_SOC_ENTITY_ID, DEFAULT_SOLARFLOW_SOC_ENTITY_ID
             ),
-            power_entity_id=entry.options.get(
-                CONF_SOLARFLOW_POWER_ENTITY_ID, DEFAULT_SOLARFLOW_POWER_ENTITY_ID
-            ),
+            power_entity_id=self._solarflow_directional_power_entity_id(entry),
+            grid_input_power_entity_id=entry.options.get(
+                CONF_SOLARFLOW_GRID_INPUT_POWER_ENTITY_ID,
+                DEFAULT_SOLARFLOW_GRID_INPUT_POWER_ENTITY_ID,
+            ) or None,
             charge_limit_entity_id=entry.options.get(
                 CONF_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID,
                 DEFAULT_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID,
@@ -240,6 +244,14 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
                 self._auto_resume_production and mode_restore_source == "options"
             ),
         )
+
+    @staticmethod
+    def _solarflow_directional_power_entity_id(entry: ConfigEntry) -> str:
+        """Use the confirmed bat_in_out source for pre-alpha.2 default options."""
+        configured = entry.options.get(CONF_SOLARFLOW_POWER_ENTITY_ID)
+        if configured in {None, DEFAULT_SOLARFLOW_GRID_INPUT_POWER_ENTITY_ID}:
+            return DEFAULT_SOLARFLOW_POWER_ENTITY_ID
+        return configured
 
     @staticmethod
     def _restore_controller_mode(entry: ConfigEntry) -> tuple[ControllerMode, str]:

@@ -33,6 +33,7 @@
           ,"solarflow_enabled": "Activer l’adaptateur SolarFlow en lecture seule"
           ,"solarflow_soc_entity_id": "Capteur de niveau de charge SolarFlow"
           ,"solarflow_power_entity_id": "Capteur de puissance directionnelle SolarFlow"
+          ,"solarflow_grid_input_power_entity_id": "Capteur SolarFlow gridInputPower (diagnostic)"
           ,"solarflow_charge_limit_entity_id": "Capteur de limite de charge SolarFlow"
           ,"solarflow_power_sign": "Convention de signe de puissance SolarFlow"
           ,"solarflow_charge_limit_verified": "Unité et signification de la limite de charge vérifiées"

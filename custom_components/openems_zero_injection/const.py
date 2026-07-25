@@ -5,7 +5,7 @@ from enum import StrEnum
 
 DOMAIN = "openems_zero_injection"
 NAME = "OpenEMS Zero Injection"
-VERSION = "0.5.0-alpha.1"
+VERSION = "0.6.0-alpha.2"
 
 CONF_DTU_HOST = "dtu_host"
 CONF_DTU_PORT = "dtu_port"
@@ -21,6 +21,7 @@ CONF_TAKEOVER_LIMIT_PERCENT = "takeover_limit_percent"
 CONF_AUTO_RESUME_PRODUCTION = "auto_resume_production"
 CONF_SOLARFLOW_SOC_ENTITY_ID = "solarflow_soc_entity_id"
 CONF_SOLARFLOW_POWER_ENTITY_ID = "solarflow_power_entity_id"
+CONF_SOLARFLOW_GRID_INPUT_POWER_ENTITY_ID = "solarflow_grid_input_power_entity_id"
 CONF_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID = "solarflow_charge_limit_entity_id"
 CONF_SOLARFLOW_POWER_SIGN = "solarflow_power_sign"
 CONF_SOLARFLOW_CHARGE_LIMIT_VERIFIED = "solarflow_charge_limit_verified"
@@ -57,9 +58,10 @@ DEFAULT_PRODUCTION_STARTUP_STRATEGY = "safe"
 DEFAULT_TAKEOVER_LIMIT_PERCENT = 100
 DEFAULT_AUTO_RESUME_PRODUCTION = False
 DEFAULT_SOLARFLOW_SOC_ENTITY_ID = "sensor.solarflow_800_plus_electric_level"
-DEFAULT_SOLARFLOW_POWER_ENTITY_ID = "sensor.solarflow_800_plus_grid_input_power"
+DEFAULT_SOLARFLOW_POWER_ENTITY_ID = "sensor.solarflow_800_plus_bat_in_out"
+DEFAULT_SOLARFLOW_GRID_INPUT_POWER_ENTITY_ID = "sensor.solarflow_800_plus_grid_input_power"
 DEFAULT_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID = "sensor.solarflow_800_plus_charge_max_limit"
-DEFAULT_SOLARFLOW_POWER_SIGN = "unknown"
+DEFAULT_SOLARFLOW_POWER_SIGN = "positive_discharging"
 DEFAULT_SOLARFLOW_CHARGE_LIMIT_VERIFIED = False
 DEFAULT_BATTERY_DATA_MAX_AGE_SECONDS = 120
 DEFAULT_SOLARFLOW_ENABLED = False

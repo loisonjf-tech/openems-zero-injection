@@ -17,7 +17,8 @@ from ..battery import (
 
 
 ADAPTER_ID = "zendure_solarflow"
-ADAPTER_VERSION = "0.5.0-alpha.1"
+ADAPTER_VERSION = "0.6.0-alpha.2"
+BAT_IN_OUT_ENTITY_ID = "sensor.solarflow_800_plus_bat_in_out"
 
 
 class ZendureSolarFlowAdapter:
@@ -29,6 +30,7 @@ class ZendureSolarFlowAdapter:
         *,
         soc_entity_id: str,
         power_entity_id: str,
+        grid_input_power_entity_id: str | None,
         charge_limit_entity_id: str | None,
         power_sign: BatteryPowerSign,
         charge_limit_verified: bool,
@@ -37,6 +39,7 @@ class ZendureSolarFlowAdapter:
         self._hass = hass
         self._soc_entity_id = soc_entity_id
         self._power_entity_id = power_entity_id
+        self._grid_input_power_entity_id = grid_input_power_entity_id
         self._charge_limit_entity_id = charge_limit_entity_id
         self._power_sign = power_sign
         self._charge_limit_verified = charge_limit_verified
@@ -71,19 +74,23 @@ class ZendureSolarFlowAdapter:
         charge_power: float | None = None
         discharge_power: float | None = None
         if power is not None:
-            if self._power_sign is BatteryPowerSign.UNKNOWN:
+            if self._power_entity_id == BAT_IN_OUT_ENTITY_ID:
+                # Confirmed SolarFlow convention: negative = charging,
+                # positive = discharging, and zero = inactive.
+                charge_power, discharge_power = max(0.0, -power), max(0.0, power)
+            elif self._power_sign is BatteryPowerSign.UNKNOWN:
                 anomalies.append(BatteryReasonCode.POWER_SIGN_UNKNOWN)
             elif self._power_sign is BatteryPowerSign.POSITIVE_CHARGING:
                 charge_power, discharge_power = max(0.0, power), max(0.0, -power)
             else:
                 charge_power, discharge_power = max(0.0, -power), max(0.0, power)
 
-        max_charge = self._read_verified_charge_limit(anomalies)
+        grid_input_power = self._read_grid_input_power(anomalies)
+        # chargeMaxLimit is confirmed not to describe a usable charge-power
+        # ceiling on this installation. Do not derive a capacity from it.
+        max_charge = None
         remaining = None
-        if max_charge is not None and charge_power is not None and max_charge >= charge_power:
-            remaining = max_charge - charge_power
-        else:
-            anomalies.append(BatteryReasonCode.REMAINING_POWER_UNAVAILABLE)
+        anomalies.append(BatteryReasonCode.REMAINING_POWER_UNAVAILABLE)
 
         return BatteryResource(
             resource_id=ADAPTER_ID,
@@ -97,13 +104,18 @@ class ZendureSolarFlowAdapter:
             soc_percent=soc,
             charge_power_w=charge_power,
             discharge_power_w=discharge_power,
+            grid_input_power_w=grid_input_power,
             max_charge_power_w=max_charge,
             remaining_charge_power_w=remaining,
             anomalies=tuple(dict.fromkeys(anomalies)),
             source_entities={
                 "soc_percent": self._soc_entity_id,
                 "directional_power_w": self._power_entity_id,
-                **({"max_charge_power_w": self._charge_limit_entity_id} if self._charge_limit_entity_id else {}),
+                **(
+                    {"grid_input_power_w": self._grid_input_power_entity_id}
+                    if self._grid_input_power_entity_id
+                    else {}
+                ),
             },
         )
 
@@ -126,16 +138,18 @@ class ZendureSolarFlowAdapter:
         unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT) if state else None
         return (value * 1000 if unit == "kW" else value), timestamp, None
 
-    def _read_verified_charge_limit(self, anomalies: list[BatteryReasonCode]) -> float | None:
-        if not self._charge_limit_entity_id:
+    def _read_grid_input_power(self, anomalies: list[BatteryReasonCode]) -> float | None:
+        """Read optional gridInputPower only for diagnostics and coherence."""
+        if not self._grid_input_power_entity_id:
             return None
-        if not self._charge_limit_verified:
-            anomalies.append(BatteryReasonCode.CHARGE_LIMIT_UNVERIFIED)
-            return None
-        state = self._hass.states.get(self._charge_limit_entity_id)
+        state = self._hass.states.get(self._grid_input_power_entity_id)
         value, _, issue = _numeric_state(state, expected_units={"W", "kW"})
-        if issue is not None or value is None or value < 0:
-            anomalies.append(BatteryReasonCode.CHARGE_LIMIT_INVALID)
+        if issue is not None or value is None:
+            anomalies.append(
+                BatteryReasonCode.GRID_INPUT_POWER_UNAVAILABLE
+                if issue is BatteryReasonCode.SOURCE_UNAVAILABLE
+                else BatteryReasonCode.GRID_INPUT_POWER_INVALID
+            )
             return None
         unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT) if state else None
         return value * 1000 if unit == "kW" else value
