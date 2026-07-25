@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime
+import json
 
 from custom_components.openems_zero_injection.trace import (
     CommandOutcome,
@@ -17,8 +18,10 @@ def _start(
     command_id: int = 1,
     *,
     before_modbus_finish: Callable[[], None] | None = None,
+    start_session: bool = True,
 ):
-    recorder.start_session(reason="test")
+    if start_session:
+        recorder.start_session(reason="test")
     trace = recorder.start_command(
         decision_id=command_id,
         command_id=command_id,
@@ -189,3 +192,61 @@ def test_recorder_has_no_modbus_or_scheduler_api() -> None:
     assert not hasattr(recorder, "async_read_registers")
     assert not hasattr(recorder, "async_write_temporary_power_limit")
     assert not hasattr(recorder, "async_tick")
+
+
+def test_session_aggregates_are_not_truncated_by_detailed_trace_buffer() -> None:
+    """All session counts survive after the 100 detailed timelines roll over."""
+    recorder = TraceRecorder(max_traces=2)
+    recorder.start_session(reason="test")
+    for command_id in range(5):
+        _start(recorder, command_id=command_id, start_session=False)
+        recorder.finish_command(confirmed=True, confirmed_limit_percent=20)
+
+    report = recorder.stop_session(reason="done")
+
+    assert report is not None
+    assert report.metrics.commands_started == 5
+    assert report.metrics.commands_confirmed == 5
+    assert report.metrics.commands_indeterminate == 5
+    assert report.metrics.retained_command_count == 2
+    assert report.metrics.detailed_traces_truncated
+
+
+def test_timeline_is_serializable_and_keeps_explainability_inputs() -> None:
+    """Future offline replay can consume primitive, language-neutral trace data."""
+    recorder = TraceRecorder()
+    recorder.start_session(
+        reason="production", configuration={"target_grid_power_w": -40}
+    )
+    trace = recorder.start_command(
+        decision_id=7,
+        command_id=3,
+        controller_mode="Production",
+        grid_power_w=-500,
+        grid_source_timestamp=datetime.now(UTC),
+        pv_power_w=1000,
+        pv_source_timestamp=datetime.now(UTC),
+        real_limit_before_percent=50,
+        calculated_limit_percent=20,
+        requested_limit_percent=20,
+        decision_reason="Predictive limit applied",
+        strategy="predictive_tracking",
+        target_grid_power_w=-40,
+        deadband_w=30,
+        policy_id="zero_injection",
+        policy_reason="Configured zero-injection target",
+        policy_confidence=1.0,
+        policy_fallback_used=False,
+        context_kind="stable",
+        context_confidence=0.9,
+        context_reason="measurements_stable",
+    )
+
+    assert trace is not None
+    timeline = trace.as_dict()
+    assert timeline["schema_version"] == 2
+    assert timeline["policy_id"] == "zero_injection"
+    assert timeline["context_kind"] == "stable"
+    assert timeline["pre_decision_inputs"]["grid_power_w"] == -500
+    assert timeline["events"][0]["event_type"] == "decision_created"
+    json.dumps(timeline)

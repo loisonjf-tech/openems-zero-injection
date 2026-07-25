@@ -1,0 +1,24 @@
+{
+  "entity": {
+    "sensor": {
+      "trace_mode": {
+        "name": "Trace Recorder mode",
+        "state": {"normal": "Normal"}
+      },
+      "trace_session_active": {
+        "name": "Active regulation session",
+        "state": {"active": "Active", "inactive": "Inactive"}
+      },
+      "trace_session_started_at": {"name": "Regulation session start"},
+      "trace_data_coverage_percent": {"name": "Trace data coverage"},
+      "trace_commands_confirmed": {"name": "Confirmed trace commands"},
+      "trace_commands_effective": {"name": "Effective trace commands"},
+      "trace_commands_ineffective": {"name": "Ineffective trace commands"},
+      "trace_commands_indeterminate": {"name": "Indeterminate trace commands"},
+      "trace_median_energy_response_ms": {"name": "Median energy response time"},
+      "trace_weighted_time_in_tolerance_percent": {"name": "Weighted time in tolerance"},
+      "trace_average_absolute_error_w": {"name": "Average absolute error"},
+      "trace_suspected_oscillations": {"name": "Suspected oscillations"}
+    }
+  }
+}

@@ -59,8 +59,14 @@
       "last_decision": {"name": "Last decision reason"},
       "last_command_result": {"name": "Last command result"},
       "commands_simulated": {"name": "Simulated commands"},
-      "trace_mode": {"name": "Trace Recorder mode"},
-      "trace_session_active": {"name": "Active regulation session"},
+      "trace_mode": {
+        "name": "Trace Recorder mode",
+        "state": {"normal": "Normal"}
+      },
+      "trace_session_active": {
+        "name": "Active regulation session",
+        "state": {"active": "Active", "inactive": "Inactive"}
+      },
       "trace_session_started_at": {"name": "Regulation session start"},
       "trace_data_coverage_percent": {"name": "Trace data coverage"},
       "trace_commands_confirmed": {"name": "Confirmed trace commands"},

@@ -42,16 +42,23 @@ numeric value can therefore remain usable when its source keeps publishing it.
 No extra polling is performed. Diagnostics expose both timestamps, ages, the
 difference, tolerance and the precise rejection reason.
 
-## Trace Recorder (Build004 RC3)
+## Trace Recorder (Build004 RC4)
 
 The Trace Recorder is an observer, not a control component. It receives only
 snapshots and Modbus write outcomes that the controller and coordinator already
 have. It owns no Modbus client, timer, scheduler lock, retry loop, or persistent
-storage. Normal mode retains a circular in-memory buffer of 100 command traces.
+storage. Normal mode retains a circular in-memory buffer of 100 detailed command
+timelines.
 
 Every trace distinguishes `timestamp_utc`, `monotonic_ms`, `source_timestamp`
-and `observed_timestamp`. This prevents a Home Assistant chart timestamp from
-being confused with the original measurement timestamp or an elapsed duration.
+and `observed_timestamp`. It records the decision inputs separately from
+post-command observations, plus policy, context, rationale, Modbus port outcomes
+and final evaluation. This prevents a Home Assistant chart timestamp from being
+confused with the original measurement timestamp or an elapsed duration.
+
+The session report is independent from the 100-trace buffer: exact counts,
+means, maxima and interval-weighted coverage span the complete session. Median
+values use a bounded in-memory reservoir and are explicitly diagnostic estimates.
 The recorder evaluates outcomes only when coverage is sufficient; otherwise it
-reports `indeterminate`. RC3 intentionally does not add diagnostic polling or
-exports; those belong to RC4.
+reports `indeterminate`. RC4 intentionally does not add diagnostic polling,
+accelerated reads, disk writes or exports.

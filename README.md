@@ -6,7 +6,7 @@ Intégration Home Assistant locale destinée à piloter un Hoymiles DTU Pro-S af
 
 **Build004 — fondation expérimentale du contrôleur de zéro injection.** Le projet acquiert une puissance réseau locale, calcule une consigne DTU déterministe, et applique un scheduler de sécurité. Il n'intègre pas encore SolarFlow, Zendure ou une logique de batterie.
 
-Version actuelle : **V0.4.0-alpha.3 / Build004 RC3**.
+Version actuelle : **V0.4.0-alpha.4 / Build004 RC4**.
 
 ## Matériel de référence
 
@@ -64,13 +64,15 @@ Le curseur unique écrit `0xD007`, `0xD00D` et `0xD013`, avec une plage de `2` �
 
 Les diagnostics indiquent aussi si les ports sont synchronisés et la source de la limite courante : relecture Modbus, prise de contrôle confirmée, correction automatique confirmée, commande manuelle confirmée ou inconnue.
 
-## Trace Recorder — Build004 RC3
+## Trace Recorder — Build004 RC4
 
-Le Trace Recorder est la boîte noire passive d’OpenEMS. En mode normal, il conserve seulement les 100 dernières commandes en mémoire. Il ne déclenche ni lecture Modbus supplémentaire, ni écriture, ni tâche périodique, et ne peut pas modifier une décision ou le Scheduler.
+Le Trace Recorder est la boîte noire passive d’OpenEMS. En mode normal, il conserve les 100 dernières chronologies détaillées en mémoire. Il ne déclenche ni lecture Modbus supplémentaire, ni écriture, ni tâche périodique, et ne peut pas modifier une décision ou le Scheduler.
 
-Pour chaque commande déjà décidée par le contrôleur, il enregistre les mesures réseau/PV utilisées, leur horodatage source et leur réception, la limite avant/calculée/demandée/confirmée, les confirmations des trois ports et les observations normales suivantes. Les diagnostics publient la session en cours, la couverture de données, les commandes confirmées, efficaces, inefficaces ou indéterminées, ainsi que les temps de réponse et d’éventuelles oscillations suspectées.
+Pour chaque commande déjà décidée, il relie la décision, la politique, le contexte, l’écriture Modbus sur les trois ports, la confirmation, la stabilisation et les observations réseau/PV suivantes. Chaque trace distingue les données connues avant la décision des observations obtenues après la commande. Son schéma est versionné et ne contient que des données primitives sérialisables, afin de préparer un futur rejeu hors ligne sans le développer maintenant.
 
-Une absence de mesures ou une télémétrie trop espacée ne peut jamais conclure à une commande inefficace : le résultat est alors **indéterminé**. Le mode diagnostic détaillé, les lectures accélérées et les exports sont volontairement hors périmètre du RC3.
+Les statistiques de session sont agrégées pendant toute la session, indépendamment du buffer des 100 chronologies : elles ne sont donc pas tronquées lorsqu’une session comporte davantage de commandes. Les médianes utilisent un échantillon borné ; les compteurs, moyennes, maximums et couverture pondérée restent complets. Une absence de mesures ou une télémétrie trop espacée ne peut jamais conclure à une commande inefficace : le résultat est alors **indéterminé**.
+
+Le mode diagnostic détaillé, le polling accéléré et les exports CSV/JSON restent volontairement hors périmètre. Les identifiants enregistrés (`policy_id`, stratégie, contexte et résultats) sont stables et indépendants de la langue ; l’interface Home Assistant les présente via ses traductions.
 
 ## Préparation EMS passive
 

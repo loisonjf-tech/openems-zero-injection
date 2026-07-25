@@ -59,5 +59,7 @@ async def test_diagnostics_include_connection_state(hass) -> None:
     }
     assert diagnostics["trace_recorder"]["mode"] == "normal"
     assert diagnostics["trace_recorder"]["session_active"] is False
+    assert diagnostics["trace_recorder"]["schema_version"] == 2
+    assert diagnostics["trace_recorder"]["detailed_trace_capacity"] == 100
     sync = diagnostics["controller"]["measurement_synchronization"]
     assert sync["tolerance_seconds"] == 25

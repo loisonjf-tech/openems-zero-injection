@@ -5,7 +5,7 @@ from enum import StrEnum
 
 DOMAIN = "openems_zero_injection"
 NAME = "OpenEMS Zero Injection"
-VERSION = "0.4.0-alpha.3"
+VERSION = "0.4.0-alpha.4"
 
 CONF_DTU_HOST = "dtu_host"
 CONF_DTU_PORT = "dtu_port"

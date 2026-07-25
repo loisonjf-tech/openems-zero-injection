@@ -403,7 +403,10 @@ class ZeroInjectionController:
         _LOGGER.info("Controller mode restored: %s", restored_mode)
         _LOGGER.info("Controller mode source: %s", self._mode_restore_source)
         if self._mode is ControllerMode.PRODUCTION:
-            self._trace_recorder.start_session(reason="controller_started_in_production")
+            self._trace_recorder.start_session(
+                reason="controller_started_in_production",
+                configuration=self._trace_configuration(),
+            )
         self._cancel_tick = async_track_time_interval(
             self._hass, self._async_scheduled_tick, CONTROLLER_INTERVAL
         )
@@ -425,7 +428,10 @@ class ZeroInjectionController:
         if previous_mode is ControllerMode.PRODUCTION and self._mode is not ControllerMode.PRODUCTION:
             self._trace_recorder.stop_session(reason=f"mode_changed_to_{self._mode.value}")
         elif previous_mode is not ControllerMode.PRODUCTION and self._mode is ControllerMode.PRODUCTION:
-            self._trace_recorder.start_session(reason="mode_changed_to_production")
+            self._trace_recorder.start_session(
+                reason="mode_changed_to_production",
+                configuration=self._trace_configuration(),
+            )
         self._mode_restore_source = "options"
         self._configuration_generation += 1
         if self._mode is ControllerMode.DISABLED:
@@ -645,6 +651,8 @@ class ZeroInjectionController:
                 grid_source_timestamp=snapshot.grid_power_timestamp,
                 pv_power_w=snapshot.dtu_power_w,
                 pv_source_timestamp=snapshot.dtu_power_timestamp,
+                target_grid_power_w=snapshot.target_power_w,
+                deadband_w=self._deadband_w,
             )
             if not self._requires_new_decision(snapshot):
                 if (
@@ -658,6 +666,7 @@ class ZeroInjectionController:
             self._last_evaluated_configuration_generation = self._configuration_generation
 
             policy = self._energy_policy_engine.decide(snapshot.target_power_w)
+            context = self._context_analyzer.classify()
             decision = self._calculate_decision(snapshot, current_limit, policy.target_grid_power_w)
 
             if self._mode is ControllerMode.SIMULATION:
@@ -791,6 +800,16 @@ class ZeroInjectionController:
                 strategy=getattr(decision, "strategy", "cautious_correction"),
                 target_grid_power_w=policy.target_grid_power_w,
                 deadband_w=self._deadband_w,
+                policy_id=policy.policy_id,
+                policy_reason=policy.reason,
+                policy_confidence=policy.confidence,
+                policy_fallback_used=policy.fallback_used,
+                context_kind=context.kind.value,
+                context_confidence=context.confidence,
+                context_reason=context.reason,
+                objective="target_grid_power",
+                rationale=decision.reason.value,
+                configuration=self._trace_configuration(),
             )
             success, result = await self._scheduler.async_execute(
                 self._mode,
@@ -821,6 +840,9 @@ class ZeroInjectionController:
                 confirmed=success,
                 confirmed_limit_percent=decision.applied_limit_percent if success else None,
                 error=None if success else result,
+                stabilization_delay_seconds=(
+                    self._stabilization_delay_seconds if success else None
+                ),
             )
             self._record(measurement.power_w, current_limit, decision, result, success, success, None if success else result)
             confirmed_limit = (
@@ -885,6 +907,7 @@ class ZeroInjectionController:
 
         self.commands_sent += 1
         self._last_command_sequence = (self._last_command_sequence or 0) + 1
+        context = self._context_analyzer.classify()
         self._trace_recorder.start_command(
             decision_id=self.decisions_evaluated + 1,
             command_id=self._last_command_sequence,
@@ -900,6 +923,16 @@ class ZeroInjectionController:
             strategy="takeover",
             target_grid_power_w=self._target_grid_power_w,
             deadband_w=self._deadband_w,
+            policy_id="zero_injection",
+            policy_reason="Configured zero-injection target",
+            policy_confidence=1.0,
+            policy_fallback_used=False,
+            context_kind=context.kind.value,
+            context_confidence=context.confidence,
+            context_reason=context.reason,
+            objective="establish_temporary_limit_reference",
+            rationale="takeover",
+            configuration=self._trace_configuration(),
         )
         success, result = await self._scheduler.async_execute(
             ControllerMode.PRODUCTION,
@@ -912,6 +945,7 @@ class ZeroInjectionController:
             self._trace_recorder.finish_command(
                 confirmed=True,
                 confirmed_limit_percent=self._takeover_limit_percent,
+                stabilization_delay_seconds=self._stabilization_delay_seconds,
             )
             self._takeover_pending = False
             self._set_status(
@@ -1110,6 +1144,21 @@ class ZeroInjectionController:
         self._coordinator.async_update_listeners()
 
     def _rotate_trace_session(self, reason: str) -> None:
-        """Segment passive RC3 metrics after a material Production change."""
+        """Segment passive RC4 metrics after a material Production change."""
         if self._mode is ControllerMode.PRODUCTION:
-            self._trace_recorder.rotate_session(reason=reason)
+            self._trace_recorder.rotate_session(
+                reason=reason, configuration=self._trace_configuration()
+            )
+
+    def _trace_configuration(self) -> dict[str, int | float | str]:
+        """Return primitive decision inputs for the passive replay-ready trace."""
+        return {
+            "target_grid_power_w": self._target_grid_power_w,
+            "deadband_w": self._deadband_w,
+            "installed_nominal_power_w": self._installed_nominal_power_w,
+            "watts_per_percent": self.watts_per_percent,
+            "fine_correction_step_percent": self._fine_correction_step_percent,
+            "predictive_error_threshold_w": self._predictive_error_threshold_w,
+            "stabilization_delay_seconds": self._stabilization_delay_seconds,
+            "controller_mode": self._mode.value,
+        }

@@ -2,7 +2,32 @@
 
 Toutes les évolutions notables sont documentées dans ce fichier.
 
-## [Unreleased] — Build004 RC3 corrective diagnostics
+## [0.4.0-alpha.4] - 2026-07-25 — Build004 RC4
+
+### Added
+
+- Chronologie passive et explicable par commande : décision, politique, contexte, objectif, justification, trois résultats Modbus, confirmation commune, début de stabilisation, observations réseau/PV et évaluation finale.
+- Schéma de trace versionné et exclusivement sérialisable, séparant les entrées pré-décision des observations post-commande pour préparer le rejeu hors ligne futur sans l’implémenter.
+- Rapport de session complet : compteurs, durées Modbus, réponse énergétique, erreur, amplitudes, sur-corrections, oscillations et couverture temporelle pondérée.
+- Traductions anglaises et françaises des états visibles du Trace Recorder.
+
+### Changed
+
+- Le buffer circulaire conserve toujours au plus 100 chronologies détaillées, mais les métriques de session ne sont plus tronquées par cette limite.
+- Les compteurs, moyennes, maximums et couverture couvrent toute la session ; les médianes sont calculées sur un réservoir borné explicitement diagnostique.
+
+### Safety
+
+- RC4 ne crée ni requête Modbus, ni polling, ni tâche, ni écriture disque. Il n’influence ni la décision, ni le Scheduler, ni les délais de stabilisation.
+- RC5, dont la stratégie d’écrêtement avec libération est gelée, n’est pas implémenté dans cette version.
+
+### Tests
+
+- Ajout des tests de conservation des métriques au-delà du buffer détaillé et de sérialisation/explainabilité des timelines.
+
+## [0.4.0-alpha.3] - 2026-07-24 — Build004 RC3
+
+### Post-release corrective diagnostics
 
 ### Fixed
 
@@ -14,7 +39,7 @@ Toutes les évolutions notables sont documentées dans ce fichier.
 
 - Diagnostics et capteurs de diagnostic : horodatages réseau/PV, âges, écart, tolérance de synchronisation et motif détaillé d'un instantané refusé.
 
-## [0.4.0-alpha.3] - 2026-07-24 — Build004 RC3
+### Trace Recorder Foundation
 
 ### Added
 

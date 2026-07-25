@@ -407,7 +407,7 @@ class OpenEMSControllerSensor(_DtuSensorBase):
 
 
 class TraceRecorderSensor(_DtuSensorBase):
-    """Expose passive RC3 recorder diagnostics without any I/O."""
+    """Expose passive RC4 recorder diagnostics without any I/O."""
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
@@ -423,7 +423,7 @@ class TraceRecorderSensor(_DtuSensorBase):
     ) -> None:
         super().__init__(coordinator, entry, f"trace_{field}")
         self._field = field
-        self._attr_name = name
+        self._attr_translation_key = f"trace_{field}"
         self._attr_native_unit_of_measurement = unit
         self._attr_device_class = device_class
 
@@ -437,8 +437,21 @@ class TraceRecorderSensor(_DtuSensorBase):
         if self._field == "session_started_at":
             return self.coordinator.controller.trace_recorder.session_started_at
         if self._field == "session_active":
-            return "Active" if trace[self._field] else "Inactive"
+            return "active" if trace[self._field] else "inactive"
         if self._field == "mode":
             return trace[self._field]
         metrics = trace["metrics"]
         return metrics.get(self._field) if metrics else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose scope metadata without creating additional polling or entities."""
+        trace = self.coordinator.controller.trace_recorder.diagnostics()
+        metrics = trace.get("metrics") or {}
+        return {
+            "schema_version": trace.get("schema_version"),
+            "metrics_scope": "complete_session",
+            "retained_detailed_traces": trace.get("retained_traces"),
+            "detailed_trace_capacity": trace.get("detailed_trace_capacity"),
+            "detailed_traces_truncated": metrics.get("detailed_traces_truncated"),
+        }

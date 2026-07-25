@@ -13,6 +13,7 @@ def test_french_translation_keys_exist_for_controller_entities() -> None:
     component = Path(__file__).parents[1] / "custom_components" / "openems_zero_injection"
     source = json.loads((component / "strings.json").read_text())
     french = json.loads((component / "translations" / "fr.json").read_text())
+    english = json.loads((component / "translations" / "en.json").read_text())
     for platform, key in (
         ("sensor", "controller_state"),
         ("sensor", "scheduler_state"),
@@ -41,6 +42,8 @@ def test_french_translation_keys_exist_for_controller_entities() -> None:
     ):
         assert source["entity"][platform][key]["name"]
         assert french["entity"][platform][key]["name"]
+        if key.startswith("trace_"):
+            assert english["entity"][platform][key]["name"]
 
 
 def test_internal_codes_have_french_display_labels() -> None:
@@ -54,3 +57,16 @@ def test_internal_codes_have_french_display_labels() -> None:
     assert display_label("Command simulated") == "Commande simulée"
     assert display_label("Disabled") == "Manuel"
     assert display_label("Grid import") != "Grid import"
+
+
+def test_trace_recorder_states_are_translated_without_changing_internal_codes() -> None:
+    """The UI translation layer owns trace labels, not the serialized values."""
+    component = Path(__file__).parents[1] / "custom_components" / "openems_zero_injection"
+    source = json.loads((component / "strings.json").read_text())
+    french = json.loads((component / "translations" / "fr.json").read_text())
+    english = json.loads((component / "translations" / "en.json").read_text())
+
+    for translation in (source, french, english):
+        assert translation["entity"]["sensor"]["trace_mode"]["state"]["normal"]
+        assert translation["entity"]["sensor"]["trace_session_active"]["state"]["active"]
+        assert translation["entity"]["sensor"]["trace_session_active"]["state"]["inactive"]

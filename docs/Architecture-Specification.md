@@ -516,7 +516,7 @@ An implementation conforms to this specification only if it:
 - preserves compatibility through tested migration;
 - keeps vendor-specific battery detail outside the predictive controller;
 - passes automated tests and real-hardware validation appropriate to release scope.
-## 17. Build004 RC3 — Trace Recorder Foundation
+## 17. Build004 RC4 — Trace Recorder Timeline and Session Reports
 
 The Trace Recorder is an internal, passive observability boundary. It receives
 already-produced controller snapshots and coordinator write results, but it
@@ -526,6 +526,17 @@ memory only. A future diagnostic mode may request extra sampling through the
 coordinator, never directly through the recorder.
 
 Each command records wall-clock UTC, monotonic elapsed time, source timestamps
-and OpenEMS observation timestamps. Session metrics are interval weighted and
-publish their data coverage. Insufficient or gapped measurements produce an
-indeterminate result rather than an assertion of inefficiency.
+and OpenEMS observation timestamps. The timeline contains the decision,
+policy/context rationale, Modbus start and per-port result, common confirmation,
+stabilization start, normal post-command observations and the final evaluation.
+
+The trace schema is explicitly versioned and serializable with primitives only.
+Inputs available before a decision are separate from observations after a command,
+which preserves compatibility with a future offline replay facility. Replay,
+exports, diagnostic polling and accelerated reads are not part of RC4.
+
+Detailed timelines remain bounded to 100 records. Session-level aggregates are
+accumulated independently: exact counts, means, maxima and weighted coverage
+cover the whole session; medians use a bounded diagnostic reservoir. Insufficient
+or gapped measurements produce an indeterminate result rather than an assertion
+of inefficiency.
