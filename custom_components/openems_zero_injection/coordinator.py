@@ -21,12 +21,20 @@ from .const import (
     CONF_LAST_CONFIRMED_TEMPORARY_LIMIT,
     CONF_LAST_CONFIRMED_TEMPORARY_LIMIT_SOURCE,
     CONF_AUTO_RESUME_PRODUCTION,
+    CONF_BATTERY_DATA_MAX_AGE_SECONDS,
     CONF_INSTALLED_NOMINAL_POWER_W,
     CONF_PRODUCTION_STARTUP_STRATEGY,
     CONF_TAKEOVER_LIMIT_PERCENT,
     CONF_TEMPORARY_LIMIT_VALIDATION_MODE,
+    CONF_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID,
+    CONF_SOLARFLOW_CHARGE_LIMIT_VERIFIED,
+    CONF_SOLARFLOW_POWER_ENTITY_ID,
+    CONF_SOLARFLOW_POWER_SIGN,
+    CONF_SOLARFLOW_SOC_ENTITY_ID,
+    CONF_SOLARFLOW_ENABLED,
     DEFAULT_TEMPORARY_LIMIT_VALIDATION_MODE,
     DEFAULT_AUTO_RESUME_PRODUCTION,
+    DEFAULT_BATTERY_DATA_MAX_AGE_SECONDS,
     DEFAULT_INSTALLED_NOMINAL_POWER_W,
     DEFAULT_PRODUCTION_STARTUP_STRATEGY,
     DEFAULT_TAKEOVER_LIMIT_PERCENT,
@@ -47,6 +55,8 @@ from .const import (
 from .acquisition import AcquisitionEngine
 from .controller import ZeroInjectionController
 from .energy_manager import EnergyManager
+from .battery import BatteryPowerSign
+from .battery_adapters.zendure_solarflow import ZendureSolarFlowAdapter
 from .const import (
     CONF_GRID_POWER_ENTITY_ID,
     CONF_GRID_POWER_INVERTED,
@@ -173,9 +183,35 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         self._transport_failed_this_cycle = False
         self._total_register_errors = 0
         self._last_raw_error: str | None = None
-        # Passive EMS inventory. It intentionally has no adapter or scheduler
-        # dependency in Build004, so it cannot change DTU control behaviour.
         self.energy_manager = EnergyManager()
+        self._solarflow_enabled = bool(
+            entry.options.get(CONF_SOLARFLOW_ENABLED, DEFAULT_SOLARFLOW_ENABLED)
+        )
+        self._solarflow_adapter = ZendureSolarFlowAdapter(
+            hass,
+            soc_entity_id=entry.options.get(
+                CONF_SOLARFLOW_SOC_ENTITY_ID, DEFAULT_SOLARFLOW_SOC_ENTITY_ID
+            ),
+            power_entity_id=entry.options.get(
+                CONF_SOLARFLOW_POWER_ENTITY_ID, DEFAULT_SOLARFLOW_POWER_ENTITY_ID
+            ),
+            charge_limit_entity_id=entry.options.get(
+                CONF_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID,
+                DEFAULT_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID,
+            ) or None,
+            power_sign=BatteryPowerSign._value2member_map_.get(
+                entry.options.get(CONF_SOLARFLOW_POWER_SIGN),
+                BatteryPowerSign(DEFAULT_SOLARFLOW_POWER_SIGN),
+            ),
+            charge_limit_verified=bool(entry.options.get(
+                CONF_SOLARFLOW_CHARGE_LIMIT_VERIFIED,
+                DEFAULT_SOLARFLOW_CHARGE_LIMIT_VERIFIED,
+            )),
+            max_age_seconds=int(entry.options.get(
+                CONF_BATTERY_DATA_MAX_AGE_SECONDS,
+                DEFAULT_BATTERY_DATA_MAX_AGE_SECONDS,
+            )),
+        )
         initial_mode, mode_restore_source = self._restore_controller_mode(entry)
         self.controller = ZeroInjectionController(
             hass,
@@ -223,7 +259,13 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             return TemporaryLimitValidationMode(
                 entry.options.get(
                     CONF_TEMPORARY_LIMIT_VALIDATION_MODE,
-                    DEFAULT_TEMPORARY_LIMIT_VALIDATION_MODE,
+    DEFAULT_TEMPORARY_LIMIT_VALIDATION_MODE,
+    DEFAULT_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID,
+    DEFAULT_SOLARFLOW_CHARGE_LIMIT_VERIFIED,
+    DEFAULT_SOLARFLOW_POWER_ENTITY_ID,
+    DEFAULT_SOLARFLOW_POWER_SIGN,
+    DEFAULT_SOLARFLOW_SOC_ENTITY_ID,
+    DEFAULT_SOLARFLOW_ENABLED,
                 )
             )
         except (TypeError, ValueError):
@@ -384,6 +426,11 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         """Read the approved registers and decode only confirmed value types."""
         started = monotonic()
         now = datetime.now(UTC)
+        self.energy_manager.set_batteries(
+            (self._solarflow_adapter.read_resource(now),)
+            if self._solarflow_enabled
+            else ()
+        )
         self._cycle_timings_ms = {
             "connection": self._modbus.connection_diagnostics().get(
                 "last_connection_time_ms"

@@ -2,6 +2,18 @@
 
 Toutes les évolutions notables sont documentées dans ce fichier.
 
+## [0.5.0-alpha.1] - 2026-07-25 — Build005
+
+### Added
+
+- Adaptateur Zendure SolarFlow strictement en lecture seule, alimenté par les états Home Assistant existants.
+- `BatteryResource`, santé normalisée, motifs stables, fraîcheur et capacités de charge normalisées.
+- Agrégats multi-batteries sans somme partielle trompeuse, avec couverture exposée dans les diagnostics.
+
+### Safety
+
+- Aucune écriture SolarFlow, aucun appel cloud, aucune lecture Modbus supplémentaire et aucun changement du contrôleur, du Scheduler ou des décisions DTU.
+
 ## [0.4.0-alpha.4] - 2026-07-25 — Build004 RC4
 
 ### Added

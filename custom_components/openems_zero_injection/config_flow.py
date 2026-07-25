@@ -18,16 +18,30 @@ from .const import (
     CONF_GRID_POWER_INVERTED,
     CONF_INSTALLED_NOMINAL_POWER_W,
     CONF_AUTO_RESUME_PRODUCTION,
+    CONF_BATTERY_DATA_MAX_AGE_SECONDS,
     CONF_PRODUCTION_STARTUP_STRATEGY,
     CONF_TAKEOVER_LIMIT_PERCENT,
     CONF_TEMPORARY_LIMIT_VALIDATION_MODE,
+    CONF_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID,
+    CONF_SOLARFLOW_CHARGE_LIMIT_VERIFIED,
+    CONF_SOLARFLOW_POWER_ENTITY_ID,
+    CONF_SOLARFLOW_POWER_SIGN,
+    CONF_SOLARFLOW_SOC_ENTITY_ID,
+    CONF_SOLARFLOW_ENABLED,
     DEFAULT_DTU_PORT,
     DEFAULT_GRID_POWER_ENTITY_ID,
     DEFAULT_GRID_POWER_INVERTED,
     DEFAULT_INSTALLED_NOMINAL_POWER_W,
     DEFAULT_AUTO_RESUME_PRODUCTION,
+    DEFAULT_BATTERY_DATA_MAX_AGE_SECONDS,
     DEFAULT_PRODUCTION_STARTUP_STRATEGY,
     DEFAULT_TEMPORARY_LIMIT_VALIDATION_MODE,
+    DEFAULT_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID,
+    DEFAULT_SOLARFLOW_CHARGE_LIMIT_VERIFIED,
+    DEFAULT_SOLARFLOW_POWER_ENTITY_ID,
+    DEFAULT_SOLARFLOW_POWER_SIGN,
+    DEFAULT_SOLARFLOW_SOC_ENTITY_ID,
+    DEFAULT_SOLARFLOW_ENABLED,
     DEFAULT_TAKEOVER_LIMIT_PERCENT,
     MAX_INSTALLED_NOMINAL_POWER_W,
     MIN_INSTALLED_NOMINAL_POWER_W,
@@ -176,6 +190,57 @@ class OpenEMSOptionsFlow(config_entries.OptionsFlow):
                             DEFAULT_AUTO_RESUME_PRODUCTION,
                         ),
                     ): selector.BooleanSelector(),
+                    vol.Required(
+                        CONF_SOLARFLOW_ENABLED,
+                        default=options.get(
+                            CONF_SOLARFLOW_ENABLED, DEFAULT_SOLARFLOW_ENABLED
+                        ),
+                    ): selector.BooleanSelector(),
+                    vol.Required(
+                        CONF_SOLARFLOW_SOC_ENTITY_ID,
+                        default=options.get(
+                            CONF_SOLARFLOW_SOC_ENTITY_ID,
+                            DEFAULT_SOLARFLOW_SOC_ENTITY_ID,
+                        ),
+                    ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+                    vol.Required(
+                        CONF_SOLARFLOW_POWER_ENTITY_ID,
+                        default=options.get(
+                            CONF_SOLARFLOW_POWER_ENTITY_ID,
+                            DEFAULT_SOLARFLOW_POWER_ENTITY_ID,
+                        ),
+                    ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+                    vol.Optional(
+                        CONF_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID,
+                        default=options.get(
+                            CONF_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID,
+                            DEFAULT_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID,
+                        ),
+                    ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+                    vol.Required(
+                        CONF_SOLARFLOW_POWER_SIGN,
+                        default=options.get(
+                            CONF_SOLARFLOW_POWER_SIGN, DEFAULT_SOLARFLOW_POWER_SIGN
+                        ),
+                    ): vol.In({
+                        "unknown": "Unknown / not confirmed",
+                        "positive_charging": "Positive = charging",
+                        "positive_discharging": "Positive = discharging",
+                    }),
+                    vol.Required(
+                        CONF_SOLARFLOW_CHARGE_LIMIT_VERIFIED,
+                        default=options.get(
+                            CONF_SOLARFLOW_CHARGE_LIMIT_VERIFIED,
+                            DEFAULT_SOLARFLOW_CHARGE_LIMIT_VERIFIED,
+                        ),
+                    ): selector.BooleanSelector(),
+                    vol.Required(
+                        CONF_BATTERY_DATA_MAX_AGE_SECONDS,
+                        default=options.get(
+                            CONF_BATTERY_DATA_MAX_AGE_SECONDS,
+                            DEFAULT_BATTERY_DATA_MAX_AGE_SECONDS,
+                        ),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=10, max=3600)),
                 }
             ),
         )

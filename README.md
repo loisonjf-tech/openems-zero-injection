@@ -6,7 +6,7 @@ Intégration Home Assistant locale destinée à piloter un Hoymiles DTU Pro-S af
 
 **Build004 — fondation expérimentale du contrôleur de zéro injection.** Le projet acquiert une puissance réseau locale, calcule une consigne DTU déterministe, et applique un scheduler de sécurité. Il n'intègre pas encore SolarFlow, Zendure ou une logique de batterie.
 
-Version actuelle : **V0.4.0-alpha.4 / Build004 RC4**.
+Version actuelle : **V0.5.0-alpha.1 / Build005**.
 
 ## Matériel de référence
 
@@ -74,9 +74,16 @@ Les statistiques de session sont agrégées pendant toute la session, indépenda
 
 Le mode diagnostic détaillé, le polling accéléré et les exports CSV/JSON restent volontairement hors périmètre. Les identifiants enregistrés (`policy_id`, stratégie, contexte et résultats) sont stables et indépendants de la langue ; l’interface Home Assistant les présente via ses traductions.
 
-## Préparation EMS passive
+## SolarFlow lecture seule — Build005
 
-Une couche `EnergyManager` indépendante du scheduler DTU centralise dès maintenant un inventaire passif de batteries autonomes. Elle publie seulement des diagnostics (nombre de batteries, puissances de charge maximale et actuelle, capacité de charge restante, état). Aucun adaptateur Zendure n'est encore présent, aucune batterie n'est lue, et ces calculs ne participent à aucune décision ni commande du contrôleur.
+L’adaptateur SolarFlow lit uniquement des entités déjà disponibles dans Home
+Assistant. Il normalise le SOC et, après confirmation explicite de la convention
+de signe, les puissances de charge/décharge. Il n’écrit jamais dans SolarFlow,
+ne contacte aucun cloud et ne modifie ni la régulation DTU ni le Scheduler.
+
+Une limite de charge non vérifiée reste inconnue. Les diagnostics exposent la
+santé, la fraîcheur, les anomalies et les sources ; une donnée inconnue n’est
+jamais interprétée comme `0 W`.
 
 ## Tests
 

@@ -100,6 +100,29 @@ async def async_get_config_entry_diagnostics(
             "total_current_charge_power_w": energy_manager.total_current_charge_power_w,
             "total_remaining_charge_power_w": energy_manager.total_remaining_charge_power_w,
             "unknown_reason": energy_manager.unknown_reason,
+            "aggregate_coverage": {
+                "max_charge": energy_manager.max_charge_coverage.status,
+                "current_charge": energy_manager.current_charge_coverage.status,
+                "remaining_charge": energy_manager.remaining_charge_coverage.status,
+            },
+            "batteries": [
+                {
+                    "resource_id": battery.resource_id,
+                    "adapter_id": battery.adapter_id,
+                    "adapter_version": battery.adapter_version,
+                    "health": battery.health.value,
+                    "last_updated": battery.last_updated.isoformat() if battery.last_updated else None,
+                    "data_age_seconds": battery.data_age_seconds,
+                    "soc_percent": battery.soc_percent,
+                    "charge_power_w": battery.charge_power_w,
+                    "discharge_power_w": battery.discharge_power_w,
+                    "max_charge_power_w": battery.max_charge_power_w,
+                    "remaining_charge_power_w": battery.remaining_charge_power_w,
+                    "anomalies": [reason.value for reason in battery.anomalies],
+                    "source_entities": battery.source_entities,
+                }
+                for battery in energy_manager.resources
+            ],
         },
         "trace_recorder": trace,
         "controller": {

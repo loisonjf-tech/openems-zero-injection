@@ -30,6 +30,13 @@
           "production_startup_strategy": "Stratégie de démarrage Production",
           "takeover_limit_percent": "Limite de puissance de prise de contrôle",
           "auto_resume_production": "Reprendre automatiquement Production après redémarrage"
+          ,"solarflow_enabled": "Activer l’adaptateur SolarFlow en lecture seule"
+          ,"solarflow_soc_entity_id": "Capteur de niveau de charge SolarFlow"
+          ,"solarflow_power_entity_id": "Capteur de puissance directionnelle SolarFlow"
+          ,"solarflow_charge_limit_entity_id": "Capteur de limite de charge SolarFlow"
+          ,"solarflow_power_sign": "Convention de signe de puissance SolarFlow"
+          ,"solarflow_charge_limit_verified": "Unité et signification de la limite de charge vérifiées"
+          ,"battery_data_max_age_seconds": "Âge maximal des données batterie"
         }
       }
     }
@@ -56,6 +63,8 @@
       "energy_manager_total_current_charge_power_w": {"name": "Puissance actuelle de charge"},
       "energy_manager_total_remaining_charge_power_w": {"name": "Capacité restante de charge"},
       "energy_manager_state": {"name": "État Energy Manager"},
+      "solarflow_health": {"name": "État de santé batterie SolarFlow", "state": {"healthy": "Saine", "stale": "Périmée", "inconsistent": "Incohérente", "fault": "En défaut", "unavailable": "Indisponible"}},
+      "solarflow_data_age_seconds": {"name": "Âge des données batterie SolarFlow"},
       "last_decision": {"name": "Motif de la dernière décision"},
       "last_command_result": {"name": "Résultat de la dernière commande"},
       "commands_simulated": {"name": "Commandes simulées"},

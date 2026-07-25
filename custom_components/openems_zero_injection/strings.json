@@ -30,6 +30,13 @@
           "production_startup_strategy": "Production startup strategy",
           "takeover_limit_percent": "Takeover power limit",
           "auto_resume_production": "Automatically resume Production after restart"
+          ,"solarflow_enabled": "Enable SolarFlow read-only adapter"
+          ,"solarflow_soc_entity_id": "SolarFlow state-of-charge sensor"
+          ,"solarflow_power_entity_id": "SolarFlow directional power sensor"
+          ,"solarflow_charge_limit_entity_id": "SolarFlow charge-limit sensor"
+          ,"solarflow_power_sign": "SolarFlow power sign convention"
+          ,"solarflow_charge_limit_verified": "Charge-limit unit and meaning verified"
+          ,"battery_data_max_age_seconds": "Maximum battery data age"
         }
       }
     }
@@ -56,6 +63,8 @@
       "energy_manager_total_current_charge_power_w": {"name": "Current charge power"},
       "energy_manager_total_remaining_charge_power_w": {"name": "Remaining charge capacity"},
       "energy_manager_state": {"name": "Energy Manager state"},
+      "solarflow_health": {"name": "SolarFlow battery health", "state": {"healthy": "Healthy", "stale": "Stale", "inconsistent": "Inconsistent", "fault": "Fault", "unavailable": "Unavailable"}},
+      "solarflow_data_age_seconds": {"name": "SolarFlow battery data age"},
       "last_decision": {"name": "Last decision reason"},
       "last_command_result": {"name": "Last command result"},
       "commands_simulated": {"name": "Simulated commands"},

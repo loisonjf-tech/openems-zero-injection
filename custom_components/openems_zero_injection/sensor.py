@@ -76,6 +76,11 @@ async def async_setup_entry(
                 unit=UnitOfPower.WATT,
             ),
             EnergyManagerSensor(coordinator, entry, "state", "État Energy Manager"),
+            SolarFlowBatterySensor(coordinator, entry, "health", "État de santé batterie SolarFlow"),
+            SolarFlowBatterySensor(
+                coordinator, entry, "data_age_seconds", "Âge des données batterie SolarFlow",
+                unit=UnitOfTime.SECONDS,
+            ),
             OpenEMSControllerSensor(coordinator, entry, "controller_state", "État du contrôleur"),
             OpenEMSControllerSensor(coordinator, entry, "scheduler_state", "État du planificateur"),
             OpenEMSControllerSensor(coordinator, entry, "current_limit", "Limite DTU réelle", unit="%"),
@@ -297,6 +302,48 @@ class EnergyManagerSensor(_DtuSensorBase):
                 else {}
             )
         return {}
+
+
+class SolarFlowBatterySensor(_DtuSensorBase):
+    """Expose one passive normalized SolarFlow diagnostic without I/O."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self, coordinator: DtuProSCoordinator, entry: ConfigEntry, field: str,
+        name: str, *, unit: str | None = None,
+    ) -> None:
+        super().__init__(coordinator, entry, f"solarflow_{field}")
+        self._field = field
+        self._attr_translation_key = f"solarflow_{field}"
+        self._attr_native_unit_of_measurement = unit
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    @property
+    def native_value(self) -> Any:
+        resources = self.coordinator.energy_manager.batteries
+        if not resources:
+            return None
+        resource = resources[0]
+        value = getattr(resource, self._field)
+        return value.value if hasattr(value, "value") else value
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        resources = self.coordinator.energy_manager.batteries
+        if not resources:
+            return {}
+        resource = resources[0]
+        return {
+            "adapter_id": resource.adapter_id,
+            "adapter_version": resource.adapter_version,
+            "last_updated": resource.last_updated.isoformat() if resource.last_updated else None,
+            "anomalies": [anomaly.value for anomaly in resource.anomalies],
+            "source_entities": resource.source_entities,
+        }
 
 
 class OpenEMSControllerSensor(_DtuSensorBase):
