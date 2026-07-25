@@ -88,7 +88,7 @@ async def async_setup_entry(
             OpenEMSControllerSensor(coordinator, entry, "ports_synchronization", "État de synchronisation des ports", EntityCategory.DIAGNOSTIC),
             OpenEMSControllerSensor(coordinator, entry, "last_simulated_limit", "Dernière limite simulée", unit="%"),
             OpenEMSControllerSensor(coordinator, entry, "simulated_limit", "Limite actuellement recommandée", unit="%"),
-            OpenEMSControllerSensor(coordinator, entry, "calculated_limit", "Limite théorique calculée", unit="%"),
+            OpenEMSControllerSensor(coordinator, entry, "calculated_limit", "Limite prédictive théorique", unit="%"),
             OpenEMSControllerSensor(coordinator, entry, "commanded_limit", "Prochaine limite commandée", unit="%"),
             OpenEMSControllerSensor(coordinator, entry, "waiting_state", "État d’attente", EntityCategory.DIAGNOSTIC),
             OpenEMSControllerSensor(coordinator, entry, "scheduler_inactive_reason", "Motif d’inactivité du planificateur", EntityCategory.DIAGNOSTIC),

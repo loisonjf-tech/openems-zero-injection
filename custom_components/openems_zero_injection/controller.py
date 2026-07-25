@@ -632,9 +632,9 @@ class ZeroInjectionController:
                 )
                 return
 
-            if self._scheduler.state is SchedulerState.PAUSED:
+            scheduler_recovered = self._scheduler.state is SchedulerState.PAUSED
+            if scheduler_recovered:
                 self._scheduler.reset()
-                self._set_status(state="Idle", last_error=None)
 
             snapshot = self._build_snapshot(measurement.power_w, measurement.timestamp)
             if snapshot is None:
@@ -646,6 +646,24 @@ class ZeroInjectionController:
                     last_error=sync_reason or "Measurements not synchronized",
                 )
                 return
+            # A valid snapshot proves that a transient measurement failure has
+            # recovered. Clear the former error and show the actual scheduler
+            # state even when the values do not require another decision.
+            if (
+                scheduler_recovered
+                or self._status.last_error is not None
+                or self._status.state == "Paused"
+            ):
+                display_state = self.scheduler_display_state
+                self._set_status(
+                    state=display_state,
+                    last_decision=(
+                        "Monitoring"
+                        if display_state == "Monitoring"
+                        else self._status.last_decision
+                    ),
+                    last_error=None,
+                )
             self._trace_recorder.observe_measurement(
                 grid_power_w=snapshot.grid_power_w,
                 grid_source_timestamp=snapshot.grid_power_timestamp,

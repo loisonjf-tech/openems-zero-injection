@@ -53,7 +53,7 @@
       "current_limit": {"name": "Actual DTU limit"},
       "current_limit_source": {"name": "Current limit source"},
       "ports_synchronization": {"name": "Port synchronization state"},
-      "calculated_limit": {"name": "Calculated theoretical limit"},
+      "calculated_limit": {"name": "Predictive theoretical limit"},
       "commanded_limit": {"name": "Next commanded limit"},
       "last_simulated_limit": {"name": "Last simulated limit"},
       "simulated_limit": {"name": "Currently recommended limit"},

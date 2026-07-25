@@ -44,6 +44,10 @@ def test_french_translation_keys_exist_for_controller_entities() -> None:
         assert french["entity"][platform][key]["name"]
         if key.startswith("trace_"):
             assert english["entity"][platform][key]["name"]
+    assert (
+        french["entity"]["sensor"]["calculated_limit"]["name"]
+        == "Limite prédictive théorique"
+    )
 
 
 def test_internal_codes_have_french_display_labels() -> None:

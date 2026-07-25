@@ -2,6 +2,22 @@
 
 Toutes les évolutions notables sont documentées dans ce fichier.
 
+## [0.7.0-alpha.4] - 2026-07-25 — Controller state recovery observability
+
+### Changed
+
+- Le capteur de diagnostic `calculated_limit` est affiché comme **Limite
+  prédictive théorique**, pour le distinguer de la limite réellement retenue
+  pour une commande.
+- Après le retour d'un instantané réseau/PV valide, une erreur de mesure
+  transitoire est effacée et l'état affiché revient à l'état réel du Scheduler,
+  même lorsqu'aucune nouvelle commande ni décision n'est nécessaire.
+
+### Safety
+
+- Aucun changement de calcul, de Scheduler, de trafic Modbus ou de commande
+  DTU.
+
 ## [0.7.0-alpha.3] - 2026-07-25 — Decision and SolarFlow observability
 
 ### Added

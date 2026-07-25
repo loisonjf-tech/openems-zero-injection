@@ -5,7 +5,10 @@ from unittest.mock import AsyncMock, Mock, call
 from datetime import UTC, datetime, timedelta
 from dataclasses import replace
 
-from custom_components.openems_zero_injection.acquisition import AcquisitionEngine
+from custom_components.openems_zero_injection.acquisition import (
+    AcquisitionEngine,
+    GridMeasurement,
+)
 from custom_components.openems_zero_injection.battery import (
     BatteryHealth,
     BatteryResource,
@@ -630,6 +633,39 @@ async def test_grid_sensor_loss_pauses_controller(hass) -> None:
     await controller.async_tick()
     assert controller.status.state == "Paused"
     assert controller.scheduler.state is SchedulerState.PAUSED
+    coordinator.async_set_all_temporary_power_limits.assert_not_awaited()
+
+
+async def test_valid_snapshot_clears_transient_measurement_error_without_command(hass) -> None:
+    """A recovered snapshot restores monitoring even when no command is due."""
+    coordinator = fake_coordinator(automatic_writes_enabled=False)
+    controller = ZeroInjectionController(
+        hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
+    )
+    await controller.async_set_mode(ControllerMode.PRODUCTION.value)
+    controller._valid_grid_measurements = 3
+    controller._acquisition.read_grid_power = lambda: GridMeasurement(
+        -40, None, datetime.now(UTC)
+    )
+    await controller.async_tick()
+
+    controller._acquisition.read_grid_power = lambda: GridMeasurement(
+        -40, None, datetime.now(UTC) - timedelta(seconds=11)
+    )
+
+    await controller.async_tick()
+
+    assert controller.status.state == "Paused"
+    assert controller.status.last_error == "Grid measurement is older than the allowed age"
+
+    controller._acquisition.read_grid_power = lambda: GridMeasurement(
+        -40, None, datetime.now(UTC)
+    )
+    await controller.async_tick()
+
+    assert controller.status.state == "Monitoring"
+    assert controller.status.last_decision == "Monitoring"
+    assert controller.status.last_error is None
     coordinator.async_set_all_temporary_power_limits.assert_not_awaited()
 
 
