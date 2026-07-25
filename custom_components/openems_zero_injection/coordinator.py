@@ -22,6 +22,10 @@ from .const import (
     CONF_LAST_CONFIRMED_TEMPORARY_LIMIT_SOURCE,
     CONF_AUTO_RESUME_PRODUCTION,
     CONF_BATTERY_DATA_MAX_AGE_SECONDS,
+    CONF_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
+    CONF_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
+    CONF_BATTERY_PRIORITY_MARGIN_W,
+    CONF_BATTERY_PRIORITY_MODE,
     CONF_INSTALLED_NOMINAL_POWER_W,
     CONF_PRODUCTION_STARTUP_STRATEGY,
     CONF_TAKEOVER_LIMIT_PERCENT,
@@ -36,6 +40,10 @@ from .const import (
     DEFAULT_TEMPORARY_LIMIT_VALIDATION_MODE,
     DEFAULT_AUTO_RESUME_PRODUCTION,
     DEFAULT_BATTERY_DATA_MAX_AGE_SECONDS,
+    DEFAULT_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
+    DEFAULT_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
+    DEFAULT_BATTERY_PRIORITY_MARGIN_W,
+    DEFAULT_BATTERY_PRIORITY_MODE,
     DEFAULT_INSTALLED_NOMINAL_POWER_W,
     DEFAULT_PRODUCTION_STARTUP_STRATEGY,
     DEFAULT_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID,
@@ -247,6 +255,23 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         )
         self.controller.energy_policy_engine.set_battery_context_provider(
             self._battery_priority_context
+        )
+        self.controller.energy_policy_engine.configure_battery_priority(
+            mode=entry.options.get(
+                CONF_BATTERY_PRIORITY_MODE, DEFAULT_BATTERY_PRIORITY_MODE
+            ),
+            margin_w=float(entry.options.get(
+                CONF_BATTERY_PRIORITY_MARGIN_W,
+                DEFAULT_BATTERY_PRIORITY_MARGIN_W,
+            )),
+            charge_threshold_w=float(entry.options.get(
+                CONF_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
+                DEFAULT_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
+            )),
+            confirmation_samples=int(entry.options.get(
+                CONF_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
+                DEFAULT_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
+            )),
         )
 
     @staticmethod

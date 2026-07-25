@@ -6,7 +6,13 @@ Intégration Home Assistant locale destinée à piloter un Hoymiles DTU Pro-S af
 
 **Build004 — fondation expérimentale du contrôleur de zéro injection.** Le projet acquiert une puissance réseau locale, calcule une consigne DTU déterministe, et applique un scheduler de sécurité. Il n'intègre pas encore SolarFlow, Zendure ou une logique de batterie.
 
-Version actuelle : **V0.7.0-alpha.1 / Build007**.
+Version actuelle : **V0.7.0-alpha.2 / Build007-B**.
+
+Build007-B ajoute un mode expérimental **Priorité Batterie observée —
+conservateur**, désactivé par défaut. Après trois mesures fraîches de charge
+SolarFlow supérieures à `50 W`, il autorise une marge contrôlée de `25 W` sur la
+cible réseau. Une décharge, une donnée périmée ou toute incohérence rétablit
+immédiatement Zero Injection. La SolarFlow reste strictement en lecture seule.
 
 ## Matériel de référence
 

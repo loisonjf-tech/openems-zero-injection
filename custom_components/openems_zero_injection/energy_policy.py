@@ -7,6 +7,7 @@ controller imports and experimental external imports stable.
 from .energy_strategy import (
     BatteryPriorityComparison,
     BatteryPriorityContext,
+    BatteryPriorityMode,
     BatteryPriorityReasonCode,
     BatteryPriorityStrategy,
     EnergyStrategyDecision,
@@ -23,6 +24,7 @@ ZeroInjectionPolicy = ZeroInjectionStrategy
 __all__ = [
     "BatteryPriorityComparison",
     "BatteryPriorityContext",
+    "BatteryPriorityMode",
     "BatteryPriorityReasonCode",
     "BatteryPriorityStrategy",
     "EnergyPolicyDecision",

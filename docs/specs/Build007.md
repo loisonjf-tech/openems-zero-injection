@@ -1,16 +1,33 @@
-# Build007 — Battery Priority Simulation
+# Build007 — Battery Priority
+
+## Build007-B — activation conservatrice observée
+
+Le mode `observed_conservative` est optionnel et désactivé par défaut. Il ne
+pilote jamais la SolarFlow : il ajuste seulement la cible lue par le contrôleur
+prédictif de `−40 W` à `−65 W` après trois mesures fraîches consécutives de
+charge strictement supérieure à `50 W`. La marge est configurable et bornée à
+`0…100 W`, avec `25 W` par défaut.
+
+Une décharge supérieure à `50 W` sur une mesure fraîche, ou toute donnée
+absente, stale, incohérente ou en défaut, annule immédiatement la confirmation
+et restaure exactement la cible Zero Injection. `chargeMaxLimit` et le SOC ne
+servent pas au calcul de puissance disponible dans cet incrément.
 
 ## Objective
 
 Build007 compares a generic `BatteryPriorityStrategy` with the established
 `ZeroInjectionStrategy` without changing Production control.
 
-## Safety boundary
+## Build007-A safety boundary
 
-- Production always uses `ZeroInjectionStrategy`.
+- Production used `ZeroInjectionStrategy` exclusively in Build007-A.
 - `BatteryPriorityStrategy` is evaluated only in Simulation.
 - It issues no battery command, DTU command, Modbus request, task or polling.
 - The Predictive Controller receives the unchanged Zero Injection target.
+
+Build007-B is the sole exception: its explicit, disabled-by-default
+`observed_conservative` mode may supply the bounded candidate target described
+above only after its charge confirmations have succeeded.
 
 ## Candidate calculation
 

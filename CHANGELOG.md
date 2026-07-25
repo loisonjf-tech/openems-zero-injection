@@ -2,6 +2,24 @@
 
 Toutes les évolutions notables sont documentées dans ce fichier.
 
+## [0.7.0-alpha.2] - 2026-07-25 — Build007-B conservative activation
+
+### Added
+
+- Mode optionnel `observed_conservative` de priorité batterie, désactivé par
+  défaut : après trois mesures fraîches consécutives de charge supérieure à
+  `50 W`, il transmet une cible bornée à `−65 W` au lieu de `−40 W`.
+- Diagnostics de mode, marge appliquée, cibles initiale/finale, compteur de
+  confirmations, puissance observée et transitions d'activation/repli.
+
+### Safety
+
+- Une décharge supérieure à `50 W`, une donnée batterie absente, périmée,
+  incohérente ou en défaut restaure immédiatement la cible Zero Injection.
+- `chargeMaxLimit` n'est toujours pas utilisé. Aucune commande batterie n'est
+  créée et le Predictive Controller, le Scheduler et le client DTU restent
+  inchangés.
+
 ## [0.7.0-alpha.1] - 2026-07-25 — Build007
 
 ### Added

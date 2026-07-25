@@ -670,6 +670,7 @@ class ZeroInjectionController:
                 input_snapshot_id=snapshot.created_at.isoformat(),
                 decision_timestamp=snapshot.created_at,
                 compare_battery_priority=self._mode is ControllerMode.SIMULATION,
+                activate_battery_priority=self._mode is ControllerMode.PRODUCTION,
             )
             if policy.comparison is not None:
                 comparison = policy.comparison
@@ -1101,6 +1102,11 @@ class ZeroInjectionController:
         A configuration or mode change is represented by the configuration
         generation and always gets one fresh evaluation.
         """
+        if (
+            self._mode is ControllerMode.PRODUCTION
+            and self._energy_policy_engine.battery_priority_input_changed()
+        ):
+            return True
         previous = self._last_evaluated_snapshot
         if (
             previous is None

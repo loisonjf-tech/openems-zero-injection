@@ -1,5 +1,6 @@
 """Deterministic Build006 energy-strategy regression tests."""
 
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from custom_components.openems_zero_injection.battery import (
@@ -165,3 +166,138 @@ def test_production_path_keeps_zero_injection_without_a_comparison() -> None:
     assert decision.target_grid_power_w == -40
     assert decision.policy_id == "zero_injection"
     assert decision.comparison is None
+
+
+def _observed_context(
+    *,
+    charge_w: float,
+    discharge_w: float = 0.0,
+    second: int = 0,
+) -> BatteryPriorityContext:
+    battery = replace(
+        _healthy_battery(remaining_charge_power_w=None),
+        charge_power_w=charge_w,
+        discharge_power_w=discharge_w,
+        last_updated=datetime(2026, 7, 25, 0, 0, second, tzinfo=UTC),
+    )
+    return BatteryPriorityContext((battery,), None, "none")
+
+
+def test_observed_conservative_activates_only_after_three_fresh_charges() -> None:
+    """Production target changes only after the configured confirmation count."""
+    sample = [0]
+    engine = EnergyStrategyEngine(
+        battery_context_provider=lambda: _observed_context(
+            charge_w=999, second=sample[0]
+        )
+    )
+    engine.configure_battery_priority(
+        mode="observed_conservative",
+        margin_w=25,
+        charge_threshold_w=50,
+        confirmation_samples=3,
+    )
+
+    first = engine.decide(-40, activate_battery_priority=True)
+    sample[0] = 1
+    second = engine.decide(-40, activate_battery_priority=True)
+    sample[0] = 2
+    active = engine.decide(-40, activate_battery_priority=True)
+
+    assert first.target_grid_power_w == -40
+    assert second.target_grid_power_w == -40
+    assert active.target_grid_power_w == -65
+    assert active.comparison is not None
+    assert active.comparison.applied_margin_w == 25
+    assert active.comparison.consecutive_charge_samples == 3
+
+
+def test_disabled_battery_priority_preserves_exact_production_zero_injection() -> None:
+    """The opt-in default cannot add a policy target or comparison in Production."""
+    engine = EnergyStrategyEngine(
+        battery_context_provider=lambda: _observed_context(charge_w=999)
+    )
+
+    decision = engine.decide(-40, activate_battery_priority=True)
+
+    assert decision.target_grid_power_w == -40
+    assert decision.policy_id == "zero_injection"
+    assert not decision.fallback_used
+    assert decision.comparison is None
+
+
+def test_repeated_same_battery_publication_is_not_three_fresh_samples() -> None:
+    """Grid changes cannot turn one battery publication into three confirmations."""
+    engine = EnergyStrategyEngine(
+        battery_context_provider=lambda: _observed_context(charge_w=999, second=0)
+    )
+    engine.configure_battery_priority(
+        mode="observed_conservative",
+        margin_w=25,
+        charge_threshold_w=50,
+        confirmation_samples=3,
+    )
+
+    decisions = [engine.decide(-40, activate_battery_priority=True) for _ in range(3)]
+
+    assert [decision.target_grid_power_w for decision in decisions] == [-40, -40, -40]
+    assert engine.battery_priority_diagnostics["consecutive_charge_samples"] == 1
+
+
+def test_observed_conservative_discharge_immediately_falls_back() -> None:
+    """One fresh significant discharge invalidates a previously active charge."""
+    sample = [0]
+    context = _observed_context(charge_w=999, second=sample[0])
+    engine = EnergyStrategyEngine(battery_context_provider=lambda: context)
+    engine.configure_battery_priority(
+        mode="observed_conservative",
+        margin_w=25,
+        charge_threshold_w=50,
+        confirmation_samples=3,
+    )
+    for _ in range(3):
+        decision = engine.decide(-40, activate_battery_priority=True)
+        sample[0] += 1
+        context = _observed_context(charge_w=999, second=sample[0])
+    assert decision.target_grid_power_w == -65
+
+    context = _observed_context(charge_w=0, discharge_w=700)
+    fallback = engine.decide(-40, activate_battery_priority=True)
+
+    assert fallback.target_grid_power_w == -40
+    assert fallback.fallback_used
+    assert fallback.comparison is not None
+    assert fallback.comparison.reason_code is BatteryPriorityReasonCode.BATTERY_DISCHARGING
+    assert engine.battery_priority_diagnostics["consecutive_charge_samples"] == 0
+
+
+def test_observed_conservative_stale_data_falls_back_without_target_change() -> None:
+    """A stale battery resource can never preserve a prior battery margin."""
+    stale = BatteryResource(
+        resource_id="battery-1",
+        name="Test battery",
+        adapter_id="test",
+        adapter_version="test",
+        available=True,
+        health=BatteryHealth.STALE,
+        last_updated=datetime(2026, 7, 25, tzinfo=UTC),
+        data_age_seconds=121,
+        charge_power_w=999,
+        discharge_power_w=0,
+    )
+    engine = EnergyStrategyEngine(
+        battery_context_provider=lambda: BatteryPriorityContext((stale,), None, "none")
+    )
+    engine.configure_battery_priority(
+        mode="observed_conservative",
+        margin_w=25,
+        charge_threshold_w=50,
+        confirmation_samples=3,
+    )
+
+    decision = engine.decide(-40, activate_battery_priority=True)
+
+    assert decision.target_grid_power_w == -40
+    assert decision.fallback_used
+    assert decision.comparison is not None
+    assert decision.comparison.reason_code is BatteryPriorityReasonCode.BATTERY_DATA_STALE

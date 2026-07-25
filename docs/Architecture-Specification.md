@@ -224,10 +224,13 @@ minus 40 W, unchanged. `EnergyPolicyEngine` remains a compatibility alias for
 the earlier boundary. A battery-aware strategy with unavailable or low-confidence
 data must visibly fall back to zero injection.
 
-Build007 adds `BatteryPriorityStrategy` as a Simulation-only comparison. It
-receives only generic normalized battery data and returns a candidate bounded
-to 25 W of additional export. Its result is recorded for diagnostics and trace
-analysis, while Production continues to use `ZeroInjectionStrategy` unchanged.
+Build007-A adds `BatteryPriorityStrategy` as a Simulation-only comparison. Its
+candidate is bounded to 25 W of additional export. Build007-B adds an explicit,
+disabled-by-default `observed_conservative` Production mode: only three fresh
+successive charging measurements above the configured threshold can apply that
+same bounded margin. A fresh discharge, unavailable, stale, inconsistent or
+faulted resource restores Zero Injection immediately. The strategy receives
+only generic normalized battery data; it cannot issue a battery command.
 
 ### 7.7 Predictive Controller
 

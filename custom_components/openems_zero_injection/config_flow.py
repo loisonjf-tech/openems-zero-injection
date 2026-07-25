@@ -19,6 +19,10 @@ from .const import (
     CONF_INSTALLED_NOMINAL_POWER_W,
     CONF_AUTO_RESUME_PRODUCTION,
     CONF_BATTERY_DATA_MAX_AGE_SECONDS,
+    CONF_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
+    CONF_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
+    CONF_BATTERY_PRIORITY_MARGIN_W,
+    CONF_BATTERY_PRIORITY_MODE,
     CONF_PRODUCTION_STARTUP_STRATEGY,
     CONF_TAKEOVER_LIMIT_PERCENT,
     CONF_TEMPORARY_LIMIT_VALIDATION_MODE,
@@ -35,6 +39,10 @@ from .const import (
     DEFAULT_INSTALLED_NOMINAL_POWER_W,
     DEFAULT_AUTO_RESUME_PRODUCTION,
     DEFAULT_BATTERY_DATA_MAX_AGE_SECONDS,
+    DEFAULT_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
+    DEFAULT_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
+    DEFAULT_BATTERY_PRIORITY_MARGIN_W,
+    DEFAULT_BATTERY_PRIORITY_MODE,
     DEFAULT_PRODUCTION_STARTUP_STRATEGY,
     DEFAULT_TEMPORARY_LIMIT_VALIDATION_MODE,
     DEFAULT_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID,
@@ -47,6 +55,12 @@ from .const import (
     DEFAULT_TAKEOVER_LIMIT_PERCENT,
     MAX_INSTALLED_NOMINAL_POWER_W,
     MIN_INSTALLED_NOMINAL_POWER_W,
+    MAX_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
+    MAX_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
+    MAX_BATTERY_PRIORITY_MARGIN_W,
+    MIN_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
+    MIN_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
+    MIN_BATTERY_PRIORITY_MARGIN_W,
     DOMAIN,
 )
 from .modbus import DtuConnectionError, DtuProSModbusClient
@@ -252,6 +266,56 @@ class OpenEMSOptionsFlow(config_entries.OptionsFlow):
                             DEFAULT_BATTERY_DATA_MAX_AGE_SECONDS,
                         ),
                     ): vol.All(vol.Coerce(int), vol.Range(min=10, max=3600)),
+                    vol.Required(
+                        CONF_BATTERY_PRIORITY_MODE,
+                        default=options.get(
+                            CONF_BATTERY_PRIORITY_MODE,
+                            DEFAULT_BATTERY_PRIORITY_MODE,
+                        ),
+                    ): vol.In({
+                        "disabled": "Désactivé",
+                        "observed_conservative": "Charge observée — conservateur",
+                        "verified": "Vérifié (réservé)",
+                    }),
+                    vol.Required(
+                        CONF_BATTERY_PRIORITY_MARGIN_W,
+                        default=options.get(
+                            CONF_BATTERY_PRIORITY_MARGIN_W,
+                            DEFAULT_BATTERY_PRIORITY_MARGIN_W,
+                        ),
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(
+                            min=MIN_BATTERY_PRIORITY_MARGIN_W,
+                            max=MAX_BATTERY_PRIORITY_MARGIN_W,
+                        ),
+                    ),
+                    vol.Required(
+                        CONF_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
+                        default=options.get(
+                            CONF_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
+                            DEFAULT_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
+                        ),
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(
+                            min=MIN_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
+                            max=MAX_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
+                        ),
+                    ),
+                    vol.Required(
+                        CONF_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
+                        default=options.get(
+                            CONF_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
+                            DEFAULT_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
+                        ),
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(
+                            min=MIN_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
+                            max=MAX_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
+                        ),
+                    ),
                 }
             ),
         )
