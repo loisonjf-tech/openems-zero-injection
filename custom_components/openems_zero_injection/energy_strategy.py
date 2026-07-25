@@ -546,8 +546,9 @@ class EnergyStrategyEngine:
             self._reset_charge_confirmation(
                 BatteryPriorityReasonCode.BATTERY_DISCHARGING.value
             )
-        elif charge > self._battery_priority_charge_threshold_w and new_sample:
-            self._consecutive_charge_samples += 1
+        elif charge > self._battery_priority_charge_threshold_w:
+            if new_sample:
+                self._consecutive_charge_samples += 1
         else:
             self._reset_charge_confirmation(BatteryPriorityReasonCode.BATTERY_IDLE.value)
 
