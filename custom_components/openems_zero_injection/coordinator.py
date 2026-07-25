@@ -21,7 +21,6 @@ from .const import (
     CONF_LAST_CONFIRMED_TEMPORARY_LIMIT,
     CONF_LAST_CONFIRMED_TEMPORARY_LIMIT_SOURCE,
     CONF_AUTO_RESUME_PRODUCTION,
-    CONF_BATTERY_DATA_MAX_AGE_SECONDS,
     CONF_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
     CONF_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
     CONF_BATTERY_PRIORITY_MARGIN_W,
@@ -227,10 +226,7 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
                 CONF_SOLARFLOW_CHARGE_LIMIT_VERIFIED,
                 DEFAULT_SOLARFLOW_CHARGE_LIMIT_VERIFIED,
             )),
-            max_age_seconds=int(entry.options.get(
-                CONF_BATTERY_DATA_MAX_AGE_SECONDS,
-                DEFAULT_BATTERY_DATA_MAX_AGE_SECONDS,
-            )),
+            max_age_seconds=DEFAULT_BATTERY_DATA_MAX_AGE_SECONDS,
         )
         initial_mode, mode_restore_source = self._restore_controller_mode(entry)
         self.controller = ZeroInjectionController(

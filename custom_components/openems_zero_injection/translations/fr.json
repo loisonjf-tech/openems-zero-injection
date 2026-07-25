@@ -37,7 +37,6 @@
           ,"solarflow_charge_limit_entity_id": "Capteur de limite de charge SolarFlow"
           ,"solarflow_power_sign": "Convention de signe de puissance SolarFlow"
           ,"solarflow_charge_limit_verified": "Unité et signification de la limite de charge vérifiées"
-          ,"battery_data_max_age_seconds": "Âge maximal des données batterie"
           ,"battery_priority_mode": "Mode Priorité Batterie"
           ,"battery_priority_margin_w": "Marge Priorité Batterie"
           ,"battery_priority_charge_threshold_w": "Seuil de confirmation de charge batterie"

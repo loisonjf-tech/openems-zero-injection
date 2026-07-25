@@ -10,7 +10,6 @@
           "solarflow_charge_limit_entity_id": "SolarFlow charge-limit sensor",
           "solarflow_power_sign": "SolarFlow power sign convention",
           "solarflow_charge_limit_verified": "Charge-limit unit and meaning verified",
-          "battery_data_max_age_seconds": "Maximum battery data age",
           "battery_priority_mode": "Battery Priority mode",
           "battery_priority_margin_w": "Battery Priority margin",
           "battery_priority_charge_threshold_w": "Battery charge confirmation threshold",

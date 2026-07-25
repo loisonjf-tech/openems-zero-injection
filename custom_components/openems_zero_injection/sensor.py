@@ -348,6 +348,7 @@ class SolarFlowBatterySensor(_DtuSensorBase):
                 for source, timestamp in resource.source_timestamps.items()
             },
             "source_ages_seconds": resource.source_ages_seconds,
+            "source_max_age_seconds": resource.source_max_age_seconds,
             "source_freshness": resource.source_freshness,
         }
 

@@ -2,6 +2,26 @@
 
 Toutes les évolutions notables sont documentées dans ce fichier.
 
+## [0.7.0-alpha.5] - 2026-07-25 — SolarFlow source-specific freshness
+
+### Changed
+
+- La puissance directionnelle SolarFlow et `grid_input_power_w` utilisent un
+  seuil court fixe de `30 s` ; le SOC utilise un seuil long fixe de `10 min`.
+- Le SOC est désormais une donnée d'état facultative : un SOC périmé seul ne
+  rend pas la batterie indisponible tant que la puissance directionnelle reste
+  fraîche et valide.
+- Les diagnostics indiquent maintenant le seuil de fraîcheur appliqué à chaque
+  source, en plus de son horodatage, âge et état.
+- L'ancienne option générique d'âge des données batterie est retirée : les
+  seuils spécifiques s'appliquent aussi aux entrées de configuration existantes.
+
+### Safety
+
+- Une puissance directionnelle périmée, invalide ou indisponible conserve le
+  repli immédiat existant vers Zero Injection. Aucune stratégie n'est activée
+  automatiquement et aucune régulation DTU n'est modifiée.
+
 ## [0.7.0-alpha.4] - 2026-07-25 — Controller state recovery observability
 
 ### Changed

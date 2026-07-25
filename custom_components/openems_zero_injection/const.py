@@ -5,7 +5,7 @@ from enum import StrEnum
 
 DOMAIN = "openems_zero_injection"
 NAME = "OpenEMS Zero Injection"
-VERSION = "0.7.0-alpha.4"
+VERSION = "0.7.0-alpha.5"
 
 CONF_DTU_HOST = "dtu_host"
 CONF_DTU_PORT = "dtu_port"
@@ -25,7 +25,6 @@ CONF_SOLARFLOW_GRID_INPUT_POWER_ENTITY_ID = "solarflow_grid_input_power_entity_i
 CONF_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID = "solarflow_charge_limit_entity_id"
 CONF_SOLARFLOW_POWER_SIGN = "solarflow_power_sign"
 CONF_SOLARFLOW_CHARGE_LIMIT_VERIFIED = "solarflow_charge_limit_verified"
-CONF_BATTERY_DATA_MAX_AGE_SECONDS = "battery_data_max_age_seconds"
 CONF_SOLARFLOW_ENABLED = "solarflow_enabled"
 CONF_BATTERY_PRIORITY_MODE = "battery_priority_mode"
 CONF_BATTERY_PRIORITY_MARGIN_W = "battery_priority_margin_w"
@@ -67,7 +66,11 @@ DEFAULT_SOLARFLOW_GRID_INPUT_POWER_ENTITY_ID = "sensor.solarflow_800_plus_grid_i
 DEFAULT_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID = "sensor.solarflow_800_plus_charge_max_limit"
 DEFAULT_SOLARFLOW_POWER_SIGN = "positive_discharging"
 DEFAULT_SOLARFLOW_CHARGE_LIMIT_VERIFIED = False
-DEFAULT_BATTERY_DATA_MAX_AGE_SECONDS = 120
+# The directional battery power drives the conservative Battery Priority
+# eligibility. SOC is useful state information, but SolarFlow publishes it
+# much less frequently and it must not make a fresh power observation stale.
+DEFAULT_BATTERY_DATA_MAX_AGE_SECONDS = 30
+DEFAULT_SOLARFLOW_SOC_MAX_AGE_SECONDS = 600
 DEFAULT_SOLARFLOW_ENABLED = False
 DEFAULT_BATTERY_PRIORITY_MODE = "disabled"
 DEFAULT_BATTERY_PRIORITY_MARGIN_W = 25

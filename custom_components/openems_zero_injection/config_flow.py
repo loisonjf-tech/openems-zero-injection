@@ -18,7 +18,6 @@ from .const import (
     CONF_GRID_POWER_INVERTED,
     CONF_INSTALLED_NOMINAL_POWER_W,
     CONF_AUTO_RESUME_PRODUCTION,
-    CONF_BATTERY_DATA_MAX_AGE_SECONDS,
     CONF_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
     CONF_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
     CONF_BATTERY_PRIORITY_MARGIN_W,
@@ -38,7 +37,6 @@ from .const import (
     DEFAULT_GRID_POWER_INVERTED,
     DEFAULT_INSTALLED_NOMINAL_POWER_W,
     DEFAULT_AUTO_RESUME_PRODUCTION,
-    DEFAULT_BATTERY_DATA_MAX_AGE_SECONDS,
     DEFAULT_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
     DEFAULT_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
     DEFAULT_BATTERY_PRIORITY_MARGIN_W,
@@ -259,13 +257,6 @@ class OpenEMSOptionsFlow(config_entries.OptionsFlow):
                             DEFAULT_SOLARFLOW_CHARGE_LIMIT_VERIFIED,
                         ),
                     ): selector.BooleanSelector(),
-                    vol.Required(
-                        CONF_BATTERY_DATA_MAX_AGE_SECONDS,
-                        default=options.get(
-                            CONF_BATTERY_DATA_MAX_AGE_SECONDS,
-                            DEFAULT_BATTERY_DATA_MAX_AGE_SECONDS,
-                        ),
-                    ): vol.All(vol.Coerce(int), vol.Range(min=10, max=3600)),
                     vol.Required(
                         CONF_BATTERY_PRIORITY_MODE,
                         default=options.get(

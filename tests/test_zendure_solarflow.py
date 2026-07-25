@@ -1,8 +1,10 @@
 """Tests for the Build005 SolarFlow read-only adapter corrections."""
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.core import State
 
 from custom_components.openems_zero_injection.battery import (
     BatteryHealth,
@@ -13,6 +15,7 @@ from custom_components.openems_zero_injection.battery_adapters.zendure_solarflow
     BAT_IN_OUT_ENTITY_ID,
     ZendureSolarFlowAdapter,
 )
+from custom_components.openems_zero_injection.energy_manager import EnergyManager
 
 
 def _adapter(hass, **changes):
@@ -23,7 +26,7 @@ def _adapter(hass, **changes):
         "charge_limit_entity_id": "sensor.limit",
         "power_sign": BatteryPowerSign.UNKNOWN,
         "charge_limit_verified": False,
-        "max_age_seconds": 120,
+        "max_age_seconds": 30,
     } | changes
     return ZendureSolarFlowAdapter(hass, **settings)
 
@@ -35,6 +38,17 @@ def _set_fresh_required_states(hass, power: str) -> None:
 
 def _make_fresh(adapter: ZendureSolarFlowAdapter) -> None:
     adapter._started_at = datetime.now(UTC) - timedelta(seconds=1)
+
+
+def _state(entity_id: str, value: str, unit: str, timestamp: datetime) -> State:
+    """Build a deterministic Home Assistant source publication."""
+    return State(
+        entity_id,
+        value,
+        {ATTR_UNIT_OF_MEASUREMENT: unit},
+        last_changed=timestamp,
+        last_updated=timestamp,
+    )
 
 
 def test_bat_in_out_negative_value_is_charge_without_unknown_sign(hass) -> None:
@@ -157,9 +171,97 @@ def test_required_source_freshness_identifies_the_stale_input(hass) -> None:
     assert resource.source_freshness == {
         "soc_percent": "fresh",
         "directional_power_w": "fresh",
+        "grid_input_power_w": "unavailable",
     }
     assert resource.source_timestamps["soc_percent"] is not None
     assert resource.source_ages_seconds["directional_power_w"] is not None
+    assert resource.source_max_age_seconds == {
+        "soc_percent": 600,
+        "directional_power_w": 30,
+        "grid_input_power_w": 30,
+    }
+
+
+def test_soc_is_fresh_for_its_longer_source_threshold(hass) -> None:
+    """A three-minute-old SOC remains valid while directional power is fresh."""
+    now = datetime.now(UTC)
+    adapter = _adapter(hass, max_age_seconds=30)
+    adapter._started_at = now - timedelta(minutes=4)
+    states = {
+        "sensor.soc": _state("sensor.soc", "50", "%", now - timedelta(minutes=3)),
+        BAT_IN_OUT_ENTITY_ID: _state(BAT_IN_OUT_ENTITY_ID, "-291", "W", now),
+        "sensor.grid_input": _state("sensor.grid_input", "292", "W", now),
+    }
+
+    with patch.object(hass.states, "get", side_effect=states.get):
+        resource = adapter.read_resource(now)
+
+    assert resource.health is BatteryHealth.HEALTHY
+    assert resource.charge_power_w == 291
+    assert resource.source_freshness["soc_percent"] == "fresh"
+    assert resource.source_max_age_seconds["soc_percent"] == 600
+
+
+def test_stale_soc_alone_does_not_block_fresh_charge_observation(hass) -> None:
+    """A slow SOC source must not turn fresh directional power into stale data."""
+    now = datetime.now(UTC)
+    adapter = _adapter(hass, max_age_seconds=30)
+    adapter._started_at = now - timedelta(minutes=12)
+    states = {
+        "sensor.soc": _state("sensor.soc", "50", "%", now - timedelta(seconds=601)),
+        BAT_IN_OUT_ENTITY_ID: _state(BAT_IN_OUT_ENTITY_ID, "-291", "W", now),
+        "sensor.grid_input": _state("sensor.grid_input", "292", "W", now),
+    }
+
+    with patch.object(hass.states, "get", side_effect=states.get):
+        resource = adapter.read_resource(now)
+
+    assert resource.health is BatteryHealth.HEALTHY
+    assert resource.charge_power_w == 291
+    assert resource.source_freshness["soc_percent"] == "stale"
+    assert resource.source_freshness["directional_power_w"] == "fresh"
+    assert BatteryReasonCode.DATA_STALE in resource.anomalies
+    assert EnergyManager((resource,)).snapshot().state == "Passive"
+
+
+def test_stale_directional_power_keeps_the_existing_safety_fallback(hass) -> None:
+    """The short directional-power threshold remains the strategy safety gate."""
+    now = datetime.now(UTC)
+    adapter = _adapter(hass, max_age_seconds=30)
+    adapter._started_at = now - timedelta(minutes=2)
+    states = {
+        "sensor.soc": _state("sensor.soc", "50", "%", now),
+        BAT_IN_OUT_ENTITY_ID: _state(
+            BAT_IN_OUT_ENTITY_ID, "-291", "W", now - timedelta(seconds=31)
+        ),
+        "sensor.grid_input": _state("sensor.grid_input", "292", "W", now),
+    }
+
+    with patch.object(hass.states, "get", side_effect=states.get):
+        resource = adapter.read_resource(now)
+
+    assert resource.health is BatteryHealth.STALE
+    assert resource.source_freshness["directional_power_w"] == "stale"
+
+
+def test_stale_optional_grid_input_uses_the_short_threshold_only(hass) -> None:
+    """An old diagnostic gridInputPower never invalidates fresh battery power."""
+    now = datetime.now(UTC)
+    adapter = _adapter(hass, max_age_seconds=30)
+    adapter._started_at = now - timedelta(minutes=2)
+    states = {
+        "sensor.soc": _state("sensor.soc", "50", "%", now),
+        BAT_IN_OUT_ENTITY_ID: _state(BAT_IN_OUT_ENTITY_ID, "-291", "W", now),
+        "sensor.grid_input": _state(
+            "sensor.grid_input", "292", "W", now - timedelta(seconds=31)
+        ),
+    }
+
+    with patch.object(hass.states, "get", side_effect=states.get):
+        resource = adapter.read_resource(now)
+
+    assert resource.health is BatteryHealth.HEALTHY
+    assert resource.source_freshness["grid_input_power_w"] == "stale"
 
 
 def test_adapter_has_no_write_or_modbus_api(hass) -> None:

@@ -84,6 +84,7 @@ class BatteryResource:
     source_entities: dict[str, str] = field(default_factory=dict)
     source_timestamps: dict[str, datetime | None] = field(default_factory=dict)
     source_ages_seconds: dict[str, float | None] = field(default_factory=dict)
+    source_max_age_seconds: dict[str, int] = field(default_factory=dict)
     source_freshness: dict[str, str] = field(default_factory=dict)
 
 

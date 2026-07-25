@@ -14,7 +14,7 @@ aucune commande DTU supplémentaire et aucune décision énergétique.
 
 | Donnée candidate | Entité source | Statut | Précondition |
 | --- | --- | --- | --- |
-| SOC | `sensor.solarflow_800_plus_electric_level` | obligatoire | nombre fini de 0 à 100, unité `%` si fournie |
+| SOC | `sensor.solarflow_800_plus_electric_level` | facultative, état | nombre fini de 0 à 100, unité `%` si fournie ; jamais nécessaire pour observer la charge |
 | Puissance directionnelle | `sensor.solarflow_800_plus_bat_in_out` | obligatoire | nombre fini, unité `W` ou `kW`, négatif = charge, positif = décharge |
 | Puissance `gridInputPower` | `sensor.solarflow_800_plus_grid_input_power` | facultative, diagnostic | comparaison de cohérence uniquement ; n'affecte jamais la santé principale |
 | Limite de charge | `sensor.solarflow_800_plus_charge_max_limit` | ignorée | la valeur `1000` ne correspond pas au curseur de charge ni à une limite exploitable |
@@ -41,28 +41,40 @@ sont pas validées.
 
 ## Fraîcheur
 
-`last_updated` est le plus ancien horodatage des sources obligatoires réellement
-utilisées. L’âge est calculé à chaque cycle normal du `DataUpdateCoordinator`,
-sans minuteur, listener ou polling supplémentaire. La valeur par défaut de
-fraîcheur est 120 secondes, configurable dans les options.
+`last_updated` est l'horodatage de la puissance directionnelle, seule source
+opérationnelle nécessaire à l'observation de charge/décharge. L’âge est calculé
+à chaque cycle normal du `DataUpdateCoordinator`, sans minuteur, listener ou
+polling supplémentaire.
+
+Les seuils sont volontairement distincts : puissance directionnelle et
+`gridInputPower` utilisent un seuil court fixe de `30 s` ; le SOC utilise un
+seuil long fixe de `10 min`. Le diagnostic expose, pour chaque source, son horodatage, son âge,
+son seuil et son état (`fresh`, `stale`, `not_refreshed`, `unavailable` ou
+`invalid`).
 
 Après un redémarrage ou rechargement de l’intégration, l’adaptateur exige une
-nouvelle publication valide de chaque source obligatoire. Un état Home Assistant
-déjà restauré ne peut pas être considéré frais dans cette session.
+nouvelle publication valide de la puissance directionnelle. Un état Home
+Assistant déjà restauré ne peut pas être considéré frais dans cette session.
+Le SOC est diagnostiqué séparément et son absence ou son ancienneté ne bloque
+pas une observation de puissance directionnelle fraîche.
 
 ## Santé et anomalies
 
 La santé prioritaire est calculée par `EnergyManager` selon cet ordre :
 
 1. `fault` : défaut explicite connu par un adaptateur futur ;
-2. `unavailable` : adaptateur non configuré, source obligatoire manquante,
-   `unknown`/`unavailable`, valeur non numérique, `NaN` ou infinie ;
-3. `stale` : sources obligatoires valides mais trop anciennes ou non republiées
-   depuis le démarrage courant ;
-4. `inconsistent` : valeurs fraîches mais incompatibles (SOC hors plage,
-   puissance impossible, unités incompatibles, capacité négative) ;
-5. `healthy` : toutes les sources obligatoires sont présentes, fraîches et
-   cohérentes.
+2. `unavailable` : puissance directionnelle manquante ou
+   `unknown`/`unavailable` ;
+3. `stale` : puissance directionnelle valide mais trop ancienne ou non
+   republiée depuis le démarrage courant ;
+4. `inconsistent` : puissance directionnelle fraîche mais incompatible (valeur
+   impossible ou unité incompatible) ;
+5. `healthy` : puissance directionnelle présente, fraîche et cohérente.
+
+Le SOC et `gridInputPower` sont facultatifs : leurs anomalies restent exposées
+dans les diagnostics, sans dégrader cette santé opérationnelle. Une future
+stratégie qui nécessiterait explicitement le SOC devra contrôler sa fraîcheur
+par source plutôt que déduire sa disponibilité de `BatteryHealth`.
 
 Avec `bat_in_out`, la convention validée est appliquée directement : une valeur
 négative devient `charge_power_w = abs(value)`, une valeur positive devient

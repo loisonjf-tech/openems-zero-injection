@@ -14,7 +14,7 @@ from ..battery import (
     BatteryReasonCode,
     BatteryResource,
 )
-from ..const import VERSION
+from ..const import DEFAULT_SOLARFLOW_SOC_MAX_AGE_SECONDS, VERSION
 
 
 ADAPTER_ID = "zendure_solarflow"
@@ -56,42 +56,62 @@ class ZendureSolarFlowAdapter:
         for issue in (soc_issue, power_issue):
             if issue is not None:
                 anomalies.append(issue)
-        required_times = [timestamp for timestamp in (soc_time, power_time) if timestamp]
-        last_updated = min(required_times) if len(required_times) == 2 else None
+        # Directional power is the only operationally required SolarFlow value:
+        # it determines whether the battery is currently charging or
+        # discharging. SOC is intentionally a slower, optional state signal.
+        last_updated = power_time
         age = (now - last_updated).total_seconds() if last_updated else None
         source_timestamps = {
             "soc_percent": soc_time,
             "directional_power_w": power_time,
         }
+        source_max_ages = {
+            "soc_percent": DEFAULT_SOLARFLOW_SOC_MAX_AGE_SECONDS,
+            "directional_power_w": self._max_age_seconds,
+        }
+        (
+            grid_input_power,
+            grid_input_time,
+            grid_input_issue,
+        ) = self._read_grid_input_power()
+        if self._grid_input_power_entity_id:
+            source_timestamps["grid_input_power_w"] = grid_input_time
+            source_max_ages["grid_input_power_w"] = self._max_age_seconds
         source_ages = {
             source: _source_age(now, timestamp)
             for source, timestamp in source_timestamps.items()
         }
         source_freshness = {
-            "soc_percent": _source_freshness(
-                timestamp=soc_time,
-                age_seconds=source_ages["soc_percent"],
-                issue=soc_issue,
+            source: _source_freshness(
+                timestamp=timestamp,
+                age_seconds=source_ages[source],
+                issue={
+                    "soc_percent": soc_issue,
+                    "directional_power_w": power_issue,
+                    "grid_input_power_w": grid_input_issue,
+                }.get(source),
                 started_at=self._started_at,
-                max_age_seconds=self._max_age_seconds,
-            ),
-            "directional_power_w": _source_freshness(
-                timestamp=power_time,
-                age_seconds=source_ages["directional_power_w"],
-                issue=power_issue,
-                started_at=self._started_at,
-                max_age_seconds=self._max_age_seconds,
-            ),
+                max_age_seconds=source_max_ages[source],
+            )
+            for source, timestamp in source_timestamps.items()
         }
 
-        if any(issue is BatteryReasonCode.SOURCE_UNAVAILABLE for issue in anomalies):
+        for freshness in source_freshness.values():
+            if freshness == "not_refreshed":
+                anomalies.append(BatteryReasonCode.SOURCE_NOT_REFRESHED)
+            elif freshness == "stale":
+                anomalies.append(BatteryReasonCode.DATA_STALE)
+
+        # The optional SOC and diagnostic grid-input source can be stale or
+        # unavailable without invalidating a fresh directional-power sample.
+        if power_issue is BatteryReasonCode.SOURCE_UNAVAILABLE:
             health = BatteryHealth.UNAVAILABLE
-        elif last_updated is None or last_updated <= self._started_at or (
-            age is not None and age > self._max_age_seconds
-        ):
-            anomalies.append(BatteryReasonCode.SOURCE_NOT_REFRESHED if last_updated is None or last_updated <= self._started_at else BatteryReasonCode.DATA_STALE)
+        elif source_freshness["directional_power_w"] in {"not_refreshed", "stale"}:
             health = BatteryHealth.STALE
-        elif any(issue in {BatteryReasonCode.SOC_OUT_OF_RANGE, BatteryReasonCode.POWER_UNIT_UNSUPPORTED, BatteryReasonCode.POWER_NON_FINITE} for issue in anomalies):
+        elif power_issue in {
+            BatteryReasonCode.POWER_UNIT_UNSUPPORTED,
+            BatteryReasonCode.POWER_NON_FINITE,
+        }:
             health = BatteryHealth.INCONSISTENT
         else:
             health = BatteryHealth.HEALTHY
@@ -110,7 +130,12 @@ class ZendureSolarFlowAdapter:
             else:
                 charge_power, discharge_power = max(0.0, -power), max(0.0, power)
 
-        grid_input_power = self._read_grid_input_power(anomalies)
+        if grid_input_issue is not None:
+            anomalies.append(
+                BatteryReasonCode.GRID_INPUT_POWER_UNAVAILABLE
+                if grid_input_issue is BatteryReasonCode.SOURCE_UNAVAILABLE
+                else BatteryReasonCode.GRID_INPUT_POWER_INVALID
+            )
         # chargeMaxLimit is confirmed not to describe a usable charge-power
         # ceiling on this installation. Do not derive a capacity from it.
         max_charge = None
@@ -144,6 +169,7 @@ class ZendureSolarFlowAdapter:
             },
             source_timestamps=source_timestamps,
             source_ages_seconds=source_ages,
+            source_max_age_seconds=source_max_ages,
             source_freshness=source_freshness,
         )
 
@@ -166,21 +192,18 @@ class ZendureSolarFlowAdapter:
         unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT) if state else None
         return (value * 1000 if unit == "kW" else value), timestamp, None
 
-    def _read_grid_input_power(self, anomalies: list[BatteryReasonCode]) -> float | None:
+    def _read_grid_input_power(
+        self,
+    ) -> tuple[float | None, datetime | None, BatteryReasonCode | None]:
         """Read optional gridInputPower only for diagnostics and coherence."""
         if not self._grid_input_power_entity_id:
-            return None
+            return None, None, None
         state = self._hass.states.get(self._grid_input_power_entity_id)
-        value, _, issue = _numeric_state(state, expected_units={"W", "kW"})
+        value, timestamp, issue = _numeric_state(state, expected_units={"W", "kW"})
         if issue is not None or value is None:
-            anomalies.append(
-                BatteryReasonCode.GRID_INPUT_POWER_UNAVAILABLE
-                if issue is BatteryReasonCode.SOURCE_UNAVAILABLE
-                else BatteryReasonCode.GRID_INPUT_POWER_INVALID
-            )
-            return None
+            return None, timestamp, issue
         unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT) if state else None
-        return value * 1000 if unit == "kW" else value
+        return value * 1000 if unit == "kW" else value, timestamp, None
 
 
 def _numeric_state(

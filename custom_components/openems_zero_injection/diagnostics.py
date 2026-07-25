@@ -126,6 +126,7 @@ async def async_get_config_entry_diagnostics(
                         for source, timestamp in battery.source_timestamps.items()
                     },
                     "source_ages_seconds": battery.source_ages_seconds,
+                    "source_max_age_seconds": battery.source_max_age_seconds,
                     "source_freshness": battery.source_freshness,
                 }
                 for battery in energy_manager.resources
