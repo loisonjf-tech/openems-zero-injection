@@ -12,6 +12,7 @@ from custom_components.openems_zero_injection.energy_strategy import (
     BatteryPriorityReasonCode,
     BatteryPriorityStrategy,
     EnergyStrategyEngine,
+    EnergyStrategyInput,
     EnergyStrategyReasonCode,
     ZeroInjectionStrategy,
 )
