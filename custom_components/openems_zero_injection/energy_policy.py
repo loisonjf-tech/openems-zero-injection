@@ -5,6 +5,10 @@ controller imports and experimental external imports stable.
 """
 
 from .energy_strategy import (
+    BatteryPriorityComparison,
+    BatteryPriorityContext,
+    BatteryPriorityReasonCode,
+    BatteryPriorityStrategy,
     EnergyStrategyDecision,
     EnergyStrategyEngine,
     EnergyStrategyInput,
@@ -17,6 +21,10 @@ EnergyPolicyEngine = EnergyStrategyEngine
 ZeroInjectionPolicy = ZeroInjectionStrategy
 
 __all__ = [
+    "BatteryPriorityComparison",
+    "BatteryPriorityContext",
+    "BatteryPriorityReasonCode",
+    "BatteryPriorityStrategy",
     "EnergyPolicyDecision",
     "EnergyPolicyEngine",
     "EnergyStrategyDecision",

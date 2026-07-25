@@ -55,6 +55,23 @@ class DataQuality(StrEnum):
     INSUFFICIENT = "insufficient"
 
 
+@dataclass(frozen=True, slots=True)
+class StrategyComparisonTrace:
+    """One passive Battery Priority comparison from an existing snapshot."""
+
+    timestamp_utc: datetime
+    monotonic_ms: float
+    input_snapshot_id: str
+    controller_mode: str
+    effective_target_grid_power_w: float
+    candidate_target_grid_power_w: float
+    target_delta_w: float
+    candidate_expected_storage_gain_w: float
+    reason_code: str
+    fallback_used: bool
+    eligible_resource_ids: tuple[str, ...]
+
+
 @dataclass(slots=True)
 class TraceEvent:
     """One timeline event with source and receipt times kept separate."""
@@ -339,6 +356,9 @@ class TraceRecorder:
         self._mode = TraceMode.NORMAL
         self._max_traces = max_traces
         self._traces: deque[CommandTrace] = deque(maxlen=max_traces)
+        self._strategy_comparisons: deque[StrategyComparisonTrace] = deque(
+            maxlen=max_traces
+        )
         self._active: _ActiveSession | None = None
         self._last_report: SessionReport | None = None
 
@@ -361,6 +381,41 @@ class TraceRecorder:
     @property
     def traces(self) -> tuple[CommandTrace, ...]:
         return tuple(self._traces)
+
+    @property
+    def strategy_comparisons(self) -> tuple[StrategyComparisonTrace, ...]:
+        """Return the bounded comparison history without creating I/O."""
+        return tuple(self._strategy_comparisons)
+
+    def record_strategy_comparison(
+        self,
+        *,
+        input_snapshot_id: str,
+        controller_mode: str,
+        effective_target_grid_power_w: float,
+        candidate_target_grid_power_w: float,
+        target_delta_w: float,
+        candidate_expected_storage_gain_w: float,
+        reason_code: str,
+        fallback_used: bool,
+        eligible_resource_ids: tuple[str, ...],
+    ) -> None:
+        """Record a Simulation-only policy comparison from existing data."""
+        self._strategy_comparisons.append(
+            StrategyComparisonTrace(
+                timestamp_utc=_utc_now(),
+                monotonic_ms=_monotonic_ms(),
+                input_snapshot_id=input_snapshot_id,
+                controller_mode=controller_mode,
+                effective_target_grid_power_w=effective_target_grid_power_w,
+                candidate_target_grid_power_w=candidate_target_grid_power_w,
+                target_delta_w=target_delta_w,
+                candidate_expected_storage_gain_w=candidate_expected_storage_gain_w,
+                reason_code=reason_code,
+                fallback_used=fallback_used,
+                eligible_resource_ids=eligible_resource_ids,
+            )
+        )
 
     def start_session(self, *, reason: str, configuration: dict[str, Any] | None = None) -> None:
         """Start a production session; close an earlier one first if necessary."""
@@ -649,6 +704,10 @@ class TraceRecorder:
                 "retained_traces": len(self._traces),
                 "detailed_trace_capacity": self._max_traces,
                 "recent_timeline": recent,
+                "battery_priority_comparisons": [
+                    asdict(comparison)
+                    for comparison in list(self._strategy_comparisons)[-10:]
+                ],
             }
         )
 

@@ -2,6 +2,20 @@
 
 Toutes les évolutions notables sont documentées dans ce fichier.
 
+## [0.7.0-alpha.1] - 2026-07-25 — Build007
+
+### Added
+
+- `BatteryPriorityStrategy` générique, pure et limitée à une comparaison en
+  Simulation avec une réserve maximale de `25 W`.
+- Diagnostics et historique passif Trace Recorder : cible effective, candidate,
+  écart, gain théorique de stockage et motif de repli.
+
+### Safety
+
+- Production reste exclusivement sur `ZeroInjectionStrategy`. Build007 ne crée
+  aucune écriture batterie, aucune écriture DTU, aucun polling ni tâche.
+
 ## [0.6.0-alpha.3] - 2026-07-25 — Successful-command logging
 
 ### Changed

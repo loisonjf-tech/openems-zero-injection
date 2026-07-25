@@ -6,12 +6,19 @@ from datetime import UTC, datetime, timedelta
 from dataclasses import replace
 
 from custom_components.openems_zero_injection.acquisition import AcquisitionEngine
+from custom_components.openems_zero_injection.battery import (
+    BatteryHealth,
+    BatteryResource,
+)
 from custom_components.openems_zero_injection.const import (
     ControllerMode,
     ProductionStartupStrategy,
     SchedulerState,
 )
 from custom_components.openems_zero_injection.controller import ZeroInjectionController
+from custom_components.openems_zero_injection.energy_strategy import (
+    BatteryPriorityContext,
+)
 
 
 def fake_coordinator(*, automatic_writes_enabled: bool = True):
@@ -99,6 +106,40 @@ async def test_disabled_and_simulation_never_write(hass) -> None:
     await controller.async_tick()
     assert controller.commands_simulated == 1
     assert controller.status.last_decision == "Simulation awaiting significant measurements"
+
+
+async def test_battery_priority_simulation_comparison_never_writes_dtu(hass) -> None:
+    """Build007 records a candidate but keeps Simulation strictly write-free."""
+    hass.states.async_set("sensor.grid", "-220")
+    coordinator = fake_coordinator()
+    controller = ZeroInjectionController(
+        hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
+    )
+    battery = BatteryResource(
+        resource_id="battery-1",
+        name="Test battery",
+        adapter_id="test",
+        adapter_version="test",
+        available=True,
+        health=BatteryHealth.HEALTHY,
+        last_updated=datetime.now(UTC),
+        data_age_seconds=1,
+        charge_power_w=0,
+        discharge_power_w=0,
+        remaining_charge_power_w=500,
+    )
+    controller.energy_policy_engine.set_battery_context_provider(
+        lambda: BatteryPriorityContext((battery,), 500, "complete")
+    )
+
+    await controller.async_set_mode(ControllerMode.SIMULATION.value)
+    for _ in range(3):
+        await controller.async_tick()
+
+    coordinator.async_set_all_temporary_power_limits.assert_not_awaited()
+    comparison = controller.trace_recorder.strategy_comparisons[-1]
+    assert comparison.candidate_target_grid_power_w == -65
+    assert comparison.candidate_expected_storage_gain_w == 25
 
 
 async def test_disabled_controller_keeps_grid_power_visible(hass) -> None:

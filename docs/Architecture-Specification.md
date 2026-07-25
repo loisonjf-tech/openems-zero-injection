@@ -224,6 +224,11 @@ minus 40 W, unchanged. `EnergyPolicyEngine` remains a compatibility alias for
 the earlier boundary. A battery-aware strategy with unavailable or low-confidence
 data must visibly fall back to zero injection.
 
+Build007 adds `BatteryPriorityStrategy` as a Simulation-only comparison. It
+receives only generic normalized battery data and returns a candidate bounded
+to 25 W of additional export. Its result is recorded for diagnostics and trace
+analysis, while Production continues to use `ZeroInjectionStrategy` unchanged.
+
 ### 7.7 Predictive Controller
 
 **Purpose:** convert a policy target and coherent snapshot into a ControlPlan.

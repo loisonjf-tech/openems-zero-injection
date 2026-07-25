@@ -665,7 +665,31 @@ class ZeroInjectionController:
             self._last_evaluated_snapshot = snapshot
             self._last_evaluated_configuration_generation = self._configuration_generation
 
-            policy = self._energy_policy_engine.decide(snapshot.target_power_w)
+            policy = self._energy_policy_engine.decide(
+                snapshot.target_power_w,
+                input_snapshot_id=snapshot.created_at.isoformat(),
+                decision_timestamp=snapshot.created_at,
+                compare_battery_priority=self._mode is ControllerMode.SIMULATION,
+            )
+            if policy.comparison is not None:
+                comparison = policy.comparison
+                self._trace_recorder.record_strategy_comparison(
+                    input_snapshot_id=policy.input_snapshot_id,
+                    controller_mode=self._mode.value,
+                    effective_target_grid_power_w=(
+                        comparison.effective_target_grid_power_w
+                    ),
+                    candidate_target_grid_power_w=(
+                        comparison.candidate_target_grid_power_w
+                    ),
+                    target_delta_w=comparison.target_delta_w,
+                    candidate_expected_storage_gain_w=(
+                        comparison.candidate_expected_storage_gain_w
+                    ),
+                    reason_code=comparison.reason_code.value,
+                    fallback_used=comparison.fallback_used,
+                    eligible_resource_ids=comparison.eligible_resource_ids,
+                )
             context = self._context_analyzer.classify()
             decision = self._calculate_decision(snapshot, current_limit, policy.target_grid_power_w)
 

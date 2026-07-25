@@ -153,6 +153,11 @@ async def async_get_config_entry_diagnostics(
                 "estimated_load_w": controller.status.estimated_load_w,
                 "policy_id": controller.status.policy_id,
                 "policy_reason": controller.status.policy_reason,
+                "battery_priority_comparison": (
+                    controller.energy_policy_engine.last_comparison.as_dict()
+                    if controller.energy_policy_engine.last_comparison
+                    else None
+                ),
                 "context": {
                     "kind": controller.context_analyzer.classify().kind.value,
                     "confidence": controller.context_analyzer.classify().confidence,

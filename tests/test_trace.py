@@ -194,6 +194,29 @@ def test_recorder_has_no_modbus_or_scheduler_api() -> None:
     assert not hasattr(recorder, "async_tick")
 
 
+def test_battery_priority_comparison_is_bounded_and_passive() -> None:
+    """A policy comparison is retained without a command, task or Modbus I/O."""
+    recorder = TraceRecorder(max_traces=2)
+    for index in range(3):
+        recorder.record_strategy_comparison(
+            input_snapshot_id=f"snapshot-{index}",
+            controller_mode="Simulation",
+            effective_target_grid_power_w=-40,
+            candidate_target_grid_power_w=-65,
+            target_delta_w=-25,
+            candidate_expected_storage_gain_w=25,
+            reason_code="battery_priority_simulation",
+            fallback_used=False,
+            eligible_resource_ids=("battery-1",),
+        )
+
+    assert len(recorder.strategy_comparisons) == 2
+    assert recorder.strategy_comparisons[0].input_snapshot_id == "snapshot-1"
+    diagnostics = recorder.diagnostics()["battery_priority_comparisons"]
+    assert diagnostics[-1]["candidate_expected_storage_gain_w"] == 25
+    assert not hasattr(recorder, "async_write_temporary_power_limit")
+
+
 def test_session_aggregates_are_not_truncated_by_detailed_trace_buffer() -> None:
     """All session counts survive after the 100 detailed timelines roll over."""
     recorder = TraceRecorder(max_traces=2)

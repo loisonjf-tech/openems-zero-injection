@@ -65,6 +65,7 @@ from .controller import ZeroInjectionController
 from .energy_manager import EnergyManager
 from .battery import BatteryPowerSign
 from .battery_adapters.zendure_solarflow import ZendureSolarFlowAdapter
+from .energy_strategy import BatteryPriorityContext
 from .const import (
     CONF_GRID_POWER_ENTITY_ID,
     CONF_GRID_POWER_INVERTED,
@@ -244,6 +245,9 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
                 self._auto_resume_production and mode_restore_source == "options"
             ),
         )
+        self.controller.energy_policy_engine.set_battery_context_provider(
+            self._battery_priority_context
+        )
 
     @staticmethod
     def _solarflow_directional_power_entity_id(entry: ConfigEntry) -> str:
@@ -252,6 +256,15 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         if configured in {None, DEFAULT_SOLARFLOW_GRID_INPUT_POWER_ENTITY_ID}:
             return DEFAULT_SOLARFLOW_POWER_ENTITY_ID
         return configured
+
+    def _battery_priority_context(self) -> BatteryPriorityContext:
+        """Expose generic passive battery data to the strategy boundary only."""
+        snapshot = self.energy_manager.snapshot()
+        return BatteryPriorityContext(
+            resources=snapshot.resources,
+            total_remaining_charge_power_w=snapshot.total_remaining_charge_power_w,
+            remaining_charge_coverage=snapshot.remaining_charge_coverage.status,
+        )
 
     @staticmethod
     def _restore_controller_mode(entry: ConfigEntry) -> tuple[ControllerMode, str]:

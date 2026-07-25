@@ -6,7 +6,7 @@ Intégration Home Assistant locale destinée à piloter un Hoymiles DTU Pro-S af
 
 **Build004 — fondation expérimentale du contrôleur de zéro injection.** Le projet acquiert une puissance réseau locale, calcule une consigne DTU déterministe, et applique un scheduler de sécurité. Il n'intègre pas encore SolarFlow, Zendure ou une logique de batterie.
 
-Version actuelle : **V0.6.0-alpha.3 / Build006**.
+Version actuelle : **V0.7.0-alpha.1 / Build007**.
 
 ## Matériel de référence
 
@@ -98,6 +98,16 @@ sont pas modifiés. Les décisions reçoivent un identifiant de snapshot, un
 horodatage et un code de motif stable afin de préparer une comparaison future,
 en Simulation, avec une stratégie batterie. Aucune stratégie batterie n'est
 présente ni activée dans ce build.
+
+## Battery Priority Simulation — Build007
+
+Build007 compare passivement une cible `BatteryPriorityStrategy` à la cible
+Zero Injection, uniquement en mode Simulation. Si une capacité de charge
+complète et fraîche est disponible, la candidate peut conserver jusqu'à `25 W`
+de marge d'injection supplémentaire. Ce gain est théorique : il ne garantit pas
+une charge batterie. En Production, OpenEMS conserve strictement la stratégie
+Zero Injection ; aucune écriture batterie, DTU, requête Modbus supplémentaire,
+tâche ou polling n'est créé.
 
 ## Tests
 
