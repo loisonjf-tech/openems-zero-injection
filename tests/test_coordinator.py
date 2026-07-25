@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+import logging
 from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
@@ -526,7 +527,7 @@ async def test_manual_partial_failure_marks_ports_uncertain_until_resynchronized
     assert coordinator.last_manual_command_error is None
 
 
-async def test_automatic_write_updates_all_three_temporary_ports_only(hass) -> None:
+async def test_automatic_write_updates_all_three_temporary_ports_only(hass, caplog) -> None:
     """Production writes independently from the locked Manual slider."""
     entry = MockConfigEntry(domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502})
     entry.add_to_hass(hass)
@@ -541,6 +542,11 @@ async def test_automatic_write_updates_all_three_temporary_ports_only(hass) -> N
         await coordinator.async_refresh()
         await coordinator.controller.async_set_mode(ControllerMode.PRODUCTION.value)
         client.async_read_power_limit_register.side_effect = [55, 55, 55]
+        caplog.set_level(
+            logging.DEBUG,
+            logger="custom_components.openems_zero_injection.coordinator",
+        )
+        caplog.clear()
         await coordinator.async_set_all_temporary_power_limits(55)
 
     assert client.async_write_temporary_power_limit.await_args_list == [
@@ -549,6 +555,7 @@ async def test_automatic_write_updates_all_three_temporary_ports_only(hass) -> N
     assert coordinator.data.port_1_temporary_power_limit_percent == 55
     assert coordinator.data.port_2_temporary_power_limit_percent == 55
     assert coordinator.data.port_3_temporary_power_limit_percent == 55
+    assert not any(record.levelno >= logging.ERROR for record in caplog.records)
 
 
 async def test_manual_simulation_and_automatic_modes_have_exclusive_write_owners(hass) -> None:

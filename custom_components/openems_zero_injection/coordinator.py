@@ -941,7 +941,7 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         ports_and_addresses = tuple(PORT_TEMPORARY_POWER_LIMIT_REGISTERS.items())
         trace_recorder = self.controller.trace_recorder
         trace_recorder.record_modbus_started()
-        _LOGGER.warning(
+        _LOGGER.info(
             "%s temporary DTU power-limit request: all ports, %s%%",
             source,
             value,
@@ -990,7 +990,7 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         if any(read_value != value for read_value in confirmed.values()):
             self._temporary_limits_synchronized = False
             trace_recorder.finish_modbus(result="readback_mismatch", error="readback mismatch")
-            _LOGGER.error(
+            _LOGGER.warning(
                 "Automatic temporary DTU power-limit verification failed: requested %s%%, read %s",
                 value,
                 confirmed,
@@ -1029,7 +1029,7 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             health.consecutive_failures = 0
         self._temporary_limits_synchronized = True
         await self._async_store_confirmed_temporary_limit(value, source)
-        _LOGGER.warning(
+        _LOGGER.info(
             "%s temporary DTU power limit confirmed on all ports: %s%%", source, value
         )
 

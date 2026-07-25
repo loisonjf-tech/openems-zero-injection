@@ -2,6 +2,20 @@
 
 Toutes les évolutions notables sont documentées dans ce fichier.
 
+## [0.6.0-alpha.3] - 2026-07-25 — Successful-command logging
+
+### Changed
+
+- Les requêtes et confirmations de limites temporaires réussies sont journalisées
+  au niveau `INFO`, et non plus comme avertissements.
+- Une confirmation incohérente reste un `WARNING`; un échec réel de commande ou
+  de transport reste un `ERROR`.
+
+### Tests
+
+- Ajout d'un test garantissant qu'une commande automatique confirmée ne produit
+  aucun journal `ERROR`.
+
 ## [0.6.0-alpha.2] - 2026-07-25 — SolarFlow directional-power correction
 
 ### Changed
