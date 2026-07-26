@@ -271,6 +271,73 @@ def test_observed_conservative_discharge_immediately_falls_back() -> None:
     assert engine.battery_priority_diagnostics["consecutive_charge_samples"] == 0
 
 
+def test_observed_conservative_maintains_active_priority_at_44_w() -> None:
+    """The 50 W threshold activates priority; it does not turn it off."""
+    sample = [0]
+    context = _observed_context(charge_w=60, second=sample[0])
+    engine = EnergyStrategyEngine(battery_context_provider=lambda: context)
+    engine.configure_battery_priority(
+        mode="observed_conservative",
+        margin_w=25,
+        charge_threshold_w=50,
+        confirmation_samples=3,
+    )
+
+    for _ in range(3):
+        decision = engine.decide(-40, activate_battery_priority=True)
+        sample[0] += 1
+        context = _observed_context(charge_w=60, second=sample[0])
+    assert decision.target_grid_power_w == -65
+
+    context = _observed_context(charge_w=44, second=sample[0])
+    maintained = engine.decide(-40, activate_battery_priority=True)
+
+    assert maintained.target_grid_power_w == -65
+    assert maintained.comparison is not None
+    assert not maintained.comparison.fallback_used
+    assert maintained.comparison.observed_charge_power_w == 44
+
+
+def test_observed_conservative_requires_three_low_samples_to_fallback() -> None:
+    """Three distinct fresh readings below 5 W are required to deactivate."""
+    sample = [0]
+    context = _observed_context(charge_w=60, second=sample[0])
+    engine = EnergyStrategyEngine(battery_context_provider=lambda: context)
+    engine.configure_battery_priority(
+        mode="observed_conservative",
+        margin_w=25,
+        charge_threshold_w=50,
+        confirmation_samples=3,
+    )
+
+    for _ in range(3):
+        engine.decide(-40, activate_battery_priority=True)
+        sample[0] += 1
+        context = _observed_context(charge_w=60, second=sample[0])
+
+    context = _observed_context(charge_w=4, second=sample[0])
+    first_low = engine.decide(-40, activate_battery_priority=True)
+    repeated_low = engine.decide(-40, activate_battery_priority=True)
+    assert engine.battery_priority_diagnostics["consecutive_low_charge_samples"] == 1
+
+    sample[0] += 1
+    context = _observed_context(charge_w=4, second=sample[0])
+    second_low = engine.decide(-40, activate_battery_priority=True)
+    sample[0] += 1
+    context = _observed_context(charge_w=4, second=sample[0])
+    third_low = engine.decide(-40, activate_battery_priority=True)
+
+    assert [
+        first_low.target_grid_power_w,
+        repeated_low.target_grid_power_w,
+        second_low.target_grid_power_w,
+        third_low.target_grid_power_w,
+    ] == [-65, -65, -65, -40]
+    assert third_low.comparison is not None
+    assert third_low.comparison.reason_code is BatteryPriorityReasonCode.BATTERY_IDLE
+    assert engine.battery_priority_diagnostics["consecutive_low_charge_samples"] == 0
+
+
 def test_observed_conservative_stale_data_falls_back_without_target_change() -> None:
     """A stale battery resource can never preserve a prior battery margin."""
     stale = BatteryResource(

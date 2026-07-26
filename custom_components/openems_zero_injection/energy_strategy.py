@@ -133,6 +133,7 @@ class BatteryPriorityStrategy:
     """Calculate a bounded candidate target without controlling any device."""
 
     policy_id = "battery_priority"
+    _MAINTAIN_CHARGE_THRESHOLD_W = 5.0
 
     def __init__(
         self,
@@ -215,8 +216,10 @@ class BatteryPriorityStrategy:
         context: BatteryPriorityContext | None,
         *,
         consecutive_charge_samples: int,
+        consecutive_low_charge_samples: int,
         confirmation_samples: int,
         charge_threshold_w: float,
+        priority_active: bool,
         mode: BatteryPriorityMode,
     ) -> BatteryPriorityComparison:
         """Return a bounded Production candidate from current, confirmed charge.
@@ -250,7 +253,7 @@ class BatteryPriorityStrategy:
                 observed_charge_power_w=charge_power,
                 observed_discharge_power_w=discharge_power,
             )
-        if charge_power <= charge_threshold_w:
+        if not priority_active and charge_power <= charge_threshold_w:
             return self._fallback(
                 target,
                 BatteryPriorityReasonCode.BATTERY_IDLE,
@@ -258,7 +261,17 @@ class BatteryPriorityStrategy:
                 observed_charge_power_w=charge_power,
                 observed_discharge_power_w=discharge_power,
             )
-        if consecutive_charge_samples < confirmation_samples:
+        if priority_active and (
+            consecutive_low_charge_samples >= confirmation_samples
+        ):
+            return self._fallback(
+                target,
+                BatteryPriorityReasonCode.BATTERY_IDLE,
+                mode=mode,
+                observed_charge_power_w=charge_power,
+                observed_discharge_power_w=discharge_power,
+            )
+        if not priority_active and consecutive_charge_samples < confirmation_samples:
             return self._fallback(
                 target,
                 BatteryPriorityReasonCode.CHARGE_CONFIRMATION_PENDING,
@@ -366,6 +379,8 @@ class EnergyStrategyEngine:
         self._battery_priority_charge_threshold_w = 50.0
         self._battery_priority_confirmation_samples = 3
         self._consecutive_charge_samples = 0
+        self._consecutive_low_charge_samples = 0
+        self._battery_priority_active = False
         self._activation_count = 0
         self._fallback_count = 0
         self._transition_history: deque[dict[str, Any]] = deque(maxlen=20)
@@ -400,6 +415,7 @@ class EnergyStrategyEngine:
         self._battery_priority_charge_threshold_w = charge_threshold_w
         self._battery_priority_confirmation_samples = confirmation_samples
         self._last_battery_signature = None
+        self._battery_priority_active = False
         self._reset_charge_confirmation("configuration_changed")
 
     @property
@@ -416,8 +432,12 @@ class EnergyStrategyEngine:
                 comparison.candidate_target_grid_power_w if comparison else None
             ),
             "consecutive_charge_samples": self._consecutive_charge_samples,
+            "consecutive_low_charge_samples": self._consecutive_low_charge_samples,
             "confirmation_samples": self._battery_priority_confirmation_samples,
             "charge_threshold_w": self._battery_priority_charge_threshold_w,
+            "maintain_charge_threshold_w": (
+                BatteryPriorityStrategy._MAINTAIN_CHARGE_THRESHOLD_W
+            ),
             "observed_charge_power_w": (
                 comparison.observed_charge_power_w if comparison else None
             ),
@@ -513,10 +533,21 @@ class EnergyStrategyEngine:
             strategy_input,
             context,
             consecutive_charge_samples=self._consecutive_charge_samples,
+            consecutive_low_charge_samples=self._consecutive_low_charge_samples,
             confirmation_samples=self._battery_priority_confirmation_samples,
             charge_threshold_w=self._battery_priority_charge_threshold_w,
+            priority_active=self._battery_priority_active,
             mode=self._battery_priority_mode,
         )
+        if comparison.fallback_used:
+            # A pending activation is an expected intermediate state: retain
+            # its fresh-sample count.  Once active, any fallback ends the
+            # priority immediately and clears both hysteresis counters.
+            if self._battery_priority_active:
+                self._battery_priority_active = False
+                self._reset_charge_confirmation(comparison.reason_code.value)
+        else:
+            self._battery_priority_active = True
         runtime_state = "fallback" if comparison.fallback_used else "active"
         if runtime_state != self._last_runtime_state:
             if comparison.fallback_used:
@@ -533,7 +564,7 @@ class EnergyStrategyEngine:
         *,
         new_sample: bool,
     ) -> None:
-        """Count only fresh charging samples; reset immediately on any doubt."""
+        """Track fresh activation and maintenance samples without I/O."""
         reason = self._battery_priority_strategy._observed_data_reason(context, -1.0)
         if reason is not None or context is None:
             self._reset_charge_confirmation(reason.value if reason else "no_context")
@@ -546,16 +577,25 @@ class EnergyStrategyEngine:
             self._reset_charge_confirmation(
                 BatteryPriorityReasonCode.BATTERY_DISCHARGING.value
             )
+        elif self._battery_priority_active:
+            if charge < BatteryPriorityStrategy._MAINTAIN_CHARGE_THRESHOLD_W:
+                if new_sample:
+                    self._consecutive_low_charge_samples += 1
+            else:
+                self._consecutive_low_charge_samples = 0
         elif charge > self._battery_priority_charge_threshold_w:
             if new_sample:
                 self._consecutive_charge_samples += 1
         else:
-            self._reset_charge_confirmation(BatteryPriorityReasonCode.BATTERY_IDLE.value)
+            self._reset_charge_confirmation(
+                BatteryPriorityReasonCode.BATTERY_IDLE.value
+            )
 
     def _reset_charge_confirmation(self, reason: str) -> None:
-        if self._consecutive_charge_samples:
+        if self._consecutive_charge_samples or self._consecutive_low_charge_samples:
             self._record_transition("reset", reason)
         self._consecutive_charge_samples = 0
+        self._consecutive_low_charge_samples = 0
 
     def _record_transition(self, state: str, reason_code: str) -> None:
         self._transition_history.append(
