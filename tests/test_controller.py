@@ -185,10 +185,17 @@ async def test_capacity_release_requests_verified_dtu_maximum_through_scheduler(
     )
     await controller.async_set_mode(ControllerMode.PRODUCTION.value)
 
-    for _ in range(3):
-        await controller.async_tick()
+    # The controller deliberately consumes its first two grid readings before
+    # making a control decision.  Feed two distinct directional publications
+    # to the pure strategy first; the first actionable controller snapshot is
+    # then the third fresh confirmation and must request the verified maximum.
+    for _ in range(2):
+        controller.energy_policy_engine.decide(-40, activate_battery_priority=True)
         timestamp[0] += timedelta(seconds=1)
         battery[0] = replace(battery[0], last_updated=timestamp[0])
+
+    for _ in range(3):
+        await controller.async_tick()
 
     coordinator.async_set_all_temporary_power_limits.assert_awaited_once_with(100)
     assert controller.status.predictive_strategy == "battery_capacity_release"
