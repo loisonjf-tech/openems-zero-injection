@@ -39,6 +39,7 @@ from .calibration import CalibrationManager
 from .context import ContextAnalyzer
 from .decision import (
     ControlDecision,
+    DecisionReason,
     PredictiveControlDecision,
     calculate_power_limit,
     calculate_predictive_power_limit,
