@@ -152,6 +152,11 @@ async def async_get_config_entry_diagnostics(
             "last_decision_sequence": controller.last_decision_sequence,
             "last_command_sequence": controller.last_command_sequence,
             "real_dtu_limit": controller.status.real_dtu_limit_percent,
+            # A single observation built from the controller's latest valid
+            # decision snapshot.  It deliberately does not trigger Modbus I/O.
+            "dtu_limit_power_observation": (
+                controller.dtu_limit_power_observation
+            ),
             "current_recommended_limit": controller.simulated_current_limit,
             "next_proposed_limit": controller.status.calculated_limit_percent,
             "next_commanded_limit": controller.status.commanded_limit_percent,

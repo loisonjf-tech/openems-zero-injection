@@ -795,6 +795,21 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             return min(timestamps)
         return None
 
+    @property
+    def temporary_limits_confirmation_timestamp(self) -> datetime | None:
+        """Return the oldest successful confirmation of the three port limits.
+
+        A confirmation is either a valid ``0x03`` readback or the verified
+        ``0x06`` echo retained by Compatibility mode.  This is deliberately
+        separate from the coordinator-cycle timestamp so diagnostics can show
+        the true age of the limit evidence without causing another read.
+        """
+        timestamps = [
+            self._limit_health[address].last_success
+            for address in PORT_TEMPORARY_POWER_LIMIT_REGISTERS.values()
+        ]
+        return min(timestamps) if all(timestamps) else None
+
     def power_limit_health(self, address: int) -> dict[str, str | int | None | bool]:
         """Return diagnostics-safe state for a documented power-limit register."""
         health = self._limit_health[address]

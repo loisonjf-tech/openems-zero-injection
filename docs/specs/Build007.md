@@ -13,6 +13,15 @@ absente, stale, incohérente ou en défaut, annule immédiatement la confirmatio
 et restaure exactement la cible Zero Injection. `chargeMaxLimit` et le SOC ne
 servent pas au calcul de puissance disponible dans cet incrément.
 
+## Capacity release
+
+Le mode optionnel `capacity_release` est distinct : avec un `chargeMaxLimit`
+explicitement vérifié, frais et normalisé en W, il demande une libération DTU à
+`100 %` tant que la batterie n’est pas pleine et reste sous sa saturation. La
+décharge n’est pas un motif de repli. Trois mesures fraîches à `>= max - 50 W`
+font revenir à Zero Injection ; trois à `< max - 100 W` relibèrent le DTU. Le
+SOC est considéré plein seulement à `>= 100 %` dans ce premier incrément.
+
 ## Alpha.3 — observabilité cohérente
 
 Les diagnostics de dernière commande sont extraits d'une unique `CommandTrace`.
@@ -63,6 +72,13 @@ unknown or partial; the battery is full from a reliable capacity or explicit
 state; or the configured target is not export-oriented.
 
 ## Diagnostics and trace
+
+Les diagnostics et chaque trace de commande doivent associer, dans un même
+instantané acquis par le cycle existant, la puissance nominale configurée, la
+limite demandée, sa puissance maximale théorique, la puissance active DTU, les
+trois limites temporaires, l'âge de leur dernière confirmation et l'état de
+stabilisation du Scheduler. Cette instrumentation ne doit provoquer ni lecture
+Modbus supplémentaire, ni écriture, ni changement de cadence.
 
 Diagnostics expose the effective target, candidate target, delta, expected
 storage gain, eligible resources and fallback reason. Trace Recorder keeps a

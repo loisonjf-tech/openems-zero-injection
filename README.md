@@ -6,7 +6,7 @@ Intégration Home Assistant locale destinée à piloter un Hoymiles DTU Pro-S af
 
 **Build004 — fondation expérimentale du contrôleur de zéro injection.** Le projet acquiert une puissance réseau locale, calcule une consigne DTU déterministe, et applique un scheduler de sécurité. Il n'intègre pas encore SolarFlow, Zendure ou une logique de batterie.
 
-Version actuelle : **V0.7.0-alpha.5 / Build007 SolarFlow source freshness**.
+Version actuelle : **V0.8.0-alpha.1 / Build007 Capacity Release**.
 
 Build007-B ajoute un mode expérimental **Priorité Batterie observée —
 conservateur**, désactivé par défaut. Après trois mesures fraîches de charge
@@ -76,6 +76,8 @@ Le Trace Recorder est la boîte noire passive d’OpenEMS. En mode normal, il co
 
 Pour chaque commande déjà décidée, il relie la décision, la politique, le contexte, l’écriture Modbus sur les trois ports, la confirmation, la stabilisation et les observations réseau/PV suivantes. Chaque trace distingue les données connues avant la décision des observations obtenues après la commande. Son schéma est versionné et ne contient que des données primitives sérialisables, afin de préparer un futur rejeu hors ligne sans le développer maintenant.
 
+Les traces et diagnostics conservent aussi une observation DTU/limite corrélée : puissance nominale configurée, limite demandée, puissance maximale théorique, puissance active réellement lue, limites temporaires des trois ports, âge de leur confirmation et état du Scheduler. Cette instrumentation réutilise exclusivement le cycle existant : elle n’ajoute ni lecture Modbus, ni écriture, ni temporisation.
+
 Les statistiques de session sont agrégées pendant toute la session, indépendamment du buffer des 100 chronologies : elles ne sont donc pas tronquées lorsqu’une session comporte davantage de commandes. Les médianes utilisent un échantillon borné ; les compteurs, moyennes, maximums et couverture pondérée restent complets. Une absence de mesures ou une télémétrie trop espacée ne peut jamais conclure à une commande inefficace : le résultat est alors **indéterminé**.
 
 Le mode diagnostic détaillé, le polling accéléré et les exports CSV/JSON restent volontairement hors périmètre. Les identifiants enregistrés (`policy_id`, stratégie, contexte et résultats) sont stables et indépendants de la langue ; l’interface Home Assistant les présente via ses traductions.
@@ -89,10 +91,11 @@ et zéro = inactive. `gridInputPower` reste un repère diagnostique facultatif.
 Il n’écrit jamais dans SolarFlow,
 ne contacte aucun cloud et ne modifie ni la régulation DTU ni le Scheduler.
 
-`chargeMaxLimit` reste ignoré : il ne correspond pas à une limite de charge
-exploitable. Les capacités maximale et restante restent donc inconnues. Les
-diagnostics exposent la santé, la fraîcheur, les anomalies et les sources ; une
-donnée inconnue n’est jamais interprétée comme `0 W`.
+Lorsque l’option de validation est activée, `chargeMaxLimit` est lu depuis
+`sensor.solarflow_800_plus_charge_max_limit`, exclusivement en `W` ou `kW`.
+Les valeurs sont normalisées sans facteur implicite puis utilisées pour exposer
+la capacité maximale et restante. Une valeur absente, restaurée avant le
+démarrage, périmée, non validée ou d’unité inconnue reste indisponible.
 
 ## Energy Strategy Engine — Build006
 

@@ -143,7 +143,7 @@ def test_nan_directional_power_is_inconsistent(hass) -> None:
     assert BatteryReasonCode.POWER_NON_FINITE in resource.anomalies
 
 
-def test_charge_max_limit_is_ignored_and_remaining_capacity_stays_unknown(hass) -> None:
+def test_verified_charge_max_limit_is_normalized_and_has_remaining_capacity(hass) -> None:
     _set_fresh_required_states(hass, "-300")
     hass.states.async_set("sensor.limit", "1000", {ATTR_UNIT_OF_MEASUREMENT: "W"})
     adapter = _adapter(hass, charge_limit_verified=True)
@@ -151,9 +151,35 @@ def test_charge_max_limit_is_ignored_and_remaining_capacity_stays_unknown(hass) 
 
     resource = adapter.read_resource()
 
+    assert resource.max_charge_power_w == 1000
+    assert resource.remaining_charge_power_w == 700
+    assert resource.source_freshness["max_charge_power_w"] == "fresh"
+    assert BatteryReasonCode.REMAINING_POWER_UNAVAILABLE not in resource.anomalies
+
+
+def test_charge_max_limit_converts_explicit_kw_only(hass) -> None:
+    _set_fresh_required_states(hass, "-300")
+    hass.states.async_set("sensor.limit", "1", {ATTR_UNIT_OF_MEASUREMENT: "kW"})
+    adapter = _adapter(hass, charge_limit_verified=True)
+    _make_fresh(adapter)
+
+    resource = adapter.read_resource()
+
+    assert resource.max_charge_power_w == 1000
+    assert resource.remaining_charge_power_w == 700
+
+
+def test_unverified_or_unsupported_charge_limit_is_not_used(hass) -> None:
+    _set_fresh_required_states(hass, "-300")
+    hass.states.async_set("sensor.limit", "1000", {ATTR_UNIT_OF_MEASUREMENT: "VA"})
+    adapter = _adapter(hass, charge_limit_verified=True)
+    _make_fresh(adapter)
+
+    resource = adapter.read_resource()
+
     assert resource.max_charge_power_w is None
     assert resource.remaining_charge_power_w is None
-    assert BatteryReasonCode.REMAINING_POWER_UNAVAILABLE in resource.anomalies
+    assert BatteryReasonCode.CHARGE_LIMIT_INVALID in resource.anomalies
 
 
 def test_optional_grid_input_diagnostic_never_changes_required_source_health(hass) -> None:
@@ -178,6 +204,7 @@ def test_required_source_freshness_identifies_the_stale_input(hass) -> None:
     assert resource.source_freshness == {
         "soc_percent": "fresh",
         "directional_power_w": "fresh",
+        "max_charge_power_w": "unavailable",
         "grid_input_power_w": "unavailable",
     }
     assert resource.source_timestamps["soc_percent"] is not None
@@ -185,6 +212,7 @@ def test_required_source_freshness_identifies_the_stale_input(hass) -> None:
     assert resource.source_max_age_seconds == {
         "soc_percent": 600,
         "directional_power_w": 30,
+        "max_charge_power_w": 300,
         "grid_input_power_w": 30,
     }
 
@@ -265,6 +293,54 @@ def test_stale_optional_grid_input_uses_the_short_threshold_only(hass) -> None:
 
     assert resource.health is BatteryHealth.HEALTHY
     assert resource.source_freshness["grid_input_power_w"] == "stale"
+
+
+def test_charge_limit_requires_a_fresh_publication_after_startup(hass) -> None:
+    now = datetime.now(UTC)
+    states = {
+        "sensor.soc": _state("sensor.soc", "50", "%", now),
+        BAT_IN_OUT_ENTITY_ID: _state(BAT_IN_OUT_ENTITY_ID, "-291", "W", now),
+        "sensor.limit": _state("sensor.limit", "1000", "W", now - timedelta(seconds=1)),
+    }
+    adapter = _adapter_with_states(states, charge_limit_verified=True)
+    adapter._started_at = now
+
+    resource = adapter.read_resource(now)
+
+    assert resource.max_charge_power_w == 1000
+    assert resource.source_freshness["max_charge_power_w"] == "not_refreshed"
+
+
+def test_charge_limit_is_stale_after_five_minutes(hass) -> None:
+    now = datetime.now(UTC)
+    states = {
+        "sensor.soc": _state("sensor.soc", "50", "%", now),
+        BAT_IN_OUT_ENTITY_ID: _state(BAT_IN_OUT_ENTITY_ID, "-291", "W", now),
+        "sensor.limit": _state(
+            "sensor.limit", "1000", "W", now - timedelta(seconds=301)
+        ),
+    }
+    adapter = _adapter_with_states(states, charge_limit_verified=True)
+    adapter._started_at = now - timedelta(minutes=10)
+
+    resource = adapter.read_resource(now)
+
+    assert resource.max_charge_power_w == 1000
+    assert resource.source_freshness["max_charge_power_w"] == "stale"
+
+
+def test_unmapped_fault_level_does_not_create_a_battery_fault(hass) -> None:
+    _set_fresh_required_states(hass, "-291")
+    hass.states.async_set(
+        "sensor.limit", "1000", {ATTR_UNIT_OF_MEASUREMENT: "W", "faultLevel": 2}
+    )
+    adapter = _adapter(hass, charge_limit_verified=True)
+    _make_fresh(adapter)
+
+    resource = adapter.read_resource()
+
+    assert resource.health is BatteryHealth.HEALTHY
+    assert resource.fault is None
 
 
 def test_adapter_has_no_write_or_modbus_api(hass) -> None:

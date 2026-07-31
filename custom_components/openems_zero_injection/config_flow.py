@@ -266,6 +266,7 @@ class OpenEMSOptionsFlow(config_entries.OptionsFlow):
                     ): vol.In({
                         "disabled": "Désactivé",
                         "observed_conservative": "Charge observée — conservateur",
+                        "capacity_release": "Libération selon capacité de charge",
                         "verified": "Vérifié (réservé)",
                     }),
                     vol.Required(

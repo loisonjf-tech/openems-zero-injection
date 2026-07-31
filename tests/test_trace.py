@@ -37,6 +37,21 @@ def _start(
         strategy="predictive",
         target_grid_power_w=-40,
         deadband_w=30,
+        dtu_limit_observation={
+            "observation_timestamp_utc": "2026-07-31T10:00:00+00:00",
+            "installed_nominal_power_w": 3000,
+            "requested_limit_percent": 20,
+            "theoretical_max_power_w": 600,
+            "active_power_w": 1000,
+            "temporary_port_limits_percent": {
+                "port_1": 50,
+                "port_2": 50,
+                "port_3": 50,
+            },
+            "limits_confirmation_age_seconds": 34,
+            "scheduler_state": "Waiting",
+            "scheduler_stabilizing": True,
+        },
     )
     assert trace is not None
     recorder.record_modbus_started()
@@ -133,6 +148,18 @@ def test_last_command_diagnostic_comes_from_one_trace_only() -> None:
     assert summary["requested_limit_percent"] == 20
     assert summary["command_sent"] is True
     assert summary["confirmed_limit_percent"] == 20
+    observation = summary["dtu_limit_at_decision"]
+    assert observation["installed_nominal_power_w"] == 3000
+    assert observation["requested_limit_percent"] == 20
+    assert observation["theoretical_max_power_w"] == 600
+    assert observation["active_power_w"] == 1000
+    assert observation["temporary_port_limits_percent"] == {
+        "port_1": 50,
+        "port_2": 50,
+        "port_3": 50,
+    }
+    assert observation["limits_confirmation_age_seconds"] == 34
+    assert observation["scheduler_stabilizing"] is True
 
 
 def test_last_command_diagnostic_explicitly_reports_absence_of_trace() -> None:
@@ -296,7 +323,7 @@ def test_timeline_is_serializable_and_keeps_explainability_inputs() -> None:
 
     assert trace is not None
     timeline = trace.as_dict()
-    assert timeline["schema_version"] == 2
+    assert timeline["schema_version"] == 3
     assert timeline["policy_id"] == "zero_injection"
     assert timeline["context_kind"] == "stable"
     assert timeline["pre_decision_inputs"]["grid_power_w"] == -500

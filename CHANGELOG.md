@@ -2,6 +2,29 @@
 
 Toutes les évolutions notables sont documentées dans ce fichier.
 
+## [0.8.0-alpha.1] - 2026-07-31 — Battery capacity release
+
+### Added
+
+- Le mode optionnel `capacity_release` lit la limite SolarFlow vérifiée et
+  libère le DTU à `100 %` lorsque la batterie est fraîche, non pleine et loin
+  de sa saturation de charge.
+- Hystérésis de capacité : trois publications fraîches à `>= max - 50 W` pour
+  revenir à Zero Injection, puis trois à `< max - 100 W` pour relibérer le DTU.
+- Une observation corrélée DTU/limite est ajoutée aux diagnostics et aux traces
+  de commande : puissance nominale configurée, limite demandée, plafond
+  théorique, puissance active lue, limites temporaires des trois ports, âge de
+  leur dernière confirmation et état de stabilisation du Scheduler.
+
+### Safety
+
+- La limite `chargeMaxLimit` n’est acceptée qu’en `W` ou `kW`, après une
+  publication valide postérieure au démarrage et dans les cinq minutes.
+- Le Scheduler, les protections Modbus et l’absence de commande Zendure sont
+  inchangés. Toute donnée requise invalide ou périmée replie vers Zero Injection.
+- Cette observation ne déclenche aucune lecture Modbus, écriture ou décision
+  supplémentaire : elle ne fait qu'associer des données déjà acquises.
+
 ## [0.7.0-alpha.5] - 2026-07-25 — SolarFlow source-specific freshness
 
 ### Changed

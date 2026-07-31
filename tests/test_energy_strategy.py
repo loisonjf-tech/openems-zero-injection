@@ -12,6 +12,7 @@ from custom_components.openems_zero_injection.energy_strategy import (
     BatteryPriorityContext,
     BatteryPriorityReasonCode,
     BatteryPriorityStrategy,
+    DtuControlDirective,
     EnergyStrategyEngine,
     EnergyStrategyInput,
     EnergyStrategyReasonCode,
@@ -183,6 +184,44 @@ def _observed_context(
     return BatteryPriorityContext((battery,), None, "none")
 
 
+def _capacity_context(
+    *,
+    charge_w: float,
+    discharge_w: float = 0.0,
+    soc_percent: float = 60.0,
+    second: int = 0,
+    max_charge_w: float | None = 1000.0,
+    freshness: str = "fresh",
+) -> BatteryPriorityContext:
+    battery = replace(
+        _healthy_battery(remaining_charge_power_w=None),
+        soc_percent=soc_percent,
+        charge_power_w=charge_w,
+        discharge_power_w=discharge_w,
+        max_charge_power_w=max_charge_w,
+        remaining_charge_power_w=(
+            max(max_charge_w - charge_w, 0) if max_charge_w is not None else None
+        ),
+        last_updated=datetime(2026, 7, 25, 0, 0, second, tzinfo=UTC),
+        source_freshness={
+            "soc_percent": freshness,
+            "max_charge_power_w": freshness,
+        },
+    )
+    return BatteryPriorityContext((battery,), None, "none")
+
+
+def _capacity_engine(context_holder: list[BatteryPriorityContext]) -> EnergyStrategyEngine:
+    engine = EnergyStrategyEngine(battery_context_provider=lambda: context_holder[0])
+    engine.configure_battery_priority(
+        mode="capacity_release",
+        margin_w=25,
+        charge_threshold_w=50,
+        confirmation_samples=3,
+    )
+    return engine
+
+
 def test_observed_conservative_activates_only_after_three_fresh_charges() -> None:
     """Production target changes only after the configured confirmation count."""
     sample = [0]
@@ -336,6 +375,128 @@ def test_observed_conservative_requires_three_low_samples_to_fallback() -> None:
     assert third_low.comparison is not None
     assert third_low.comparison.reason_code is BatteryPriorityReasonCode.BATTERY_IDLE
     assert engine.battery_priority_diagnostics["consecutive_low_charge_samples"] == 0
+
+
+def test_capacity_release_requires_three_fresh_samples_below_900_w() -> None:
+    """A verified unsaturated capacity releases the DTU only after confirmation."""
+    sample = [0]
+    contexts = [_capacity_context(charge_w=400, second=sample[0])]
+    engine = _capacity_engine(contexts)
+
+    decisions = []
+    for _ in range(3):
+        decisions.append(engine.decide(-40, activate_battery_priority=True))
+        sample[0] += 1
+        contexts[0] = _capacity_context(charge_w=400, second=sample[0])
+
+    assert [decision.dtu_control_directive for decision in decisions] == [
+        DtuControlDirective.NORMAL_REGULATION,
+        DtuControlDirective.NORMAL_REGULATION,
+        DtuControlDirective.RELEASE_DTU_TO_MAXIMUM,
+    ]
+    assert decisions[-1].requested_dtu_limit_percent == 100
+    assert decisions[-1].comparison is not None
+    assert decisions[-1].comparison.remaining_charge_power_w == 600
+
+
+def test_capacity_release_does_not_count_a_soc_refresh_as_directional_power() -> None:
+    """Only a distinct directional-power publication advances confirmation."""
+    contexts = [_capacity_context(charge_w=400, second=0)]
+    engine = _capacity_engine(contexts)
+
+    engine.decide(-40, activate_battery_priority=True)
+    resource = replace(contexts[0].resources[0], soc_percent=61)
+    contexts[0] = BatteryPriorityContext((resource,), None, "none")
+    decision = engine.decide(-40, activate_battery_priority=True)
+
+    assert decision.dtu_control_directive is DtuControlDirective.NORMAL_REGULATION
+    assert engine.battery_priority_diagnostics["consecutive_release_samples"] == 1
+
+
+def test_capacity_release_holds_between_900_and_950_w() -> None:
+    """The hysteresis band never flips an already released DTU by itself."""
+    sample = [0]
+    contexts = [_capacity_context(charge_w=400, second=sample[0])]
+    engine = _capacity_engine(contexts)
+    for _ in range(3):
+        engine.decide(-40, activate_battery_priority=True)
+        sample[0] += 1
+        contexts[0] = _capacity_context(charge_w=400, second=sample[0])
+
+    decisions = []
+    for _ in range(3):
+        contexts[0] = _capacity_context(charge_w=920, second=sample[0])
+        decisions.append(engine.decide(-40, activate_battery_priority=True))
+        sample[0] += 1
+
+    assert all(
+        decision.dtu_control_directive is DtuControlDirective.RELEASE_DTU_TO_MAXIMUM
+        for decision in decisions
+    )
+
+
+def test_capacity_release_changes_to_normal_only_after_three_saturated_samples() -> None:
+    """One 950 W measurement cannot stop a previously released DTU."""
+    sample = [0]
+    contexts = [_capacity_context(charge_w=400, second=sample[0])]
+    engine = _capacity_engine(contexts)
+    for _ in range(3):
+        engine.decide(-40, activate_battery_priority=True)
+        sample[0] += 1
+        contexts[0] = _capacity_context(charge_w=400, second=sample[0])
+
+    outcomes = []
+    for _ in range(3):
+        contexts[0] = _capacity_context(charge_w=950, second=sample[0])
+        outcomes.append(engine.decide(-40, activate_battery_priority=True))
+        sample[0] += 1
+
+    assert [outcome.dtu_control_directive for outcome in outcomes] == [
+        DtuControlDirective.RELEASE_DTU_TO_MAXIMUM,
+        DtuControlDirective.RELEASE_DTU_TO_MAXIMUM,
+        DtuControlDirective.NORMAL_REGULATION,
+    ]
+    assert outcomes[-1].comparison is not None
+    assert outcomes[-1].comparison.reason_code is BatteryPriorityReasonCode.CAPACITY_RELEASE_SATURATED
+
+
+def test_capacity_release_allows_a_discharging_battery_when_capacity_is_available() -> None:
+    """A fresh discharge is intentionally not a release-blocking condition."""
+    sample = [0]
+    contexts = [_capacity_context(charge_w=0, discharge_w=300, second=sample[0])]
+    engine = _capacity_engine(contexts)
+    for _ in range(3):
+        decision = engine.decide(-40, activate_battery_priority=True)
+        sample[0] += 1
+        contexts[0] = _capacity_context(
+            charge_w=0, discharge_w=300, second=sample[0]
+        )
+
+    assert decision.dtu_control_directive is DtuControlDirective.RELEASE_DTU_TO_MAXIMUM
+
+
+def test_capacity_release_falls_back_when_soc_or_capacity_is_not_fresh() -> None:
+    """A restored or stale capacity can never keep the DTU released."""
+    contexts = [_capacity_context(charge_w=0, freshness="stale")]
+    engine = _capacity_engine(contexts)
+
+    decision = engine.decide(-40, activate_battery_priority=True)
+
+    assert decision.dtu_control_directive is DtuControlDirective.NORMAL_REGULATION
+    assert decision.comparison is not None
+    assert decision.comparison.reason_code is BatteryPriorityReasonCode.CAPACITY_RELEASE_SOC_STALE
+
+
+def test_capacity_release_treats_soc_100_as_full() -> None:
+    """This first increment deliberately uses no speculative 99% full rule."""
+    contexts = [_capacity_context(charge_w=0, soc_percent=100)]
+    engine = _capacity_engine(contexts)
+
+    decision = engine.decide(-40, activate_battery_priority=True)
+
+    assert decision.dtu_control_directive is DtuControlDirective.NORMAL_REGULATION
+    assert decision.comparison is not None
+    assert decision.comparison.reason_code is BatteryPriorityReasonCode.CAPACITY_RELEASE_FULL
 
 
 def test_observed_conservative_stale_data_falls_back_without_target_change() -> None:

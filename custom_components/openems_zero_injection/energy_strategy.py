@@ -18,6 +18,13 @@ class EnergyStrategyReasonCode(StrEnum):
     CONFIGURED_ZERO_INJECTION_TARGET = "configured_zero_injection_target"
 
 
+class DtuControlDirective(StrEnum):
+    """Actuator-neutral intent produced by the energy strategy."""
+
+    NORMAL_REGULATION = "normal_regulation"
+    RELEASE_DTU_TO_MAXIMUM = "release_dtu_to_maximum"
+
+
 class BatteryPriorityReasonCode(StrEnum):
     """Stable reasons for a Build007 Battery Priority comparison."""
 
@@ -37,13 +44,23 @@ class BatteryPriorityReasonCode(StrEnum):
     BATTERY_DISCHARGING = "battery_priority_battery_discharging"
     BATTERY_IDLE = "battery_priority_battery_idle"
     OBSERVED_CONSERVATIVE = "battery_priority_observed_conservative"
+    CAPACITY_RELEASE_ACTIVE = "battery_capacity_release_active"
+    CAPACITY_RELEASE_FULL = "battery_capacity_release_full"
+    CAPACITY_RELEASE_SATURATED = "battery_capacity_release_saturated"
+    CAPACITY_RELEASE_WAITING_TO_RELEASE = "battery_capacity_release_waiting_to_release"
+    CAPACITY_RELEASE_HOLD_NORMAL = "battery_capacity_release_hold_normal"
+    CAPACITY_RELEASE_HOLD_RELEASE = "battery_capacity_release_hold_release"
+    CAPACITY_RELEASE_CAPACITY_UNKNOWN = "battery_capacity_release_capacity_unknown"
+    CAPACITY_RELEASE_CAPACITY_STALE = "battery_capacity_release_capacity_stale"
+    CAPACITY_RELEASE_SOC_STALE = "battery_capacity_release_soc_stale"
 
 
 class BatteryPriorityMode(StrEnum):
-    """Stable configuration modes; only the conservative mode is active now."""
+    """Stable configuration modes for safe Battery Priority increments."""
 
     DISABLED = "disabled"
     OBSERVED_CONSERVATIVE = "observed_conservative"
+    CAPACITY_RELEASE = "capacity_release"
     VERIFIED = "verified"
 
 
@@ -67,7 +84,7 @@ class BatteryPriorityContext:
 
 @dataclass(frozen=True, slots=True)
 class BatteryPriorityComparison:
-    """Simulation-only comparison; it never becomes a DTU command in Build007."""
+    """Read-only explanation of Battery Priority's current policy result."""
 
     effective_target_grid_power_w: float
     candidate_target_grid_power_w: float
@@ -82,11 +99,15 @@ class BatteryPriorityComparison:
     charge_threshold_w: float = 0.0
     observed_charge_power_w: float | None = None
     observed_discharge_power_w: float | None = None
+    max_charge_power_w: float | None = None
+    remaining_charge_power_w: float | None = None
+    dtu_control_directive: DtuControlDirective = DtuControlDirective.NORMAL_REGULATION
 
     def as_dict(self) -> dict[str, Any]:
         """Return primitive-only data suitable for diagnostics and traces."""
         data = asdict(self)
         data["reason_code"] = self.reason_code.value
+        data["dtu_control_directive"] = self.dtu_control_directive.value
         return data
 
 
@@ -107,6 +128,8 @@ class EnergyStrategyDecision:
     input_snapshot_id: str
     reason_code: EnergyStrategyReasonCode
     comparison: BatteryPriorityComparison | None = None
+    dtu_control_directive: DtuControlDirective = DtuControlDirective.NORMAL_REGULATION
+    requested_dtu_limit_percent: int | None = None
 
 
 class ZeroInjectionStrategy:
@@ -300,6 +323,128 @@ class BatteryPriorityStrategy:
             observed_discharge_power_w=discharge_power,
         )
 
+    def capacity_release(
+        self,
+        strategy_input: EnergyStrategyInput,
+        context: BatteryPriorityContext | None,
+        *,
+        release_active: bool,
+        consecutive_saturation_samples: int,
+        consecutive_release_samples: int,
+        confirmation_samples: int,
+        saturation_tolerance_w: float,
+        mode: BatteryPriorityMode,
+    ) -> BatteryPriorityComparison:
+        """Decide whether a verified battery capacity warrants DTU release."""
+        target = strategy_input.target_grid_power_w
+        reason = self._capacity_release_reason(context, target)
+        if reason is not None:
+            return self._fallback(target, reason, mode=mode)
+        assert context is not None
+        max_charge = sum(
+            resource.max_charge_power_w or 0.0 for resource in context.resources
+        )
+        charge = sum(resource.charge_power_w or 0.0 for resource in context.resources)
+        discharge = sum(
+            resource.discharge_power_w or 0.0 for resource in context.resources
+        )
+        remaining = max(max_charge - charge, 0.0)
+        full = any(
+            resource.full is True
+            or (resource.soc_percent is not None and resource.soc_percent >= 100)
+            for resource in context.resources
+        )
+        if full:
+            return self._capacity_fallback(
+                target, BatteryPriorityReasonCode.CAPACITY_RELEASE_FULL, mode, charge,
+                discharge, max_charge, remaining,
+            )
+        if release_active and consecutive_saturation_samples >= confirmation_samples:
+            return self._capacity_fallback(
+                target, BatteryPriorityReasonCode.CAPACITY_RELEASE_SATURATED, mode,
+                charge, discharge, max_charge, remaining,
+            )
+        if not release_active and consecutive_release_samples < confirmation_samples:
+            reason = (
+                BatteryPriorityReasonCode.CAPACITY_RELEASE_HOLD_NORMAL
+                if consecutive_release_samples == 0
+                else BatteryPriorityReasonCode.CAPACITY_RELEASE_WAITING_TO_RELEASE
+            )
+            return self._capacity_fallback(
+                target, reason, mode, charge, discharge, max_charge, remaining,
+            )
+        return BatteryPriorityComparison(
+            effective_target_grid_power_w=target,
+            candidate_target_grid_power_w=target,
+            target_delta_w=0.0,
+            candidate_expected_storage_gain_w=remaining,
+            reason_code=(
+                BatteryPriorityReasonCode.CAPACITY_RELEASE_ACTIVE
+                if not release_active or consecutive_saturation_samples == 0
+                else BatteryPriorityReasonCode.CAPACITY_RELEASE_HOLD_RELEASE
+            ),
+            fallback_used=False,
+            eligible_resource_ids=tuple(
+                resource.resource_id for resource in context.resources
+            ),
+            mode=mode,
+            observed_charge_power_w=charge,
+            observed_discharge_power_w=discharge,
+            max_charge_power_w=max_charge,
+            remaining_charge_power_w=remaining,
+            dtu_control_directive=DtuControlDirective.RELEASE_DTU_TO_MAXIMUM,
+        )
+
+    @staticmethod
+    def _capacity_fallback(
+        target: float,
+        reason: BatteryPriorityReasonCode,
+        mode: BatteryPriorityMode,
+        charge: float,
+        discharge: float,
+        max_charge: float,
+        remaining: float,
+    ) -> BatteryPriorityComparison:
+        return BatteryPriorityComparison(
+            effective_target_grid_power_w=target,
+            candidate_target_grid_power_w=target,
+            target_delta_w=0.0,
+            candidate_expected_storage_gain_w=0.0,
+            reason_code=reason,
+            fallback_used=True,
+            eligible_resource_ids=(),
+            mode=mode,
+            observed_charge_power_w=charge,
+            observed_discharge_power_w=discharge,
+            max_charge_power_w=max_charge,
+            remaining_charge_power_w=remaining,
+        )
+
+    @staticmethod
+    def _capacity_release_reason(
+        context: BatteryPriorityContext | None, target: float
+    ) -> BatteryPriorityReasonCode | None:
+        basic = BatteryPriorityStrategy._observed_data_reason(context, target)
+        if basic is not None:
+            return basic
+        assert context is not None
+        if any(
+            resource.source_freshness.get("soc_percent") != "fresh"
+            for resource in context.resources
+        ):
+            return BatteryPriorityReasonCode.CAPACITY_RELEASE_SOC_STALE
+        if any(
+            resource.source_freshness.get("max_charge_power_w") != "fresh"
+            for resource in context.resources
+        ):
+            return BatteryPriorityReasonCode.CAPACITY_RELEASE_CAPACITY_STALE
+        if any(
+            resource.max_charge_power_w is None or resource.max_charge_power_w <= 0
+            for resource in context.resources
+        ):
+            return BatteryPriorityReasonCode.CAPACITY_RELEASE_CAPACITY_UNKNOWN
+        return None
+
     @staticmethod
     def _observed_data_reason(
         context: BatteryPriorityContext | None, target: float
@@ -362,6 +507,8 @@ class BatteryPriorityStrategy:
 class EnergyStrategyEngine:
     """Select Zero Injection and optionally compare Battery Priority safely."""
 
+    _CAPACITY_RELEASE_CONFIRMATION_SAMPLES = 3
+
     def __init__(
         self,
         strategy: ZeroInjectionStrategy | None = None,
@@ -381,11 +528,17 @@ class EnergyStrategyEngine:
         self._consecutive_charge_samples = 0
         self._consecutive_low_charge_samples = 0
         self._battery_priority_active = False
+        self._capacity_release_active = False
+        self._consecutive_saturation_samples = 0
+        self._consecutive_release_samples = 0
+        self._battery_priority_saturation_tolerance_w = 50.0
         self._activation_count = 0
         self._fallback_count = 0
         self._transition_history: deque[dict[str, Any]] = deque(maxlen=20)
         self._last_runtime_state: str | None = None
         self._last_battery_signature: tuple[object, ...] | None = None
+        self._last_capacity_input_signature: tuple[object, ...] | None = None
+        self._last_capacity_directional_signature: tuple[object, ...] | None = None
 
     def set_battery_context_provider(
         self, provider: Callable[[], BatteryPriorityContext] | None
@@ -415,7 +568,12 @@ class EnergyStrategyEngine:
         self._battery_priority_charge_threshold_w = charge_threshold_w
         self._battery_priority_confirmation_samples = confirmation_samples
         self._last_battery_signature = None
+        self._last_capacity_input_signature = None
+        self._last_capacity_directional_signature = None
         self._battery_priority_active = False
+        self._capacity_release_active = False
+        self._consecutive_saturation_samples = 0
+        self._consecutive_release_samples = 0
         self._reset_charge_confirmation("configuration_changed")
 
     @property
@@ -438,6 +596,12 @@ class EnergyStrategyEngine:
             "maintain_charge_threshold_w": (
                 BatteryPriorityStrategy._MAINTAIN_CHARGE_THRESHOLD_W
             ),
+            "saturation_tolerance_w": self._battery_priority_saturation_tolerance_w,
+            "capacity_release_confirmation_samples": (
+                self._CAPACITY_RELEASE_CONFIRMATION_SAMPLES
+            ),
+            "consecutive_saturation_samples": self._consecutive_saturation_samples,
+            "consecutive_release_samples": self._consecutive_release_samples,
             "observed_charge_power_w": (
                 comparison.observed_charge_power_w if comparison else None
             ),
@@ -456,13 +620,21 @@ class EnergyStrategyEngine:
         This is intentionally passive: it only examines the coordinator's
         already-acquired snapshot and does not cause polling or adapter I/O.
         """
-        if self._battery_priority_mode is not BatteryPriorityMode.OBSERVED_CONSERVATIVE:
+        if self._battery_priority_mode not in {
+            BatteryPriorityMode.OBSERVED_CONSERVATIVE,
+            BatteryPriorityMode.CAPACITY_RELEASE,
+        }:
             return False
         context = (
             self._battery_context_provider()
             if self._battery_context_provider is not None
             else None
         )
+        if self._battery_priority_mode is BatteryPriorityMode.CAPACITY_RELEASE:
+            return (
+                self._capacity_input_signature(context)
+                != self._last_capacity_input_signature
+            )
         return self._battery_signature(context) != self._last_battery_signature
 
     @property
@@ -493,6 +665,20 @@ class EnergyStrategyEngine:
             if self._battery_priority_mode is BatteryPriorityMode.DISABLED:
                 self._last_comparison = None
                 return decision
+            if self._battery_priority_mode is BatteryPriorityMode.CAPACITY_RELEASE:
+                comparison = self._capacity_release_comparison(strategy_input)
+                self._last_comparison = comparison
+                if comparison.dtu_control_directive is DtuControlDirective.RELEASE_DTU_TO_MAXIMUM:
+                    return replace(
+                        decision,
+                        policy_id="battery_capacity_release",
+                        reason=comparison.reason_code.value,
+                        confidence=0.8,
+                        comparison=comparison,
+                        dtu_control_directive=comparison.dtu_control_directive,
+                        requested_dtu_limit_percent=100,
+                    )
+                return replace(decision, comparison=comparison, fallback_used=True)
             comparison = self._observed_conservative_comparison(strategy_input)
             self._last_comparison = comparison
             if comparison.fallback_used:
@@ -516,6 +702,95 @@ class EnergyStrategyEngine:
         comparison = self._battery_priority_strategy.compare(strategy_input, context)
         self._last_comparison = comparison
         return replace(decision, comparison=comparison)
+
+    def _capacity_release_comparison(
+        self, strategy_input: EnergyStrategyInput
+    ) -> BatteryPriorityComparison:
+        context = (
+            self._battery_context_provider()
+            if self._battery_context_provider is not None
+            else None
+        )
+        # Capacity-release hysteresis deliberately counts *directional-power*
+        # publications only.  A SOC refresh, a diagnostic update or a repeated
+        # strategy evaluation must not turn one power observation into three
+        # confirmations.
+        directional_signature = self._directional_battery_signature(context)
+        new_sample = (
+            directional_signature != self._last_capacity_directional_signature
+        )
+        self._last_capacity_directional_signature = directional_signature
+        self._last_capacity_input_signature = self._capacity_input_signature(context)
+        self._update_capacity_release_hysteresis(context, new_sample=new_sample)
+        comparison = self._battery_priority_strategy.capacity_release(
+            strategy_input,
+            context,
+            release_active=self._capacity_release_active,
+            consecutive_saturation_samples=self._consecutive_saturation_samples,
+            consecutive_release_samples=self._consecutive_release_samples,
+            confirmation_samples=self._CAPACITY_RELEASE_CONFIRMATION_SAMPLES,
+            saturation_tolerance_w=self._battery_priority_saturation_tolerance_w,
+            mode=self._battery_priority_mode,
+        )
+        self._capacity_release_active = (
+            comparison.dtu_control_directive
+            is DtuControlDirective.RELEASE_DTU_TO_MAXIMUM
+        )
+        if comparison.fallback_used and comparison.reason_code in {
+            BatteryPriorityReasonCode.CAPACITY_RELEASE_FULL,
+            BatteryPriorityReasonCode.CAPACITY_RELEASE_SATURATED,
+        }:
+            self._consecutive_saturation_samples = 0
+            self._consecutive_release_samples = 0
+        runtime_state = "active" if self._capacity_release_active else "fallback"
+        if runtime_state != self._last_runtime_state:
+            if runtime_state == "active":
+                self._activation_count += 1
+            else:
+                self._fallback_count += 1
+            self._record_transition(runtime_state, comparison.reason_code.value)
+            self._last_runtime_state = runtime_state
+        return comparison
+
+    def _update_capacity_release_hysteresis(
+        self,
+        context: BatteryPriorityContext | None,
+        *,
+        new_sample: bool,
+    ) -> None:
+        """Maintain a 50 W / 100 W hysteresis using only fresh publications."""
+        reason = self._battery_priority_strategy._capacity_release_reason(context, -1.0)
+        if reason is not None or context is None:
+            self._capacity_release_active = False
+            self._consecutive_saturation_samples = 0
+            self._consecutive_release_samples = 0
+            return
+        max_charge = sum(
+            resource.max_charge_power_w or 0.0 for resource in context.resources
+        )
+        charge = sum(resource.charge_power_w or 0.0 for resource in context.resources)
+        full = any(
+            resource.full is True
+            or (resource.soc_percent is not None and resource.soc_percent >= 100)
+            for resource in context.resources
+        )
+        if full:
+            self._capacity_release_active = False
+            self._consecutive_saturation_samples = 0
+            self._consecutive_release_samples = 0
+            return
+        if self._capacity_release_active:
+            if charge >= max_charge - self._battery_priority_saturation_tolerance_w:
+                if new_sample:
+                    self._consecutive_saturation_samples += 1
+            else:
+                self._consecutive_saturation_samples = 0
+            return
+        if charge < max_charge - (2 * self._battery_priority_saturation_tolerance_w):
+            if new_sample:
+                self._consecutive_release_samples += 1
+        else:
+            self._consecutive_release_samples = 0
 
     def _observed_conservative_comparison(
         self, strategy_input: EnergyStrategyInput
@@ -619,8 +894,61 @@ class EnergyStrategyEngine:
                 resource.last_updated,
                 resource.health.value,
                 resource.available,
+                resource.soc_percent,
                 resource.charge_power_w,
                 resource.discharge_power_w,
+                resource.max_charge_power_w,
+                resource.source_freshness.get("soc_percent"),
+                resource.source_freshness.get("max_charge_power_w"),
+            )
+            for resource in context.resources
+        )
+
+    @staticmethod
+    def _directional_battery_signature(
+        context: BatteryPriorityContext | None,
+    ) -> tuple[object, ...] | None:
+        """Identify one fresh directional-power publication per resource."""
+        if context is None:
+            return None
+        return tuple(
+            (
+                resource.resource_id,
+                resource.source_timestamps.get(
+                    "directional_power_w", resource.last_updated
+                ),
+                resource.source_freshness.get("directional_power_w"),
+                resource.charge_power_w,
+                resource.discharge_power_w,
+            )
+            for resource in context.resources
+        )
+
+    @staticmethod
+    def _capacity_input_signature(
+        context: BatteryPriorityContext | None,
+    ) -> tuple[object, ...] | None:
+        """Identify changes requiring a capacity-policy re-evaluation.
+
+        SOC and capacity freshness can safely force a fallback, but do not
+        count as one of the three directional-power confirmations.
+        """
+        if context is None:
+            return None
+        return tuple(
+            (
+                resource.resource_id,
+                resource.source_timestamps.get(
+                    "directional_power_w", resource.last_updated
+                ),
+                resource.charge_power_w,
+                resource.discharge_power_w,
+                resource.soc_percent,
+                resource.source_freshness.get("soc_percent"),
+                resource.max_charge_power_w,
+                resource.source_freshness.get("max_charge_power_w"),
+                resource.available,
+                resource.health.value,
             )
             for resource in context.resources
         )

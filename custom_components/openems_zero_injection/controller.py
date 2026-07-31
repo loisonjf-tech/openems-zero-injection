@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_interval
@@ -44,6 +44,7 @@ from .decision import (
     calculate_predictive_power_limit,
 )
 from .energy_policy import EnergyPolicyEngine
+from .energy_strategy import DtuControlDirective
 from .history import DecisionHistory, DecisionRecord
 from .learning import LearningSample, PassiveLearningEngine
 from .scheduler import SafetyScheduler
@@ -95,6 +96,7 @@ DISPLAY_LABELS_FR = {
     "Controller disabled": "Mode manuel",
     "Predictive limit applied": "Limite prédictive appliquée",
     "Fine correction applied": "Correction fine appliquée",
+    "Battery capacity release applied": "Libération DTU selon capacité batterie",
     "Grid measurement is older than the allowed age": "Mesure réseau trop ancienne",
     "PV measurement is older than the allowed age": "Mesure PV trop ancienne",
     "Grid/PV timestamp difference exceeds the allowed tolerance": "Écart temporel réseau/PV trop élevé",
@@ -242,6 +244,9 @@ class ZeroInjectionController:
         self._last_simulated_command_time: datetime | None = None
         self._last_decision_sequence = 0
         self._last_command_sequence: int | None = None
+        self._last_requested_limit_percent: int | None = None
+        self._last_requested_limit_at: datetime | None = None
+        self._last_dtu_limit_observation: dict[str, Any] | None = None
         self._last_evaluated_snapshot: DecisionSnapshot | None = None
         self._measurement_sync_diagnostics = MeasurementSyncDiagnostics()
         self._last_evaluated_configuration_generation = -1
@@ -365,6 +370,13 @@ class ZeroInjectionController:
     @property
     def last_command_sequence(self) -> int | None:
         return self._last_command_sequence
+
+    @property
+    def dtu_limit_power_observation(self) -> dict[str, Any] | None:
+        """Return the latest coherent limit/power evidence without DTU I/O."""
+        if self._last_dtu_limit_observation is None:
+            return None
+        return dict(self._last_dtu_limit_observation)
 
     @property
     def waiting_state(self) -> str:
@@ -671,6 +683,7 @@ class ZeroInjectionController:
                 pv_source_timestamp=snapshot.dtu_power_timestamp,
                 target_grid_power_w=snapshot.target_power_w,
                 deadband_w=self._deadband_w,
+                dtu_limit_observation=self._record_dtu_limit_power_observation(snapshot),
             )
             if not self._requires_new_decision(snapshot):
                 if (
@@ -708,9 +721,19 @@ class ZeroInjectionController:
                     reason_code=comparison.reason_code.value,
                     fallback_used=comparison.fallback_used,
                     eligible_resource_ids=comparison.eligible_resource_ids,
+                    dtu_control_directive=comparison.dtu_control_directive.value,
+                    max_charge_power_w=comparison.max_charge_power_w,
+                    observed_charge_power_w=comparison.observed_charge_power_w,
+                    remaining_charge_power_w=comparison.remaining_charge_power_w,
                 )
             context = self._context_analyzer.classify()
-            decision = self._calculate_decision(snapshot, current_limit, policy.target_grid_power_w)
+            decision = self._calculate_decision(
+                snapshot,
+                current_limit,
+                policy.target_grid_power_w,
+                policy.dtu_control_directive,
+                policy.requested_dtu_limit_percent,
+            )
 
             if self._mode is ControllerMode.SIMULATION:
                 # Simulation has no stabilization loop and never models a DTU
@@ -853,6 +876,9 @@ class ZeroInjectionController:
                 objective="target_grid_power",
                 rationale=decision.reason.value,
                 configuration=self._trace_configuration(),
+                dtu_limit_observation=self._build_dtu_limit_power_observation(
+                    snapshot, requested_limit_percent=decision.applied_limit_percent
+                ),
             )
             success, result = await self._scheduler.async_execute(
                 self._mode,
@@ -907,11 +933,30 @@ class ZeroInjectionController:
                 policy_id=policy.policy_id,
                 policy_reason=policy.reason,
             )
+            if success:
+                self._last_requested_limit_percent = decision.applied_limit_percent
+                self._last_requested_limit_at = datetime.now(UTC)
 
     def _calculate_decision(
-        self, snapshot: DecisionSnapshot, current_limit: int, target_grid_power_w: float
+        self,
+        snapshot: DecisionSnapshot,
+        current_limit: int,
+        target_grid_power_w: float,
+        directive: DtuControlDirective = DtuControlDirective.NORMAL_REGULATION,
+        requested_limit_percent: int | None = None,
     ) -> ControlDecision | PredictiveControlDecision:
         """Use prediction when PV telemetry is usable; otherwise retain safe fallback."""
+        if directive is DtuControlDirective.RELEASE_DTU_TO_MAXIMUM:
+            limit = requested_limit_percent or 100
+            return PredictiveControlDecision(
+                grid_error_w=snapshot.grid_power_w - target_grid_power_w,
+                estimated_load_w=(snapshot.dtu_power_w or 0.0) + snapshot.grid_power_w,
+                calculated_limit_percent=limit,
+                applied_limit_percent=limit,
+                reason=DecisionReason.BATTERY_CAPACITY_RELEASE_APPLIED,
+                strategy="battery_capacity_release",
+                command_needed=limit != current_limit,
+            )
         if snapshot.dtu_power_w is not None:
             return calculate_predictive_power_limit(
                 grid_power_w=snapshot.grid_power_w,
@@ -1002,6 +1047,8 @@ class ZeroInjectionController:
                 last_error=None,
                 scheduler_inactive_reason=None,
             )
+            self._last_requested_limit_percent = self._takeover_limit_percent
+            self._last_requested_limit_at = datetime.now(UTC)
             return
 
         self.commands_failed += 1
@@ -1112,6 +1159,77 @@ class ZeroInjectionController:
             target_power_w=self._target_grid_power_w,
             created_at=now,
         )
+
+    def _record_dtu_limit_power_observation(
+        self, snapshot: DecisionSnapshot
+    ) -> dict[str, Any]:
+        """Persist one already-acquired limit/power snapshot for diagnostics."""
+        observation = self._build_dtu_limit_power_observation(snapshot)
+        self._last_dtu_limit_observation = observation
+        return observation
+
+    def _build_dtu_limit_power_observation(
+        self,
+        snapshot: DecisionSnapshot,
+        *,
+        requested_limit_percent: int | None = None,
+    ) -> dict[str, Any]:
+        """Describe existing DTU evidence without a read, write or scheduler change."""
+        data = self._coordinator.data
+        requested_limit = (
+            requested_limit_percent
+            if requested_limit_percent is not None
+            else self._last_requested_limit_percent
+        )
+        requested_at = (
+            snapshot.created_at
+            if requested_limit_percent is not None
+            else self._last_requested_limit_at
+        )
+        confirmation_timestamp = getattr(
+            self._coordinator, "temporary_limits_confirmation_timestamp", None
+        )
+        if callable(confirmation_timestamp):
+            confirmation_timestamp = confirmation_timestamp()
+        if confirmation_timestamp is None:
+            confirmation_timestamp = snapshot.temporary_limits_timestamp
+        confirmation_age = max(
+            0.0, (snapshot.created_at - confirmation_timestamp).total_seconds()
+        )
+        remaining_seconds = self._scheduler.remaining_seconds(snapshot.created_at)
+        return {
+            "observation_timestamp_utc": snapshot.created_at.isoformat(),
+            "installed_nominal_power_w": self._installed_nominal_power_w,
+            "requested_limit_percent": requested_limit,
+            "requested_limit_timestamp_utc": (
+                requested_at.isoformat() if requested_at else None
+            ),
+            "theoretical_max_power_w": (
+                self._installed_nominal_power_w * requested_limit / 100
+                if requested_limit is not None
+                else None
+            ),
+            "active_power_w": snapshot.dtu_power_w,
+            "temporary_port_limits_percent": {
+                "port_1": (
+                    data.port_1_temporary_power_limit_percent if data else None
+                ),
+                "port_2": (
+                    data.port_2_temporary_power_limit_percent if data else None
+                ),
+                "port_3": (
+                    data.port_3_temporary_power_limit_percent if data else None
+                ),
+            },
+            "limits_confirmation_timestamp_utc": confirmation_timestamp.isoformat(),
+            "limits_confirmation_age_seconds": confirmation_age,
+            "limit_confirmation_source": getattr(
+                self._coordinator, "temporary_limit_source", "unknown"
+            ),
+            "scheduler_state": self._scheduler.state.value,
+            "scheduler_stabilizing": remaining_seconds > 0,
+            "scheduler_remaining_seconds": remaining_seconds,
+        }
 
     def _requires_new_decision(self, snapshot: DecisionSnapshot) -> bool:
         """Return whether input changed enough to justify a new decision.

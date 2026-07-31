@@ -145,6 +145,55 @@ async def test_battery_priority_simulation_comparison_never_writes_dtu(hass) -> 
     assert comparison.candidate_expected_storage_gain_w == 25
 
 
+async def test_capacity_release_requests_verified_dtu_maximum_through_scheduler(hass) -> None:
+    """The policy bypasses prediction, never Scheduler safeguards."""
+    hass.states.async_set("sensor.grid", "-100")
+    coordinator = fake_coordinator()
+    controller = ZeroInjectionController(
+        hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
+    )
+    timestamp = [datetime.now(UTC)]
+    battery = [
+        BatteryResource(
+            resource_id="battery-1",
+            name="Test battery",
+            adapter_id="test",
+            adapter_version="test",
+            available=True,
+            health=BatteryHealth.HEALTHY,
+            last_updated=timestamp[0],
+            data_age_seconds=1,
+            soc_percent=60,
+            charge_power_w=400,
+            discharge_power_w=0,
+            max_charge_power_w=1000,
+            remaining_charge_power_w=600,
+            source_freshness={
+                "soc_percent": "fresh",
+                "max_charge_power_w": "fresh",
+            },
+        )
+    ]
+    controller.energy_policy_engine.set_battery_context_provider(
+        lambda: BatteryPriorityContext((battery[0],), None, "none")
+    )
+    controller.energy_policy_engine.configure_battery_priority(
+        mode="capacity_release",
+        margin_w=25,
+        charge_threshold_w=50,
+        confirmation_samples=3,
+    )
+    await controller.async_set_mode(ControllerMode.PRODUCTION.value)
+
+    for _ in range(3):
+        await controller.async_tick()
+        timestamp[0] += timedelta(seconds=1)
+        battery[0] = replace(battery[0], last_updated=timestamp[0])
+
+    coordinator.async_set_all_temporary_power_limits.assert_awaited_once_with(100)
+    assert controller.status.predictive_strategy == "battery_capacity_release"
+
+
 async def test_disabled_controller_keeps_grid_power_visible(hass) -> None:
     """Disabled is a deliberate state, not an unavailable local measurement."""
     hass.states.async_set("sensor.grid", "-177")

@@ -20,7 +20,9 @@ from typing import Any
 from uuid import uuid4
 
 
-TRACE_SCHEMA_VERSION = 2
+# Version 3 adds the correlated DTU-limit/power evidence to traces.  It is
+# additive, primitive-only and therefore remains safe for a future exporter.
+TRACE_SCHEMA_VERSION = 3
 TRACE_BUFFER_SIZE = 100
 TRACE_MAX_EVENTS_PER_COMMAND = 64
 TRACE_OBSERVATION_WINDOW_SECONDS = 60.0
@@ -70,6 +72,10 @@ class StrategyComparisonTrace:
     reason_code: str
     fallback_used: bool
     eligible_resource_ids: tuple[str, ...]
+    dtu_control_directive: str = "normal_regulation"
+    max_charge_power_w: float | None = None
+    observed_charge_power_w: float | None = None
+    remaining_charge_power_w: float | None = None
 
 
 @dataclass(slots=True)
@@ -399,6 +405,10 @@ class TraceRecorder:
         reason_code: str,
         fallback_used: bool,
         eligible_resource_ids: tuple[str, ...],
+        dtu_control_directive: str = "normal_regulation",
+        max_charge_power_w: float | None = None,
+        observed_charge_power_w: float | None = None,
+        remaining_charge_power_w: float | None = None,
     ) -> None:
         """Record a Simulation-only policy comparison from existing data."""
         self._strategy_comparisons.append(
@@ -414,6 +424,10 @@ class TraceRecorder:
                 reason_code=reason_code,
                 fallback_used=fallback_used,
                 eligible_resource_ids=eligible_resource_ids,
+                dtu_control_directive=dtu_control_directive,
+                max_charge_power_w=max_charge_power_w,
+                observed_charge_power_w=observed_charge_power_w,
+                remaining_charge_power_w=remaining_charge_power_w,
             )
         )
 
@@ -485,6 +499,7 @@ class TraceRecorder:
         objective: str | None = None,
         rationale: str | None = None,
         configuration: dict[str, Any] | None = None,
+        dtu_limit_observation: dict[str, Any] | None = None,
     ) -> CommandTrace | None:
         """Create a timeline for a command that was already selected normally."""
         active = self._active
@@ -501,6 +516,7 @@ class TraceRecorder:
             "requested_limit_percent": requested_limit_percent,
             "target_grid_power_w": target_grid_power_w,
             "deadband_w": deadband_w,
+            "dtu_limit_observation": dtu_limit_observation or {},
         }
         trace = CommandTrace(
             trace_id=uuid4().hex,
@@ -634,6 +650,7 @@ class TraceRecorder:
         pv_source_timestamp: datetime | None,
         target_grid_power_w: float | None = None,
         deadband_w: float | None = None,
+        dtu_limit_observation: dict[str, Any] | None = None,
     ) -> None:
         """Observe a coherent snapshot already built by the controller."""
         active = self._active
@@ -646,6 +663,7 @@ class TraceRecorder:
                 "grid_power_w": grid_power_w,
                 "pv_power_w": pv_power_w,
                 "pv_source_timestamp": pv_source_timestamp,
+                "dtu_limit_observation": dtu_limit_observation or {},
             },
         )
         active.samples.append(observation)
@@ -942,6 +960,15 @@ def _has_oscillation(errors: list[float], deadband_w: float) -> bool:
 
 def _last_command_decision(trace: CommandTrace) -> dict[str, Any]:
     """Build one coherent diagnostic summary from exactly one command trace."""
+    latest_observation = next(
+        (
+            event.details.get("dtu_limit_observation")
+            for event in reversed(trace.events)
+            if event.event_type == "measurement_observed"
+            and event.details.get("dtu_limit_observation")
+        ),
+        None,
+    )
     return {
         "available": True,
         "trace_id": trace.trace_id,
@@ -964,6 +991,10 @@ def _last_command_decision(trace: CommandTrace) -> dict[str, Any]:
         "strategy": trace.strategy,
         "modbus_duration_ms": trace.modbus_duration_ms,
         "port_results": trace.port_results,
+        "dtu_limit_at_decision": trace.pre_decision_inputs.get(
+            "dtu_limit_observation"
+        ),
+        "latest_dtu_limit_observation": latest_observation,
     }
 
 

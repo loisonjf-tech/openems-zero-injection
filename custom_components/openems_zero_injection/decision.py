@@ -16,6 +16,7 @@ class DecisionReason(StrEnum):
     MAXIMUM_STEP_APPLIED = "Maximum step applied"
     PREDICTIVE_LIMIT_APPLIED = "Predictive limit applied"
     FINE_CORRECTION_APPLIED = "Fine correction applied"
+    BATTERY_CAPACITY_RELEASE_APPLIED = "Battery capacity release applied"
 
 
 @dataclass(frozen=True, slots=True)
