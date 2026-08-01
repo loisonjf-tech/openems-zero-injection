@@ -469,6 +469,35 @@ def test_capacity_release_allows_a_discharging_battery_when_capacity_is_availabl
         )
 
     assert decision.dtu_control_directive is DtuControlDirective.RELEASE_DTU_TO_MAXIMUM
+    assert (
+        decision.comparison.reason_code
+        is BatteryPriorityReasonCode.CAPACITY_RELEASE_DISCHARGING
+    )
+
+
+def test_capacity_release_does_not_prioritize_discharge_at_or_below_five_w() -> None:
+    """The 5 W boundary filters noise; it is not a special release priority."""
+    contexts = [_capacity_context(charge_w=950, discharge_w=5, soc_percent=60)]
+    engine = _capacity_engine(contexts)
+
+    decision = engine.decide(-40, activate_battery_priority=True)
+
+    assert decision.dtu_control_directive is DtuControlDirective.NORMAL_REGULATION
+    assert decision.comparison is not None
+    assert decision.comparison.reason_code is BatteryPriorityReasonCode.CAPACITY_RELEASE_HOLD_NORMAL
+
+
+def test_capacity_release_prioritizes_discharge_above_five_w_even_when_full() -> None:
+    """A real discharge wins over the full-battery fallback once data is safe."""
+    contexts = [_capacity_context(charge_w=0, discharge_w=6, soc_percent=100)]
+    engine = _capacity_engine(contexts)
+
+    decision = engine.decide(-40, activate_battery_priority=True)
+
+    assert decision.dtu_control_directive is DtuControlDirective.RELEASE_DTU_TO_MAXIMUM
+    assert decision.requested_dtu_limit_percent == 100
+    assert decision.comparison is not None
+    assert decision.comparison.reason_code is BatteryPriorityReasonCode.CAPACITY_RELEASE_DISCHARGING
 
 
 def test_capacity_release_falls_back_when_soc_or_capacity_is_not_fresh() -> None:

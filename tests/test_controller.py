@@ -24,7 +24,9 @@ from custom_components.openems_zero_injection.energy_strategy import (
 )
 
 
-def fake_coordinator(*, automatic_writes_enabled: bool = True):
+def fake_coordinator(
+    *, automatic_writes_enabled: bool = True, temporary_limit_percent: int = 50
+):
     timestamp = datetime.now(UTC)
     coordinator = SimpleNamespace(
         automatic_write_allowed=automatic_writes_enabled,
@@ -34,9 +36,9 @@ def fake_coordinator(*, automatic_writes_enabled: bool = True):
             connected=True,
             active_power_w=900.0,
             last_success=timestamp,
-            port_1_temporary_power_limit_percent=50,
-            port_2_temporary_power_limit_percent=50,
-            port_3_temporary_power_limit_percent=50,
+            port_1_temporary_power_limit_percent=temporary_limit_percent,
+            port_2_temporary_power_limit_percent=temporary_limit_percent,
+            port_3_temporary_power_limit_percent=temporary_limit_percent,
         ),
         async_set_all_temporary_power_limits=AsyncMock(),
         async_takeover_temporary_power_limits=AsyncMock(),
@@ -191,6 +193,53 @@ async def test_capacity_release_requests_verified_dtu_maximum_through_scheduler(
 
     coordinator.async_set_all_temporary_power_limits.assert_awaited_once_with(100)
     assert controller.status.predictive_strategy == "battery_capacity_release"
+
+
+async def test_capacity_release_immediately_releases_a_discharging_battery(hass) -> None:
+    """A fresh 300 W discharge releases a DTU currently limited to 8%."""
+    hass.states.async_set("sensor.grid", "-100")
+    coordinator = fake_coordinator(temporary_limit_percent=8)
+    controller = ZeroInjectionController(
+        hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
+    )
+    battery = BatteryResource(
+        resource_id="battery-1",
+        name="Test battery",
+        adapter_id="test",
+        adapter_version="test",
+        available=True,
+        health=BatteryHealth.HEALTHY,
+        last_updated=datetime.now(UTC),
+        data_age_seconds=1,
+        soc_percent=43,
+        charge_power_w=0,
+        discharge_power_w=300,
+        max_charge_power_w=1000,
+        remaining_charge_power_w=1000,
+        source_freshness={
+            "soc_percent": "fresh",
+            "max_charge_power_w": "fresh",
+        },
+    )
+    controller.energy_policy_engine.set_battery_context_provider(
+        lambda: BatteryPriorityContext((battery,), None, "none")
+    )
+    controller.energy_policy_engine.configure_battery_priority(
+        mode="capacity_release",
+        margin_w=25,
+        charge_threshold_w=50,
+        confirmation_samples=3,
+    )
+    await controller.async_set_mode(ControllerMode.PRODUCTION.value)
+
+    for _ in range(3):
+        await controller.async_tick()
+
+    coordinator.async_set_all_temporary_power_limits.assert_awaited_once_with(100)
+    comparison = controller.energy_policy_engine.last_comparison
+    assert comparison is not None
+    assert comparison.reason_code.value == "battery_capacity_release_discharging"
+    assert comparison.dtu_control_directive.value == "release_dtu_to_maximum"
 
 
 async def test_disabled_controller_keeps_grid_power_visible(hass) -> None:

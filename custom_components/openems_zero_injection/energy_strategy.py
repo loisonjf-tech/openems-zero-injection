@@ -45,6 +45,7 @@ class BatteryPriorityReasonCode(StrEnum):
     BATTERY_IDLE = "battery_priority_battery_idle"
     OBSERVED_CONSERVATIVE = "battery_priority_observed_conservative"
     CAPACITY_RELEASE_ACTIVE = "battery_capacity_release_active"
+    CAPACITY_RELEASE_DISCHARGING = "battery_capacity_release_discharging"
     CAPACITY_RELEASE_FULL = "battery_capacity_release_full"
     CAPACITY_RELEASE_SATURATED = "battery_capacity_release_saturated"
     CAPACITY_RELEASE_WAITING_TO_RELEASE = "battery_capacity_release_waiting_to_release"
@@ -157,6 +158,7 @@ class BatteryPriorityStrategy:
 
     policy_id = "battery_priority"
     _MAINTAIN_CHARGE_THRESHOLD_W = 5.0
+    _CAPACITY_RELEASE_DISCHARGE_THRESHOLD_W = 5.0
 
     def __init__(
         self,
@@ -354,6 +356,28 @@ class BatteryPriorityStrategy:
             or (resource.soc_percent is not None and resource.soc_percent >= 100)
             for resource in context.resources
         )
+        # A confirmed discharge means PV production is insufficient for the
+        # site at that moment.  It takes precedence over full/saturation
+        # checks and immediately releases the DTU, after all data-safety
+        # conditions above have been satisfied.
+        if discharge > self._CAPACITY_RELEASE_DISCHARGE_THRESHOLD_W:
+            return BatteryPriorityComparison(
+                effective_target_grid_power_w=target,
+                candidate_target_grid_power_w=target,
+                target_delta_w=0.0,
+                candidate_expected_storage_gain_w=remaining,
+                reason_code=BatteryPriorityReasonCode.CAPACITY_RELEASE_DISCHARGING,
+                fallback_used=False,
+                eligible_resource_ids=tuple(
+                    resource.resource_id for resource in context.resources
+                ),
+                mode=mode,
+                observed_charge_power_w=charge,
+                observed_discharge_power_w=discharge,
+                max_charge_power_w=max_charge,
+                remaining_charge_power_w=remaining,
+                dtu_control_directive=DtuControlDirective.RELEASE_DTU_TO_MAXIMUM,
+            )
         if full:
             return self._capacity_fallback(
                 target, BatteryPriorityReasonCode.CAPACITY_RELEASE_FULL, mode, charge,

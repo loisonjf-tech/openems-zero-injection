@@ -17,6 +17,9 @@ Toutes les évolutions notables sont documentées dans ce fichier.
   mémoire durant l'exécution : son absence de republication ne l'expire plus.
   Une donnée invalide ou indisponible efface immédiatement ce cache ; un
   redémarrage exige toujours une nouvelle publication valide.
+- Une décharge batterie fraîche supérieure à `5 W` devient une priorité de
+  Capacity Release : elle demande immédiatement `100 %` au DTU, sans attendre
+  trois publications, après validation des données de sécurité.
 - Une observation corrélée DTU/limite est ajoutée aux diagnostics et aux traces
   de commande : puissance nominale configurée, limite demandée, plafond
   théorique, puissance active lue, limites temporaires des trois ports, âge de
