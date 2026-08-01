@@ -9,8 +9,10 @@ Toutes les évolutions notables sont documentées dans ce fichier.
 - Le mode optionnel `capacity_release` lit la limite SolarFlow vérifiée et
   libère le DTU à `100 %` lorsque la batterie est fraîche, non pleine et loin
   de sa saturation de charge.
-- Hystérésis de capacité : trois publications fraîches à `>= max - 50 W` pour
-  revenir à Zero Injection, puis trois à `< max - 100 W` pour relibérer le DTU.
+- Hystérésis de capacité asymétrique : un instantané cohérent à
+  `< max - 100 W` libère immédiatement le DTU, y compris à `0 W` stable ;
+  trois publications fraîches distinctes à `>= max - 50 W` sont toujours
+  nécessaires pour revenir à Zero Injection.
 - Une observation corrélée DTU/limite est ajoutée aux diagnostics et aux traces
   de commande : puissance nominale configurée, limite demandée, plafond
   théorique, puissance active lue, limites temporaires des trois ports, âge de

@@ -152,7 +152,6 @@ async def test_capacity_release_requests_verified_dtu_maximum_through_scheduler(
     controller = ZeroInjectionController(
         hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
     )
-    timestamp = [datetime.now(UTC)]
     battery = [
         BatteryResource(
             resource_id="battery-1",
@@ -161,13 +160,13 @@ async def test_capacity_release_requests_verified_dtu_maximum_through_scheduler(
             adapter_version="test",
             available=True,
             health=BatteryHealth.HEALTHY,
-            last_updated=timestamp[0],
+            last_updated=datetime.now(UTC),
             data_age_seconds=1,
-            soc_percent=60,
-            charge_power_w=400,
+            soc_percent=38,
+            charge_power_w=0,
             discharge_power_w=0,
             max_charge_power_w=1000,
-            remaining_charge_power_w=600,
+            remaining_charge_power_w=1000,
             source_freshness={
                 "soc_percent": "fresh",
                 "max_charge_power_w": "fresh",
@@ -185,15 +184,8 @@ async def test_capacity_release_requests_verified_dtu_maximum_through_scheduler(
     )
     await controller.async_set_mode(ControllerMode.PRODUCTION.value)
 
-    # The controller deliberately consumes its first two grid readings before
-    # making a control decision.  Feed two distinct directional publications
-    # to the pure strategy first; the first actionable controller snapshot is
-    # then the third fresh confirmation and must request the verified maximum.
-    for _ in range(2):
-        controller.energy_policy_engine.decide(-40, activate_battery_priority=True)
-        timestamp[0] += timedelta(seconds=1)
-        battery[0] = replace(battery[0], last_updated=timestamp[0])
-
+    # The first actionable controller snapshot must release a coherent but
+    # unchanged 0 W battery state so the SolarFlow can begin charging.
     for _ in range(3):
         await controller.async_tick()
 

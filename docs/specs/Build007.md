@@ -17,10 +17,13 @@ servent pas au calcul de puissance disponible dans cet incrément.
 
 Le mode optionnel `capacity_release` est distinct : avec un `chargeMaxLimit`
 explicitement vérifié, frais et normalisé en W, il demande une libération DTU à
-`100 %` tant que la batterie n’est pas pleine et reste sous sa saturation. La
-décharge n’est pas un motif de repli. Trois mesures fraîches à `>= max - 50 W`
-font revenir à Zero Injection ; trois à `< max - 100 W` relibèrent le DTU. Le
-SOC est considéré plein seulement à `>= 100 %` dans ce premier incrément.
+`100 %` tant que la batterie n’est pas pleine et reste sous sa saturation. Un
+instantané cohérent à `< max - 100 W` suffit à libérer le DTU, y compris si la
+puissance directionnelle reste à `0 W` sans nouvelle publication. La décharge
+n’est pas un motif de repli. Trois publications directionnelles fraîches et
+distinctes à `>= max - 50 W` font revenir à Zero Injection ; entre les deux
+seuils, l’état précédent est conservé. Le SOC est considéré plein seulement à
+`>= 100 %` dans ce premier incrément.
 
 ## Alpha.3 — observabilité cohérente
 

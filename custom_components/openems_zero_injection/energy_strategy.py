@@ -364,14 +364,19 @@ class BatteryPriorityStrategy:
                 target, BatteryPriorityReasonCode.CAPACITY_RELEASE_SATURATED, mode,
                 charge, discharge, max_charge, remaining,
             )
-        if not release_active and consecutive_release_samples < confirmation_samples:
-            reason = (
-                BatteryPriorityReasonCode.CAPACITY_RELEASE_HOLD_NORMAL
-                if consecutive_release_samples == 0
-                else BatteryPriorityReasonCode.CAPACITY_RELEASE_WAITING_TO_RELEASE
-            )
+        # Releasing an under-used battery capacity must not depend on the
+        # SolarFlow publishing a changing zero-W state.  The lower hysteresis
+        # boundary therefore releases immediately from one coherent snapshot;
+        # only saturation requires three distinct fresh publications.
+        if not release_active and charge >= max_charge - (2 * saturation_tolerance_w):
             return self._capacity_fallback(
-                target, reason, mode, charge, discharge, max_charge, remaining,
+                target,
+                BatteryPriorityReasonCode.CAPACITY_RELEASE_HOLD_NORMAL,
+                mode,
+                charge,
+                discharge,
+                max_charge,
+                remaining,
             )
         return BatteryPriorityComparison(
             effective_target_grid_power_w=target,
@@ -786,11 +791,10 @@ class EnergyStrategyEngine:
             else:
                 self._consecutive_saturation_samples = 0
             return
-        if charge < max_charge - (2 * self._battery_priority_saturation_tolerance_w):
-            if new_sample:
-                self._consecutive_release_samples += 1
-        else:
-            self._consecutive_release_samples = 0
+        # One coherent value below the lower boundary is enough to allow a
+        # release.  In particular, an unchanged 0 W state must not leave a
+        # physically available battery permanently unable to start charging.
+        self._consecutive_release_samples = 0
 
     def _observed_conservative_comparison(
         self, strategy_input: EnergyStrategyInput

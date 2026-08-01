@@ -377,40 +377,36 @@ def test_observed_conservative_requires_three_low_samples_to_fallback() -> None:
     assert engine.battery_priority_diagnostics["consecutive_low_charge_samples"] == 0
 
 
-def test_capacity_release_requires_three_fresh_samples_below_900_w() -> None:
-    """A verified unsaturated capacity releases the DTU only after confirmation."""
-    sample = [0]
-    contexts = [_capacity_context(charge_w=400, second=sample[0])]
+def test_capacity_release_releases_from_one_coherent_zero_w_snapshot() -> None:
+    """An unchanged 0 W SolarFlow state must still allow charging to start."""
+    contexts = [_capacity_context(charge_w=0, soc_percent=38, second=0)]
     engine = _capacity_engine(contexts)
 
-    decisions = []
-    for _ in range(3):
-        decisions.append(engine.decide(-40, activate_battery_priority=True))
-        sample[0] += 1
-        contexts[0] = _capacity_context(charge_w=400, second=sample[0])
+    first = engine.decide(-40, activate_battery_priority=True)
+    # No new directional publication: the same coherent zero-W snapshot must
+    # remain released rather than waiting indefinitely for three state changes.
+    repeated = engine.decide(-40, activate_battery_priority=True)
 
-    assert [decision.dtu_control_directive for decision in decisions] == [
-        DtuControlDirective.NORMAL_REGULATION,
-        DtuControlDirective.NORMAL_REGULATION,
-        DtuControlDirective.RELEASE_DTU_TO_MAXIMUM,
-    ]
-    assert decisions[-1].requested_dtu_limit_percent == 100
-    assert decisions[-1].comparison is not None
-    assert decisions[-1].comparison.remaining_charge_power_w == 600
+    assert first.dtu_control_directive is DtuControlDirective.RELEASE_DTU_TO_MAXIMUM
+    assert repeated.dtu_control_directive is DtuControlDirective.RELEASE_DTU_TO_MAXIMUM
+    assert first.requested_dtu_limit_percent == 100
+    assert first.comparison is not None
+    assert first.comparison.remaining_charge_power_w == 1000
 
 
-def test_capacity_release_does_not_count_a_soc_refresh_as_directional_power() -> None:
-    """Only a distinct directional-power publication advances confirmation."""
+def test_capacity_release_keeps_release_across_a_soc_refresh() -> None:
+    """A SOC refresh cannot revoke an otherwise coherent released capacity."""
     contexts = [_capacity_context(charge_w=400, second=0)]
     engine = _capacity_engine(contexts)
 
-    engine.decide(-40, activate_battery_priority=True)
+    first = engine.decide(-40, activate_battery_priority=True)
     resource = replace(contexts[0].resources[0], soc_percent=61)
     contexts[0] = BatteryPriorityContext((resource,), None, "none")
     decision = engine.decide(-40, activate_battery_priority=True)
 
-    assert decision.dtu_control_directive is DtuControlDirective.NORMAL_REGULATION
-    assert engine.battery_priority_diagnostics["consecutive_release_samples"] == 1
+    assert first.dtu_control_directive is DtuControlDirective.RELEASE_DTU_TO_MAXIMUM
+    assert decision.dtu_control_directive is DtuControlDirective.RELEASE_DTU_TO_MAXIMUM
+    assert engine.battery_priority_diagnostics["consecutive_release_samples"] == 0
 
 
 def test_capacity_release_holds_between_900_and_950_w() -> None:
