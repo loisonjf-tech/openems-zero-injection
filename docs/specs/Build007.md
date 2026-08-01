@@ -23,7 +23,10 @@ puissance directionnelle reste à `0 W` sans nouvelle publication. La décharge
 n’est pas un motif de repli. Trois publications directionnelles fraîches et
 distinctes à `>= max - 50 W` font revenir à Zero Injection ; entre les deux
 seuils, l’état précédent est conservé. Le SOC est considéré plein seulement à
-`>= 100 %` dans ce premier incrément.
+`>= 100 %` dans ce premier incrément. `chargeMaxLimit` est une capacité de
+configuration : après une première publication valide et vérifiée postérieure
+au démarrage, elle est conservée en mémoire jusqu'à une publication explicitement
+invalide ou indisponible ; elle n'est jamais restaurée après redémarrage.
 
 ## Alpha.3 — observabilité cohérente
 

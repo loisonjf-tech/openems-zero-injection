@@ -307,26 +307,75 @@ def test_charge_limit_requires_a_fresh_publication_after_startup(hass) -> None:
 
     resource = adapter.read_resource(now)
 
-    assert resource.max_charge_power_w == 1000
+    assert resource.max_charge_power_w is None
     assert resource.source_freshness["max_charge_power_w"] == "not_refreshed"
 
 
-def test_charge_limit_is_stale_after_five_minutes(hass) -> None:
+def test_verified_charge_limit_remains_available_after_five_minutes(hass) -> None:
+    """A valid post-start configuration capacity survives source silence."""
     now = datetime.now(UTC)
     states = {
         "sensor.soc": _state("sensor.soc", "50", "%", now),
         BAT_IN_OUT_ENTITY_ID: _state(BAT_IN_OUT_ENTITY_ID, "-291", "W", now),
-        "sensor.limit": _state(
-            "sensor.limit", "1000", "W", now - timedelta(seconds=301)
-        ),
+        "sensor.limit": _state("sensor.limit", "1000", "W", now),
     }
     adapter = _adapter_with_states(states, charge_limit_verified=True)
-    adapter._started_at = now - timedelta(minutes=10)
+    adapter._started_at = now - timedelta(seconds=1)
 
-    resource = adapter.read_resource(now)
+    assert adapter.read_resource(now).max_charge_power_w == 1000
+
+    later = now + timedelta(seconds=301)
+    states["sensor.soc"] = _state("sensor.soc", "50", "%", later)
+    states[BAT_IN_OUT_ENTITY_ID] = _state(BAT_IN_OUT_ENTITY_ID, "-291", "W", later)
+
+    resource = adapter.read_resource(later)
 
     assert resource.max_charge_power_w == 1000
-    assert resource.source_freshness["max_charge_power_w"] == "stale"
+    assert resource.source_freshness["max_charge_power_w"] == "cached"
+
+
+def test_invalid_or_unavailable_charge_limit_clears_the_runtime_cache(hass) -> None:
+    """Only an explicit invalid source may revoke an already verified capacity."""
+    now = datetime.now(UTC)
+    states = {
+        "sensor.soc": _state("sensor.soc", "50", "%", now),
+        BAT_IN_OUT_ENTITY_ID: _state(BAT_IN_OUT_ENTITY_ID, "0", "W", now),
+        "sensor.limit": _state("sensor.limit", "1000", "W", now),
+    }
+    adapter = _adapter_with_states(states, charge_limit_verified=True)
+    adapter._started_at = now - timedelta(seconds=1)
+    assert adapter.read_resource(now).max_charge_power_w == 1000
+
+    later = now + timedelta(seconds=1)
+    states["sensor.limit"] = _state("sensor.limit", "1000", "VA", later)
+    invalid = adapter.read_resource(later)
+    assert invalid.max_charge_power_w is None
+    assert invalid.source_freshness["max_charge_power_w"] == "invalid"
+
+    states["sensor.limit"] = State("sensor.limit", STATE_UNAVAILABLE)
+    unavailable = adapter.read_resource(later + timedelta(seconds=1))
+    assert unavailable.max_charge_power_w is None
+    assert unavailable.source_freshness["max_charge_power_w"] == "unavailable"
+
+
+def test_new_valid_charge_limit_reenables_the_runtime_capacity(hass) -> None:
+    """A later valid publication restores capacity after an invalid value."""
+    now = datetime.now(UTC)
+    states = {
+        "sensor.soc": _state("sensor.soc", "50", "%", now),
+        BAT_IN_OUT_ENTITY_ID: _state(BAT_IN_OUT_ENTITY_ID, "0", "W", now),
+        "sensor.limit": _state("sensor.limit", STATE_UNAVAILABLE, "W", now),
+    }
+    adapter = _adapter_with_states(states, charge_limit_verified=True)
+    adapter._started_at = now - timedelta(seconds=1)
+    assert adapter.read_resource(now).max_charge_power_w is None
+
+    later = now + timedelta(seconds=1)
+    states["sensor.limit"] = _state("sensor.limit", "1000", "W", later)
+    resource = adapter.read_resource(later)
+
+    assert resource.max_charge_power_w == 1000
+    assert resource.source_freshness["max_charge_power_w"] == "fresh"
 
 
 def test_unmapped_fault_level_does_not_create_a_battery_fault(hass) -> None:

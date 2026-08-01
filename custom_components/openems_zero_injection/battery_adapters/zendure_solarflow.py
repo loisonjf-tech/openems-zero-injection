@@ -50,6 +50,10 @@ class ZendureSolarFlowAdapter:
         self._charge_limit_verified = charge_limit_verified
         self._max_age_seconds = max_age_seconds
         self._started_at = datetime.now(UTC)
+        # ``chargeMaxLimit`` is a configuration capacity, not a rapidly
+        # changing measurement.  It is deliberately memory-only: every Home
+        # Assistant restart must see a new valid post-start publication.
+        self._verified_charge_limit_w: float | None = None
 
     def read_resource(self, now: datetime | None = None) -> BatteryResource:
         """Build one passive resource from current HA state machine values."""
@@ -106,6 +110,17 @@ class ZendureSolarFlowAdapter:
             for source, timestamp in source_timestamps.items()
         }
 
+        max_charge = self._resolve_charge_limit_capacity(
+            charge_limit,
+            charge_limit_time,
+            charge_limit_issue,
+            source_freshness["max_charge_power_w"],
+        )
+        if max_charge is not None and source_freshness["max_charge_power_w"] != "fresh":
+            # The source itself may be old, but this is an already verified
+            # configuration value held only for this adapter lifetime.
+            source_freshness["max_charge_power_w"] = "cached"
+
         for freshness in source_freshness.values():
             if freshness == "not_refreshed":
                 anomalies.append(BatteryReasonCode.SOURCE_NOT_REFRESHED)
@@ -146,13 +161,10 @@ class ZendureSolarFlowAdapter:
                 if grid_input_issue is BatteryReasonCode.SOURCE_UNAVAILABLE
                 else BatteryReasonCode.GRID_INPUT_POWER_INVALID
             )
-        max_charge: float | None = None
         if not self._charge_limit_verified:
             anomalies.append(BatteryReasonCode.CHARGE_LIMIT_UNVERIFIED)
-        elif charge_limit_issue is not None or charge_limit is None or charge_limit <= 0:
+        elif max_charge is None:
             anomalies.append(BatteryReasonCode.CHARGE_LIMIT_INVALID)
-        else:
-            max_charge = charge_limit
 
         remaining = (
             max(max_charge - charge_power, 0.0)
@@ -197,6 +209,29 @@ class ZendureSolarFlowAdapter:
             source_max_age_seconds=source_max_ages,
             source_freshness=source_freshness,
         )
+
+    def _resolve_charge_limit_capacity(
+        self,
+        value_w: float | None,
+        timestamp: datetime | None,
+        issue: BatteryReasonCode | None,
+        freshness: str,
+    ) -> float | None:
+        """Return a validated configuration capacity held for this runtime only."""
+        if not self._charge_limit_verified:
+            self._verified_charge_limit_w = None
+            return None
+        if issue is not None or value_w is None or value_w <= 0:
+            # A newly observed invalid or unavailable source revokes the
+            # previous capacity immediately; stale silence does not.
+            self._verified_charge_limit_w = None
+            return None
+        if timestamp is not None and timestamp > self._started_at:
+            self._verified_charge_limit_w = value_w
+        if freshness == "not_refreshed":
+            # State restoration after a restart is never capacity evidence.
+            return None
+        return self._verified_charge_limit_w
 
     def _read_soc(self) -> tuple[float | None, datetime | None, BatteryReasonCode | None]:
         state = self._hass.states.get(self._soc_entity_id)

@@ -483,6 +483,25 @@ def test_capacity_release_falls_back_when_soc_or_capacity_is_not_fresh() -> None
     assert decision.comparison.reason_code is BatteryPriorityReasonCode.CAPACITY_RELEASE_SOC_STALE
 
 
+def test_capacity_release_accepts_a_verified_cached_charge_capacity() -> None:
+    """A static, validated SolarFlow capacity remains usable after its first read."""
+    context = _capacity_context(charge_w=724, soc_percent=43)
+    battery = replace(
+        context.resources[0],
+        source_freshness={
+            "soc_percent": "fresh",
+            "max_charge_power_w": "cached",
+        },
+    )
+    contexts = [BatteryPriorityContext((battery,), None, "none")]
+    engine = _capacity_engine(contexts)
+
+    decision = engine.decide(-40, activate_battery_priority=True)
+
+    assert decision.dtu_control_directive is DtuControlDirective.RELEASE_DTU_TO_MAXIMUM
+    assert decision.requested_dtu_limit_percent == 100
+
+
 def test_capacity_release_treats_soc_100_as_full() -> None:
     """This first increment deliberately uses no speculative 99% full rule."""
     contexts = [_capacity_context(charge_w=0, soc_percent=100)]

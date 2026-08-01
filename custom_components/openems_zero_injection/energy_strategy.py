@@ -439,7 +439,7 @@ class BatteryPriorityStrategy:
         ):
             return BatteryPriorityReasonCode.CAPACITY_RELEASE_SOC_STALE
         if any(
-            resource.source_freshness.get("max_charge_power_w") != "fresh"
+            resource.source_freshness.get("max_charge_power_w") not in {"fresh", "cached"}
             for resource in context.resources
         ):
             return BatteryPriorityReasonCode.CAPACITY_RELEASE_CAPACITY_STALE

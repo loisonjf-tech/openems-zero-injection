@@ -13,6 +13,10 @@ Toutes les évolutions notables sont documentées dans ce fichier.
   `< max - 100 W` libère immédiatement le DTU, y compris à `0 W` stable ;
   trois publications fraîches distinctes à `>= max - 50 W` sont toujours
   nécessaires pour revenir à Zero Injection.
+- `chargeMaxLimit` validé devient une capacité de configuration mémorisée en
+  mémoire durant l'exécution : son absence de republication ne l'expire plus.
+  Une donnée invalide ou indisponible efface immédiatement ce cache ; un
+  redémarrage exige toujours une nouvelle publication valide.
 - Une observation corrélée DTU/limite est ajoutée aux diagnostics et aux traces
   de commande : puissance nominale configurée, limite demandée, plafond
   théorique, puissance active lue, limites temporaires des trois ports, âge de
