@@ -10,8 +10,25 @@ from custom_components.openems_zero_injection.const import (
     DOMAIN,
 )
 from custom_components.openems_zero_injection.diagnostics import (
+    _directional_source_state_diagnostics,
     async_get_config_entry_diagnostics,
 )
+
+
+def test_directional_source_diagnostics_expose_all_home_assistant_timestamps(hass) -> None:
+    """The freshness investigation must not change or subscribe to the entity."""
+    hass.states.async_set("sensor.battery_directional", "0", {"unit_of_measurement": "W"})
+
+    diagnostics = _directional_source_state_diagnostics(
+        hass, "sensor.battery_directional"
+    )
+
+    assert diagnostics["entity_id"] == "sensor.battery_directional"
+    assert diagnostics["entity_available"] is True
+    assert diagnostics["state"] == "0"
+    for key in ("last_changed", "last_updated", "last_reported"):
+        assert set(diagnostics[key]) == {"timestamp", "age_seconds"}
+        assert diagnostics[key]["age_seconds"] is None or diagnostics[key]["age_seconds"] >= 0
 
 
 async def test_diagnostics_include_connection_state(hass) -> None:

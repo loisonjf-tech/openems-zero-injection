@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -24,6 +25,36 @@ from .registers import (
     PORT_PERMANENT_POWER_LIMIT_REGISTERS,
     PORT_TEMPORARY_POWER_LIMIT_REGISTERS,
 )
+
+
+def _directional_source_state_diagnostics(
+    hass: HomeAssistant, entity_id: str | None
+) -> dict[str, Any]:
+    """Expose raw Home Assistant timestamps for the battery-source field test.
+
+    This is diagnostics-only.  It deliberately does not alter the adapter's
+    current freshness rules or subscribe to any Home Assistant event.
+    """
+    state = hass.states.get(entity_id) if entity_id else None
+    now = datetime.now(UTC)
+
+    def details(timestamp: datetime | None) -> dict[str, Any]:
+        if timestamp is None:
+            return {"timestamp": None, "age_seconds": None}
+        timestamp_utc = timestamp.astimezone(UTC)
+        return {
+            "timestamp": timestamp_utc.isoformat(),
+            "age_seconds": max(0.0, (now - timestamp_utc).total_seconds()),
+        }
+
+    return {
+        "entity_id": entity_id,
+        "entity_available": state is not None and state.state not in {"unknown", "unavailable"},
+        "state": state.state if state else None,
+        "last_changed": details(state.last_changed if state else None),
+        "last_updated": details(state.last_updated if state else None),
+        "last_reported": details(getattr(state, "last_reported", None) if state else None),
+    }
 
 
 async def async_get_config_entry_diagnostics(
@@ -129,6 +160,9 @@ async def async_get_config_entry_diagnostics(
                     "source_ages_seconds": battery.source_ages_seconds,
                     "source_max_age_seconds": battery.source_max_age_seconds,
                     "source_freshness": battery.source_freshness,
+                    "directional_source_state": _directional_source_state_diagnostics(
+                        hass, battery.source_entities.get("directional_power_w")
+                    ),
                 }
                 for battery in energy_manager.resources
             ],
