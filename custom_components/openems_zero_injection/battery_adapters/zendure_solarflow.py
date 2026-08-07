@@ -184,6 +184,9 @@ class ZendureSolarFlowAdapter:
             last_updated=last_updated,
             data_age_seconds=max(0.0, age) if age is not None else None,
             soc_percent=soc,
+            # Preserve the signed, normalized source value for diagnostics and
+            # passive history. Control still uses charge/discharge values.
+            directional_power_w=power,
             charge_power_w=charge_power,
             discharge_power_w=discharge_power,
             grid_input_power_w=grid_input_power,

@@ -86,7 +86,7 @@ Le mode diagnostic détaillé, le polling accéléré et les exports CSV/JSON re
 
 L’option **Activer l’historique persistant d’observabilité** est désactivée par défaut. Lorsqu’elle est activée, OpenEMS conserve en parallèle du Trace Recorder en mémoire des événements JSONL quotidiens dans `/config/openems_zero_injection/history/`. Chaque événement inclut les versions de l’intégration et de l’algorithme, les mesures et limites déjà acquises, l’état batterie, la stratégie, le Scheduler et le résultat éventuel d’une commande. Il n’ajoute aucune lecture ni écriture Modbus ou batterie.
 
-L’historique écrit uniquement sur décision, résultat de commande et échantillon de contexte au plus toutes les quinze minutes. L’écriture passe par une file mémoire bornée et un worker asynchrone ; un disque indisponible ou saturé ne peut jamais bloquer la régulation. Les fichiers sont tournés par jour et la rétention est réglable de 1 à 365 jours (30 jours par défaut).
+L’historique écrit uniquement sur décision, résultat de commande et échantillon de contexte au plus toutes les quinze minutes. Pour la batterie, il conserve aussi la source directionnelle signée, `gridInputPower`, les entités sources, leurs horodatages, âges et états de fraîcheur. Cela permet de distinguer une incohérence réelle d’un décalage temporel entre SOC et puissance. L’écriture passe par une file mémoire bornée et un worker asynchrone ; un disque indisponible ou saturé ne peut jamais bloquer la régulation. Les fichiers sont tournés par jour et la rétention est réglable de 1 à 365 jours (30 jours par défaut).
 
 ## SolarFlow lecture seule — Build005
 

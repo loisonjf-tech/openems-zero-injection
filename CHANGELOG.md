@@ -14,6 +14,10 @@ Toutes les évolutions notables sont documentées dans ce fichier.
   puissance active DTU, puissance nominale configurée, plafond théorique
   OpenEMS et puissance réseau. Ces données servent uniquement à valider sur le
   terrain la sémantique réelle des registres de limite.
+- Les événements persistants conservent désormais la puissance directionnelle
+  SolarFlow signée, `gridInputPower` et les métadonnées de chaque source
+  batterie (entité, horodatage, âge et fraîcheur), sans modifier la stratégie
+  énergétique.
 
 ### Safety
 

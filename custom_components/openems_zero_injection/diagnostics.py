@@ -114,6 +114,7 @@ async def async_get_config_entry_diagnostics(
                     "last_updated": battery.last_updated.isoformat() if battery.last_updated else None,
                     "data_age_seconds": battery.data_age_seconds,
                     "soc_percent": battery.soc_percent,
+                    "directional_power_w": battery.directional_power_w,
                     "charge_power_w": battery.charge_power_w,
                     "discharge_power_w": battery.discharge_power_w,
                     "grid_input_power_w": battery.grid_input_power_w,

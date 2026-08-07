@@ -62,7 +62,37 @@ def fake_coordinator(
 def test_persistent_history_payload_records_limit_power_correlation(hass) -> None:
     """The history retains evidence without asserting DTU limit semantics."""
     timestamp = datetime.now(UTC)
+    battery = BatteryResource(
+        resource_id="battery-1",
+        name="Test battery",
+        adapter_id="test",
+        adapter_version="test",
+        available=True,
+        health=BatteryHealth.HEALTHY,
+        last_updated=timestamp,
+        data_age_seconds=1,
+        soc_percent=65,
+        directional_power_w=-291,
+        charge_power_w=291,
+        discharge_power_w=0,
+        grid_input_power_w=292,
+        source_entities={
+            "soc_percent": "sensor.soc",
+            "directional_power_w": "sensor.bat_in_out",
+        },
+        source_timestamps={"soc_percent": timestamp, "directional_power_w": timestamp},
+        source_ages_seconds={"soc_percent": 1, "directional_power_w": 1},
+        source_freshness={"soc_percent": "fresh", "directional_power_w": "fresh"},
+    )
     coordinator = fake_coordinator(temporary_limit_percent=2)
+    coordinator.energy_manager = SimpleNamespace(
+        snapshot=lambda: SimpleNamespace(
+            resources=(battery,),
+            battery_count=1,
+            total_remaining_charge_power_w=None,
+            remaining_charge_coverage=SimpleNamespace(status="none"),
+        )
+    )
     coordinator.last_confirmed_temporary_limit = 2
     coordinator.temporary_limit_source = "automatic_correction"
     coordinator.temporary_limits_confirmation_timestamp = timestamp
@@ -93,6 +123,10 @@ def test_persistent_history_payload_records_limit_power_correlation(hass) -> Non
     assert payload["installed_nominal_power_w"] == 3000
     assert payload["openems_theoretical_max_power_at_real_limit_w"] == 60
     assert payload["grid_power_w"] == -220
+    assert payload["battery"]["directional_power_w"] == -291
+    assert payload["battery"]["grid_input_power_w"] == 292
+    assert payload["battery"]["source_entities"]["directional_power_w"] == "sensor.bat_in_out"
+    assert payload["battery"]["source_freshness"]["soc_percent"] == "fresh"
 
 
 async def test_takeover_establishes_a_reference_before_first_production_decision(hass) -> None:

@@ -67,6 +67,7 @@ def test_bat_in_out_negative_value_is_charge_without_unknown_sign(hass) -> None:
     resource = adapter.read_resource()
 
     assert resource.health is BatteryHealth.HEALTHY
+    assert resource.directional_power_w == -291
     assert resource.charge_power_w == 291
     assert resource.discharge_power_w == 0
     assert resource.grid_input_power_w == 292
@@ -82,6 +83,7 @@ def test_bat_in_out_positive_value_is_discharge(hass) -> None:
     resource = adapter.read_resource()
 
     assert resource.health is BatteryHealth.HEALTHY
+    assert resource.directional_power_w == 58
     assert resource.charge_power_w == 0
     assert resource.discharge_power_w == 58
     assert resource.grid_input_power_w == 0
@@ -95,6 +97,7 @@ def test_bat_in_out_zero_is_inactive(hass) -> None:
     resource = adapter.read_resource()
 
     assert resource.health is BatteryHealth.HEALTHY
+    assert resource.directional_power_w == 0
     assert resource.charge_power_w == 0
     assert resource.discharge_power_w == 0
 

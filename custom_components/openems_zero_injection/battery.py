@@ -86,6 +86,7 @@ class BatteryResource:
     source_ages_seconds: dict[str, float | None] = field(default_factory=dict)
     source_max_age_seconds: dict[str, int] = field(default_factory=dict)
     source_freshness: dict[str, str] = field(default_factory=dict)
+    directional_power_w: float | None = None
 
 
 class BatteryManager(Protocol):
