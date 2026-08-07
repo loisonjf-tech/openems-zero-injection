@@ -23,10 +23,10 @@ async def async_setup_entry(
 
 
 class OpenEMSControllerModeSelect(CoordinatorEntity[DtuProSCoordinator], SelectEntity):
-    """Explicitly choose Disabled, Simulation, or Production."""
+    """Explicitly choose manual operation or automatic regulation."""
 
     _attr_name = "Mode du contrôleur"
-    _attr_options = ["Manuel", "Simulation", "Régulation automatique"]
+    _attr_options = ["Manuel", "Régulation automatique"]
     _attr_entity_category = EntityCategory.CONFIG
     _attr_icon = "mdi:transmission-tower"
 
@@ -45,9 +45,8 @@ class OpenEMSControllerModeSelect(CoordinatorEntity[DtuProSCoordinator], SelectE
     def current_option(self) -> str:
         return {
             ControllerMode.DISABLED: "Manuel",
-            ControllerMode.SIMULATION: "Simulation",
             ControllerMode.PRODUCTION: "Régulation automatique",
-        }[self.coordinator.controller.mode]
+        }.get(self.coordinator.controller.mode, "Manuel")
 
     @property
     def available(self) -> bool:
@@ -60,7 +59,6 @@ class OpenEMSControllerModeSelect(CoordinatorEntity[DtuProSCoordinator], SelectE
             "Manuel": ControllerMode.DISABLED.value,
             # Compatibility aliases for existing select-service automations.
             "Désactivé": ControllerMode.DISABLED.value,
-            "Simulation": ControllerMode.SIMULATION.value,
             "Régulation automatique": ControllerMode.PRODUCTION.value,
             "Production": ControllerMode.PRODUCTION.value,
         }

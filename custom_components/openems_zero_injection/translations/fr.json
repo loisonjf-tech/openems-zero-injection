@@ -41,6 +41,8 @@
           ,"battery_priority_margin_w": "Marge Priorité Batterie"
           ,"battery_priority_charge_threshold_w": "Seuil de confirmation de charge batterie"
           ,"battery_priority_confirmation_samples": "Mesures de charge fraîches consécutives"
+          ,"persistent_history_enabled": "Activer l’historique persistant d’observabilité"
+          ,"persistent_history_retention_days": "Conservation de l’historique persistant (jours)"
         }
       }
     }
@@ -54,8 +56,6 @@
       "ports_synchronization": {"name": "État de synchronisation des ports"},
       "calculated_limit": {"name": "Limite prédictive théorique"},
       "commanded_limit": {"name": "Prochaine limite commandée"},
-      "last_simulated_limit": {"name": "Dernière limite simulée"},
-      "simulated_limit": {"name": "Limite actuellement recommandée"},
       "waiting_state": {"name": "État d’attente"},
       "scheduler_inactive_reason": {"name": "Motif d’inactivité du planificateur"},
       "watts_per_percent": {"name": "Puissance correspondant à 1 %"},
@@ -71,7 +71,6 @@
       "solarflow_data_age_seconds": {"name": "Âge des données batterie SolarFlow"},
       "last_decision": {"name": "Motif de la dernière décision"},
       "last_command_result": {"name": "Résultat de la dernière commande"},
-      "commands_simulated": {"name": "Commandes simulées"},
       "trace_mode": {
         "name": "Mode Trace Recorder",
         "state": {"normal": "Normal"}

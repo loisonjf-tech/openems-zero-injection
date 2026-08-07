@@ -9,10 +9,8 @@ opposite, enable inversion in the options.
 
 The mode starts as **Disabled** after every Home Assistant restart:
 
-- **Disabled**: no control calculation and no write.
-- **Simulation**: calculates and records a theoretical command, but sends no
-  Modbus frame.
-- **Production**: may write only if the Build003 manual-write interlock is on,
+- **Manuel**: no automatic control calculation and no automatic write.
+- **Régulation automatique**: may write only if the automatic-write predicates,
   three valid grid readings were observed, all three temporary limits agree,
   all three temporary limits were refreshed successfully in the current cycle,
   and the safety scheduler allows a command.
@@ -24,13 +22,14 @@ command enters `Error`; no automatic retry or restore write is attempted.
 The controller uses the manually configured `installed_nominal_power_w` only.
 Its conversion coefficient is always `installed_nominal_power_w / 100`; it is
 never inferred from instant DTU power and is never replaced by a DTU value.
-The Simulation mode uses this same coefficient with its separate virtual limit.
+Internal simulation remains available to tests and observability tools only; it
+is no longer exposed as a Home Assistant controller mode.
 
 An isolated temporary-limit read error retains the last confirmed value for
-diagnostics, marked as stale, but pauses Production. The next normal cycle
+diagnostics, marked as stale, but pauses Automatic Regulation. The next normal cycle
 performs the next read attempt. Permanent limit registers are diagnostic only
 and read at startup then every five minutes; their availability does not affect
-Simulation or Production.
+Manual or Automatic Regulation.
 
 ## Measurement synchronization
 

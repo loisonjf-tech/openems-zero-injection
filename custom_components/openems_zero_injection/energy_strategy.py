@@ -644,7 +644,7 @@ class EnergyStrategyEngine:
         }
 
     def battery_priority_input_changed(self) -> bool:
-        """Tell the controller when a fresh battery transition needs evaluation.
+        """Tell the controller when a battery transition needs evaluation.
 
         This is intentionally passive: it only examines the coordinator's
         already-acquired snapshot and does not cause polling or adapter I/O.
@@ -969,6 +969,7 @@ class EnergyStrategyEngine:
                 resource.source_timestamps.get(
                     "directional_power_w", resource.last_updated
                 ),
+                resource.source_freshness.get("directional_power_w"),
                 resource.charge_power_w,
                 resource.discharge_power_w,
                 resource.soc_percent,

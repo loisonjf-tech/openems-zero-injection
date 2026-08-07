@@ -133,6 +133,7 @@ async def async_get_config_entry_diagnostics(
             ],
         },
         "trace_recorder": trace,
+        "persistent_history": coordinator.persistent_history_recorder.diagnostics(),
         "controller": {
             "mode": controller.mode.value,
             "mode_restore_source": controller.mode_restore_source,
@@ -157,7 +158,6 @@ async def async_get_config_entry_diagnostics(
             "dtu_limit_power_observation": (
                 controller.dtu_limit_power_observation
             ),
-            "current_recommended_limit": controller.simulated_current_limit,
             "next_proposed_limit": controller.status.calculated_limit_percent,
             "next_commanded_limit": controller.status.commanded_limit_percent,
             "predictive": {
@@ -200,11 +200,7 @@ async def async_get_config_entry_diagnostics(
                 "tolerance_seconds": sync.tolerance_seconds,
                 "reason": sync.reason,
             },
-            "next_displayed_limit": (
-                controller.simulated_current_limit
-                if controller.mode.value == "Simulation"
-                else controller.status.commanded_limit_percent
-            ),
+            "next_displayed_limit": controller.status.commanded_limit_percent,
             "waiting_state": controller.waiting_state,
             "installed_nominal_power_w": controller.installed_nominal_power_w,
             "watts_per_percent": controller.watts_per_percent,
@@ -216,13 +212,6 @@ async def async_get_config_entry_diagnostics(
             ),
             "previous_installed_nominal_power_w": (
                 controller.previous_installed_nominal_power_w
-            ),
-            "simulated_current_limit": controller.simulated_current_limit,
-            "last_simulated_limit": controller.last_simulated_limit,
-            "last_simulated_command_time": (
-                controller.last_simulated_command_time.isoformat()
-                if controller.last_simulated_command_time
-                else None
             ),
             "temporary_limits_ready": coordinator.temporary_limits_ready,
             "temporary_limits_fresh": coordinator.temporary_limits_fresh,
@@ -241,7 +230,6 @@ async def async_get_config_entry_diagnostics(
                 "commands_sent": controller.commands_sent,
                 "commands_succeeded": controller.commands_succeeded,
                 "commands_failed": controller.commands_failed,
-                "commands_simulated": controller.commands_simulated,
                 "blocked_stabilization": controller.decisions_blocked_stabilization,
                 "limit_unchanged": controller.decisions_limit_unchanged,
                 "within_deadband": controller.decisions_within_deadband,

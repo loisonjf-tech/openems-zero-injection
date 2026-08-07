@@ -6,6 +6,9 @@ from enum import StrEnum
 DOMAIN = "openems_zero_injection"
 NAME = "OpenEMS Zero Injection"
 VERSION = "0.8.0-alpha.1"
+# Stable identifier written beside every persistent observation.  It is
+# intentionally independent from the user-facing integration version.
+ALGORITHM_VERSION = "build007_capacity_release"
 
 CONF_DTU_HOST = "dtu_host"
 CONF_DTU_PORT = "dtu_port"
@@ -30,6 +33,8 @@ CONF_BATTERY_PRIORITY_MODE = "battery_priority_mode"
 CONF_BATTERY_PRIORITY_MARGIN_W = "battery_priority_margin_w"
 CONF_BATTERY_PRIORITY_CHARGE_THRESHOLD_W = "battery_priority_charge_threshold_w"
 CONF_BATTERY_PRIORITY_CONFIRMATION_SAMPLES = "battery_priority_confirmation_samples"
+CONF_PERSISTENT_HISTORY_ENABLED = "persistent_history_enabled"
+CONF_PERSISTENT_HISTORY_RETENTION_DAYS = "persistent_history_retention_days"
 
 DEFAULT_DTU_PORT = 502
 DEFAULT_DEVICE_ID = 1
@@ -77,6 +82,10 @@ DEFAULT_BATTERY_PRIORITY_MODE = "disabled"
 DEFAULT_BATTERY_PRIORITY_MARGIN_W = 25
 DEFAULT_BATTERY_PRIORITY_CHARGE_THRESHOLD_W = 50
 DEFAULT_BATTERY_PRIORITY_CONFIRMATION_SAMPLES = 3
+DEFAULT_PERSISTENT_HISTORY_ENABLED = False
+DEFAULT_PERSISTENT_HISTORY_RETENTION_DAYS = 30
+MIN_PERSISTENT_HISTORY_RETENTION_DAYS = 1
+MAX_PERSISTENT_HISTORY_RETENTION_DAYS = 365
 DEFAULT_BATTERY_PRIORITY_SATURATION_TOLERANCE_W = 50
 MIN_BATTERY_PRIORITY_MARGIN_W = 0
 MAX_BATTERY_PRIORITY_MARGIN_W = 100
@@ -97,11 +106,15 @@ MEASUREMENT_SYNC_MAX_DIFFERENCE_SECONDS = 25
 # Smaller fluctuations are normal measurement noise and must not create a new
 # decision/history entry or cause Home Assistant state churn.
 SIGNIFICANT_POWER_CHANGE_W = 30
-SIMULATION_DIAGNOSTIC_REFRESH_SECONDS = 300
+INTERNAL_SIMULATION_DIAGNOSTIC_REFRESH_SECONDS = 300
 
 
 class ControllerMode(StrEnum):
-    """Explicit controller modes; the integration starts disabled."""
+    """Persisted controller modes.
+
+    ``SIMULATION`` is retained solely for internal trace/test compatibility.
+    It is no longer a Home Assistant selectable or restorable user mode.
+    """
 
     DISABLED = "Disabled"
     SIMULATION = "Simulation"

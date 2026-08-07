@@ -57,8 +57,8 @@ async def test_coordinator_decodes_measurements(hass) -> None:
     assert not coordinator.temporary_limits_identical
 
 
-async def test_controller_mode_is_restored_from_config_entry_options(hass, caplog) -> None:
-    """A deliberate Simulation selection survives an integration reload."""
+async def test_legacy_simulation_mode_falls_back_to_safe_manual_mode(hass, caplog) -> None:
+    """A removed user Simulation selection can never resume virtual control."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502},
@@ -69,10 +69,10 @@ async def test_controller_mode_is_restored_from_config_entry_options(hass, caplo
         await coordinator.controller.async_start()
         await coordinator.controller.async_stop()
 
-    assert coordinator.controller.mode is ControllerMode.SIMULATION
-    assert coordinator.controller.mode_restore_source == "options"
-    assert "Controller mode restored: simulation" in caplog.text
-    assert "Controller mode source: options" in caplog.text
+    assert coordinator.controller.mode is ControllerMode.DISABLED
+    assert coordinator.controller.mode_restore_source == "legacy_simulation_migrated"
+    assert "Legacy Simulation mode migrated to Manual" in caplog.text
+    assert "Controller mode restored: disabled" in caplog.text
 
 
 async def test_invalid_persisted_mode_uses_logged_disabled_fallback(hass, caplog) -> None:

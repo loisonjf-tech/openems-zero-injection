@@ -22,6 +22,8 @@ from .const import (
     CONF_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
     CONF_BATTERY_PRIORITY_MARGIN_W,
     CONF_BATTERY_PRIORITY_MODE,
+    CONF_PERSISTENT_HISTORY_ENABLED,
+    CONF_PERSISTENT_HISTORY_RETENTION_DAYS,
     CONF_PRODUCTION_STARTUP_STRATEGY,
     CONF_TAKEOVER_LIMIT_PERCENT,
     CONF_TEMPORARY_LIMIT_VALIDATION_MODE,
@@ -41,6 +43,8 @@ from .const import (
     DEFAULT_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
     DEFAULT_BATTERY_PRIORITY_MARGIN_W,
     DEFAULT_BATTERY_PRIORITY_MODE,
+    DEFAULT_PERSISTENT_HISTORY_ENABLED,
+    DEFAULT_PERSISTENT_HISTORY_RETENTION_DAYS,
     DEFAULT_PRODUCTION_STARTUP_STRATEGY,
     DEFAULT_TEMPORARY_LIMIT_VALIDATION_MODE,
     DEFAULT_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID,
@@ -59,6 +63,8 @@ from .const import (
     MIN_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
     MIN_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
     MIN_BATTERY_PRIORITY_MARGIN_W,
+    MIN_PERSISTENT_HISTORY_RETENTION_DAYS,
+    MAX_PERSISTENT_HISTORY_RETENTION_DAYS,
     DOMAIN,
 )
 from .modbus import DtuConnectionError, DtuProSModbusClient
@@ -306,6 +312,26 @@ class OpenEMSOptionsFlow(config_entries.OptionsFlow):
                         vol.Range(
                             min=MIN_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
                             max=MAX_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
+                        ),
+                    ),
+                    vol.Required(
+                        CONF_PERSISTENT_HISTORY_ENABLED,
+                        default=options.get(
+                            CONF_PERSISTENT_HISTORY_ENABLED,
+                            DEFAULT_PERSISTENT_HISTORY_ENABLED,
+                        ),
+                    ): selector.BooleanSelector(),
+                    vol.Required(
+                        CONF_PERSISTENT_HISTORY_RETENTION_DAYS,
+                        default=options.get(
+                            CONF_PERSISTENT_HISTORY_RETENTION_DAYS,
+                            DEFAULT_PERSISTENT_HISTORY_RETENTION_DAYS,
+                        ),
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(
+                            min=MIN_PERSISTENT_HISTORY_RETENTION_DAYS,
+                            max=MAX_PERSISTENT_HISTORY_RETENTION_DAYS,
                         ),
                     ),
                 }

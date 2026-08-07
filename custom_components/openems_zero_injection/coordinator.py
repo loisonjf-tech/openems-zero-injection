@@ -25,6 +25,8 @@ from .const import (
     CONF_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
     CONF_BATTERY_PRIORITY_MARGIN_W,
     CONF_BATTERY_PRIORITY_MODE,
+    CONF_PERSISTENT_HISTORY_ENABLED,
+    CONF_PERSISTENT_HISTORY_RETENTION_DAYS,
     CONF_INSTALLED_NOMINAL_POWER_W,
     CONF_PRODUCTION_STARTUP_STRATEGY,
     CONF_TAKEOVER_LIMIT_PERCENT,
@@ -43,6 +45,8 @@ from .const import (
     DEFAULT_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
     DEFAULT_BATTERY_PRIORITY_MARGIN_W,
     DEFAULT_BATTERY_PRIORITY_MODE,
+    DEFAULT_PERSISTENT_HISTORY_ENABLED,
+    DEFAULT_PERSISTENT_HISTORY_RETENTION_DAYS,
     DEFAULT_INSTALLED_NOMINAL_POWER_W,
     DEFAULT_PRODUCTION_STARTUP_STRATEGY,
     DEFAULT_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID,
@@ -54,6 +58,8 @@ from .const import (
     DEFAULT_SOLARFLOW_SOC_ENTITY_ID,
     DEFAULT_TAKEOVER_LIMIT_PERCENT,
     DOMAIN,
+    ALGORITHM_VERSION,
+    VERSION,
     ENERGY_SCAN_INTERVAL,
     GENERAL_INFO_SCAN_INTERVAL,
     GLOBAL_TRANSPORT_FAILURES_UNAVAILABLE,
@@ -73,6 +79,7 @@ from .energy_manager import EnergyManager
 from .battery import BatteryPowerSign, BatteryResource
 from .battery_adapters.zendure_solarflow import ZendureSolarFlowAdapter
 from .energy_strategy import BatteryPriorityContext
+from .persistent_history import PersistentHistoryRecorder
 from .const import (
     CONF_GRID_POWER_ENTITY_ID,
     CONF_GRID_POWER_INVERTED,
@@ -201,6 +208,23 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         self._last_raw_error: str | None = None
         self._last_battery_source_freshness: dict[str, str] = {}
         self.energy_manager = EnergyManager()
+        self.persistent_history_recorder = PersistentHistoryRecorder(
+            hass,
+            enabled=bool(
+                entry.options.get(
+                    CONF_PERSISTENT_HISTORY_ENABLED,
+                    DEFAULT_PERSISTENT_HISTORY_ENABLED,
+                )
+            ),
+            retention_days=int(
+                entry.options.get(
+                    CONF_PERSISTENT_HISTORY_RETENTION_DAYS,
+                    DEFAULT_PERSISTENT_HISTORY_RETENTION_DAYS,
+                )
+            ),
+            integration_version=VERSION,
+            algorithm_version=ALGORITHM_VERSION,
+        )
         self._solarflow_enabled = bool(
             entry.options.get(CONF_SOLARFLOW_ENABLED, DEFAULT_SOLARFLOW_ENABLED)
         )
@@ -249,6 +273,7 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             auto_resume_production=(
                 self._auto_resume_production and mode_restore_source == "options"
             ),
+            persistent_history_recorder=self.persistent_history_recorder,
         )
         self.controller.energy_policy_engine.set_battery_context_provider(
             self._battery_priority_context
@@ -308,6 +333,9 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         raw_mode = entry.options.get(CONF_CONTROLLER_MODE)
         if raw_mode is None:
             return ControllerMode.DISABLED, "default"
+        if raw_mode == ControllerMode.SIMULATION.value:
+            _LOGGER.info("Legacy Simulation mode migrated to Manual")
+            return ControllerMode.DISABLED, "legacy_simulation_migrated"
         try:
             return ControllerMode(raw_mode), "options"
         except (TypeError, ValueError):
@@ -901,6 +929,11 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
 
     async def async_set_controller_mode(self, mode: str) -> None:
         """Persist an explicit local mode selection without any Modbus I/O."""
+        # Simulation is no longer a user-facing controller mode.  Preserve the
+        # safe outcome for a legacy service/automation rather than restoring a
+        # hidden virtual control path.
+        if mode == ControllerMode.SIMULATION.value:
+            mode = ControllerMode.DISABLED.value
         await self.controller.async_set_mode(mode)
         options = {**self.config_entry.options, CONF_CONTROLLER_MODE: mode}
         # The live controller has already applied this explicit mode change.

@@ -106,7 +106,6 @@ async def test_connection_sensor_reports_connected(hass) -> None:
         ("select", f"{entry.entry_id}_controller_mode"),
         ("number", f"{entry.entry_id}_installed_nominal_power"),
         ("sensor", f"{entry.entry_id}_controller_state"),
-        ("sensor", f"{entry.entry_id}_commands_simulated"),
     ):
         entity_id = registry.async_get_entity_id(platform, DOMAIN, unique_id)
         assert entity_id is not None

@@ -34,7 +34,7 @@ Dans l'assistant d'ajout de l'intégration, indiquez l'adresse IP du Hoymiles DT
 
 Configurez l'entité Home Assistant de puissance réseau dans les options de l'intégration. La convention par défaut est positive = consommation réseau et négative = injection. La cible par défaut est `-40 W`, avec une zone morte de `±30 W`.
 
-Les valeurs internes restent `Disabled`, `Simulation` et `Production`, mais l’interface affiche respectivement **Manuel**, **Simulation** et **Régulation automatique**. En mode **Manuel**, le curseur **Limite temporaire manuelle DTU** est disponible lorsque le DTU est connecté et écrit une même valeur sur les trois ports temporaires. En **Simulation**, aucune écriture n’est possible. En **Régulation automatique**, le scheduler est le seul pilote du DTU et le curseur est verrouillé.
+L’interface propose uniquement **Manuel** et **Régulation automatique**. En mode **Manuel**, le curseur **Limite temporaire manuelle DTU** est disponible lorsque le DTU est connecté et écrit une même valeur sur les trois ports temporaires. En **Régulation automatique**, le Scheduler est le seul pilote du DTU et le curseur est verrouillé. Une ancienne configuration `Simulation` est migrée automatiquement et sans écriture vers **Manuel**. Les calculs de simulation restent disponibles uniquement comme outils internes du Trace Recorder, de l’historique et des tests.
 
 Le mode de validation des limites temporaires est **Compatibilité** par défaut. Après trois écritures temporaires réussies et leurs accusés de réception `0x06`, il conserve localement la consigne confirmée si certains DTU ne permettent pas de relire fiablement `0xD007`, `0xD00D` ou `0xD013`. Le mode **Strict** exige au contraire trois relectures `0x03` fraîches, identiques et valides. Dans les deux cas, une erreur d'écriture ou une perte de communication arrête les commandes ; aucune valeur `0`, `2` ou `100` n'est inventée.
 
@@ -56,11 +56,11 @@ Le contrôleur vérifie son tick toutes les trois secondes, mais n'évalue qu'un
 
 Lorsque la puissance PV DTU, la puissance réseau et les limites temporaires sont valides et synchronisées, la régulation estime directement la consommation : `puissance PV + puissance réseau`. Elle en déduit une limite DTU cible bornée entre `2 %` et `100 %`. Une erreur importante (au moins `250 W` par défaut) utilise cette limite prédictive directement ; après stabilisation, une erreur plus faible utilise une correction fine limitée à `2 %`.
 
-Les protections existantes restent obligatoires : aucune commande pendant la stabilisation, aucune écriture en Simulation, aucune écriture si les limites temporaires sont incertaines et aucune répétition automatique après un échec. Si la puissance PV ne permet pas une prédiction fiable, le contrôleur utilise seulement la correction fine prudente.
+Les protections existantes restent obligatoires : aucune commande pendant la stabilisation, aucune écriture si les limites temporaires sont incertaines et aucune répétition automatique après un échec. Si la puissance PV ne permet pas une prédiction fiable, le contrôleur utilise seulement la correction fine prudente.
 
 Build004 RC2 prépare aussi les contrats passifs **Context Analyzer**, **Calibration Manager** et **Energy Policy Engine**. La seule politique active est **Zero Injection**, qui transmet exactement la cible réseau configurée. Aucune logique SolarFlow ou batterie ne participe encore à la régulation. L’architecture de référence est [docs/Architecture-Specification.md](docs/Architecture-Specification.md).
 
-En **Simulation**, l’état du planificateur indique explicitement qu’il attend de nouvelles mesures après une proposition. La capteur **Prochaine limite commandée** affiche alors cette proposition avec les attributs `execution_mode: Simulation` et `is_simulation: true` : aucune écriture DTU n’est effectuée. Le nombre de compteurs déclaré par le DTU est seulement diagnostique ; la régulation utilise exclusivement le capteur de puissance réseau configuré dans Home Assistant.
+Le nombre de compteurs déclaré par le DTU est seulement diagnostique ; la régulation utilise exclusivement le capteur de puissance réseau configuré dans Home Assistant.
 
 Le mode sélectionné du contrôleur est enregistré dans les options de l’intégration et restauré après un redémarrage ou un rechargement. Le journal indique le mode restauré et sa source. En mode **Manuel**, la puissance réseau reste visible lorsqu’elle est lisible : cela distingue explicitement une absence de régulation automatique d’un capteur réseau indisponible.
 
@@ -81,6 +81,12 @@ Les traces et diagnostics conservent aussi une observation DTU/limite corrélée
 Les statistiques de session sont agrégées pendant toute la session, indépendamment du buffer des 100 chronologies : elles ne sont donc pas tronquées lorsqu’une session comporte davantage de commandes. Les médianes utilisent un échantillon borné ; les compteurs, moyennes, maximums et couverture pondérée restent complets. Une absence de mesures ou une télémétrie trop espacée ne peut jamais conclure à une commande inefficace : le résultat est alors **indéterminé**.
 
 Le mode diagnostic détaillé, le polling accéléré et les exports CSV/JSON restent volontairement hors périmètre. Les identifiants enregistrés (`policy_id`, stratégie, contexte et résultats) sont stables et indépendants de la langue ; l’interface Home Assistant les présente via ses traductions.
+
+## Historique persistant optionnel
+
+L’option **Activer l’historique persistant d’observabilité** est désactivée par défaut. Lorsqu’elle est activée, OpenEMS conserve en parallèle du Trace Recorder en mémoire des événements JSONL quotidiens dans `/config/openems_zero_injection/history/`. Chaque événement inclut les versions de l’intégration et de l’algorithme, les mesures et limites déjà acquises, l’état batterie, la stratégie, le Scheduler et le résultat éventuel d’une commande. Il n’ajoute aucune lecture ni écriture Modbus ou batterie.
+
+L’historique écrit uniquement sur décision, résultat de commande et échantillon de contexte au plus toutes les quinze minutes. L’écriture passe par une file mémoire bornée et un worker asynchrone ; un disque indisponible ou saturé ne peut jamais bloquer la régulation. Les fichiers sont tournés par jour et la rétention est réglable de 1 à 365 jours (30 jours par défaut).
 
 ## SolarFlow lecture seule — Build005
 
@@ -105,13 +111,13 @@ strictement la cible réseau actuelle : le comportement de régulation reste don
 identique à Build005. Le moteur prédictif, le Scheduler et le client DTU ne
 sont pas modifiés. Les décisions reçoivent un identifiant de snapshot, un
 horodatage et un code de motif stable afin de préparer une comparaison future,
-en Simulation, avec une stratégie batterie. Aucune stratégie batterie n'est
+par le Trace Recorder, avec une stratégie batterie. Aucune stratégie batterie n'est
 présente ni activée dans ce build.
 
-## Battery Priority Simulation — Build007
+## Battery Priority — Build007
 
 Build007 compare passivement une cible `BatteryPriorityStrategy` à la cible
-Zero Injection, uniquement en mode Simulation. Si une capacité de charge
+Zero Injection dans le Trace Recorder. Si une capacité de charge
 complète et fraîche est disponible, la candidate peut conserver jusqu'à `25 W`
 de marge d'injection supplémentaire. Ce gain est théorique : il ne garantit pas
 une charge batterie. En Production, OpenEMS conserve strictement la stratégie
@@ -124,6 +130,6 @@ Dans un environnement de développement Home Assistant 2026.7.2 compatible avec 
 
 ## Feuille de route
 
-1. **Build004** : valider sous surveillance le mode Simulation, puis Production, sur le DTU réel.
+1. **Build004** : valider sous surveillance la régulation automatique sur le DTU réel.
 2. **V1.1** : adaptateurs de batterie derrière la couche EMS passive, avec une éventuelle politique Priorité Batterie validée séparément.
 3. **Build005** : seulement après validation réelle des comportements Build004 et V1.1.

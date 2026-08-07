@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 
-from .const import DOMAIN, PLATFORMS
+from .const import CONF_CONTROLLER_MODE, ControllerMode, DOMAIN, PLATFORMS
 from .coordinator import DtuProSCoordinator
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up the DTU Pro-S connectivity integration from a config entry."""
+    await _async_migrate_legacy_simulation(hass, entry)
     coordinator = DtuProSCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
@@ -18,6 +20,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     await coordinator.controller.async_start()
     return True
+
+
+async def _async_migrate_legacy_simulation(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> None:
+    """Move the removed user Simulation mode to safe Manual operation."""
+    if entry.options.get(CONF_CONTROLLER_MODE) == ControllerMode.SIMULATION.value:
+        hass.config_entries.async_update_entry(
+            entry,
+            options={**entry.options, CONF_CONTROLLER_MODE: ControllerMode.DISABLED.value},
+        )
+    registry = er.async_get(hass)
+    legacy_suffixes = (
+        "last_simulated_limit",
+        "simulated_limit",
+        "commands_simulated",
+    )
+    for suffix in legacy_suffixes:
+        entity_id = registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{entry.entry_id}_{suffix}"
+        )
+        if entity_id is not None:
+            registry.async_update_entity(
+                entity_id, disabled_by=er.RegistryEntryDisabler.INTEGRATION
+            )
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

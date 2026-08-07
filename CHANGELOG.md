@@ -2,6 +2,27 @@
 
 Toutes les évolutions notables sont documentées dans ce fichier.
 
+## [Unreleased] — Persistent History Recorder
+
+### Added
+
+- Historique optionnel JSONL quotidien dans `/config/openems_zero_injection/history/`, désactivé par défaut et conservé 30 jours par défaut.
+- Événements passifs de décision, résultat de commande et contexte toutes les quinze minutes, incluant `integration_version` et `algorithm_version`.
+- Diagnostics de file, rétention, écritures abandonnées et erreurs de stockage.
+
+### Safety
+
+- Le Trace Recorder circulaire existant reste inchangé. L’historique ne crée aucune lecture Modbus/batterie ni écriture supplémentaire et une panne de stockage ne peut pas affecter la régulation.
+
+### Changed
+
+- Le sélecteur Home Assistant ne propose désormais que **Manuel** et
+  **Régulation automatique**. Une ancienne option `Simulation` est migrée vers
+  Manuel et les anciennes entités de simulation sont désactivées proprement.
+- Les transitions batterie déterminantes pour Capacity Release demandent une
+  nouvelle évaluation cohérente même si la puissance réseau reste dans sa zone
+  morte. Elles ne contournent jamais la stabilisation ni les gardes du Scheduler.
+
 ## [0.8.0-alpha.1] - 2026-07-31 — Battery capacity release
 
 ### Added

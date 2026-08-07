@@ -29,7 +29,7 @@ from .const import (
     MIN_INSTALLED_NOMINAL_POWER_W,
     MEASUREMENT_SYNC_MAX_DIFFERENCE_SECONDS,
     SIGNIFICANT_POWER_CHANGE_W,
-    SIMULATION_DIAGNOSTIC_REFRESH_SECONDS,
+    INTERNAL_SIMULATION_DIAGNOSTIC_REFRESH_SECONDS,
     ControllerMode,
     ProductionStartupStrategy,
     SchedulerState,
@@ -50,6 +50,7 @@ from .history import DecisionHistory, DecisionRecord
 from .learning import LearningSample, PassiveLearningEngine
 from .scheduler import SafetyScheduler
 from .trace import TraceRecorder
+from .persistent_history import HistoryEventType, PersistentHistoryRecorder
 
 if TYPE_CHECKING:
     from .coordinator import DtuProSCoordinator
@@ -181,6 +182,7 @@ class ZeroInjectionController:
         takeover_limit_percent: int = 100,
         auto_resume_production: bool = False,
         battery_manager: BatteryManager | None = None,
+        persistent_history_recorder: PersistentHistoryRecorder | None = None,
     ) -> None:
         self._hass = hass
         self._coordinator = coordinator
@@ -215,6 +217,9 @@ class ZeroInjectionController:
         self._calibration_manager = CalibrationManager()
         self._energy_policy_engine = EnergyPolicyEngine()
         self._trace_recorder = TraceRecorder()
+        self._persistent_history_recorder = persistent_history_recorder
+        self._last_history_transition_signature: tuple[object, ...] | None = None
+        self._last_history_battery_signature: tuple[object, ...] | None = None
         self._status = ControllerStatus(
             mode=initial_mode,
             state=initial_mode.value,
@@ -415,6 +420,8 @@ class ZeroInjectionController:
         )
         _LOGGER.info("Controller mode restored: %s", restored_mode)
         _LOGGER.info("Controller mode source: %s", self._mode_restore_source)
+        if self._persistent_history_recorder is not None:
+            await self._persistent_history_recorder.async_start()
         if self._mode is ControllerMode.PRODUCTION:
             self._trace_recorder.start_session(
                 reason="controller_started_in_production",
@@ -427,6 +434,8 @@ class ZeroInjectionController:
     async def async_stop(self) -> None:
         """Stop periodic evaluation without changing DTU values."""
         self._trace_recorder.stop_session(reason="integration_unload_or_reload")
+        if self._persistent_history_recorder is not None:
+            await self._persistent_history_recorder.async_stop()
         if self._cancel_tick is not None:
             self._cancel_tick()
             self._cancel_tick = None
@@ -686,6 +695,7 @@ class ZeroInjectionController:
                 deadband_w=self._deadband_w,
                 dtu_limit_observation=self._record_dtu_limit_power_observation(snapshot),
             )
+            self._record_periodic_history(snapshot, current_limit)
             if not self._requires_new_decision(snapshot):
                 if (
                     self._mode is ControllerMode.PRODUCTION
@@ -735,6 +745,15 @@ class ZeroInjectionController:
                 policy.dtu_control_directive,
                 policy.requested_dtu_limit_percent,
             )
+            self._record_history_transition_if_changed(
+                snapshot, current_limit, policy
+            )
+            if self._persistent_history_recorder is not None:
+                self._record_persistent_history(
+                    HistoryEventType.DECISION,
+                    self._history_payload(snapshot, current_limit, decision, policy),
+                    timestamp=snapshot.created_at,
+                )
 
             if self._mode is ControllerMode.SIMULATION:
                 # Simulation has no stabilization loop and never models a DTU
@@ -914,6 +933,18 @@ class ZeroInjectionController:
                     self._stabilization_delay_seconds if success else None
                 ),
             )
+            if self._persistent_history_recorder is not None:
+                self._record_persistent_history(
+                    HistoryEventType.COMMAND_RESULT,
+                    self._history_payload(
+                        snapshot,
+                        current_limit,
+                        decision,
+                        policy,
+                        command_result=result,
+                        command_confirmed=success,
+                    ),
+                )
             self._record(measurement.power_w, current_limit, decision, result, success, success, None if success else result)
             confirmed_limit = (
                 self._current_consistent_limit(require_fresh=True) if success else real_limit
@@ -1265,7 +1296,7 @@ class ZeroInjectionController:
         return (
             self._mode is ControllerMode.SIMULATION
             and (snapshot.created_at - previous.created_at).total_seconds()
-            >= SIMULATION_DIAGNOSTIC_REFRESH_SECONDS
+            >= INTERNAL_SIMULATION_DIAGNOSTIC_REFRESH_SECONDS
         )
 
     def _record(
@@ -1302,6 +1333,143 @@ class ZeroInjectionController:
                 error_message=error,
             )
         )
+
+    def _record_persistent_history(
+        self,
+        event_type: HistoryEventType,
+        payload: dict[str, Any],
+        *,
+        timestamp: datetime | None = None,
+    ) -> None:
+        """Pass a fact to optional storage; it has no control-plane authority."""
+        if self._persistent_history_recorder is not None:
+            self._persistent_history_recorder.record(event_type, payload, timestamp=timestamp)
+
+    def _record_periodic_history(
+        self, snapshot: DecisionSnapshot, current_limit: int
+    ) -> None:
+        """Request a deduplicated context sample from an existing controller tick."""
+        if self._persistent_history_recorder is not None:
+            self._persistent_history_recorder.record_periodic_if_due(
+                self._history_payload(snapshot, current_limit, None, None),
+                timestamp=snapshot.created_at,
+            )
+            self._record_history_battery_transition_if_changed(snapshot, current_limit)
+
+    def _record_history_battery_transition_if_changed(
+        self, snapshot: DecisionSnapshot, current_limit: int
+    ) -> None:
+        """Persist a material cached battery transition without requesting data."""
+        energy = self._coordinator.energy_manager.snapshot()
+        battery = energy.resources[0] if energy.resources else None
+        signature = (
+            battery.health.value if battery else None,
+            self._history_power_bucket(battery.charge_power_w) if battery else None,
+            self._history_power_bucket(battery.discharge_power_w) if battery else None,
+            round(battery.soc_percent) if battery and battery.soc_percent is not None else None,
+            self._history_power_bucket(battery.max_charge_power_w) if battery else None,
+            self._history_power_bucket(battery.remaining_charge_power_w) if battery else None,
+        )
+        if signature == self._last_history_battery_signature:
+            return
+        self._last_history_battery_signature = signature
+        self._record_persistent_history(
+            HistoryEventType.TRANSITION,
+            self._history_payload(snapshot, current_limit, None, None),
+            timestamp=snapshot.created_at,
+        )
+
+    @staticmethod
+    def _history_power_bucket(value: float | None) -> int | None:
+        """Avoid recording insignificant battery-power noise as transitions."""
+        return round(value / 25) if value is not None else None
+
+    def _record_history_transition_if_changed(
+        self, snapshot: DecisionSnapshot, current_limit: int, policy: Any
+    ) -> None:
+        """Persist only meaningful strategy/battery state changes."""
+        if self._persistent_history_recorder is None:
+            return
+        energy = self._coordinator.energy_manager.snapshot()
+        battery = energy.resources[0] if energy.resources else None
+        signature = (
+            self._mode.value,
+            policy.policy_id,
+            getattr(policy.dtu_control_directive, "value", None),
+            getattr(policy.reason_code, "value", None),
+            battery.health.value if battery else None,
+            battery.charge_power_w if battery else None,
+            battery.discharge_power_w if battery else None,
+            battery.max_charge_power_w if battery else None,
+        )
+        if signature == self._last_history_transition_signature:
+            return
+        self._last_history_transition_signature = signature
+        self._record_persistent_history(
+            HistoryEventType.TRANSITION,
+            self._history_payload(snapshot, current_limit, None, policy),
+            timestamp=snapshot.created_at,
+        )
+
+    def _history_payload(
+        self,
+        snapshot: DecisionSnapshot,
+        current_limit: int,
+        decision: ControlDecision | PredictiveControlDecision | None,
+        policy: Any | None,
+        *,
+        command_result: str | None = None,
+        command_confirmed: bool | None = None,
+    ) -> dict[str, Any]:
+        """Build a primitive, coherent passive history snapshot from cached data."""
+        energy = self._coordinator.energy_manager.snapshot()
+        battery = energy.resources[0] if energy.resources else None
+        return {
+            "controller_mode": self._mode.value,
+            "scheduler_state": self._scheduler.state.value,
+            "scheduler_waiting_seconds": self._scheduler.remaining_seconds(),
+            "reason_code": getattr(getattr(policy, "reason_code", None), "value", None),
+            "policy_id": getattr(policy, "policy_id", None),
+            "dtu_control_directive": getattr(
+                getattr(policy, "dtu_control_directive", None), "value", None
+            ),
+            "fallback_used": getattr(policy, "fallback_used", None),
+            "real_dtu_limit_before_percent": current_limit,
+            "calculated_limit_percent": (
+                decision.calculated_limit_percent if decision else None
+            ),
+            "requested_limit_percent": decision.applied_limit_percent if decision else None,
+            "confirmed_limit_percent": (
+                decision.applied_limit_percent if command_confirmed else None
+            ),
+            "command_result": command_result,
+            "command_confirmed": command_confirmed,
+            "grid_power_w": snapshot.grid_power_w,
+            "grid_source_timestamp": snapshot.grid_power_timestamp,
+            "pv_power_w": snapshot.dtu_power_w,
+            "pv_source_timestamp": snapshot.dtu_power_timestamp,
+            "dtu_active_power_w": snapshot.dtu_power_w,
+            "temporary_limit_port_1_percent": snapshot.temporary_limits[0],
+            "temporary_limit_port_2_percent": snapshot.temporary_limits[1],
+            "temporary_limit_port_3_percent": snapshot.temporary_limits[2],
+            "temporary_limits_source_timestamp": snapshot.temporary_limits_timestamp,
+            "target_grid_power_w": snapshot.target_power_w,
+            "installed_nominal_power_w": self._installed_nominal_power_w,
+            "battery": {
+                "resource_id": battery.resource_id if battery else None,
+                "health": battery.health.value if battery else None,
+                "soc_percent": battery.soc_percent if battery else None,
+                "charge_power_w": battery.charge_power_w if battery else None,
+                "discharge_power_w": battery.discharge_power_w if battery else None,
+                "max_charge_power_w": battery.max_charge_power_w if battery else None,
+                "remaining_charge_power_w": battery.remaining_charge_power_w if battery else None,
+                "data_age_seconds": battery.data_age_seconds if battery else None,
+                "source_freshness": battery.source_freshness if battery else {},
+            },
+            "battery_count": energy.battery_count,
+            "total_remaining_charge_power_w": energy.total_remaining_charge_power_w,
+            "battery_aggregate_coverage": energy.remaining_charge_coverage.status,
+        }
 
     def _set_status(self, **changes: object) -> None:
         updated = replace(self._status, **{**changes, "mode": self._mode})

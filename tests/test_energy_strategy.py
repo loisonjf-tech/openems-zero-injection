@@ -59,6 +59,39 @@ def test_default_engine_keeps_the_established_controller_call_shape() -> None:
     assert decision.reason == "Configured zero-injection target"
 
 
+def test_capacity_release_battery_transition_requests_new_decision() -> None:
+    """A discharge transition must not wait for a grid-power change."""
+    timestamp = datetime(2026, 8, 7, 12, 0, tzinfo=UTC)
+    battery = _healthy_battery(remaining_charge_power_w=600)
+    battery = replace(
+        battery,
+        soc_percent=60,
+        max_charge_power_w=1000,
+        charge_power_w=400,
+        source_freshness={
+            "directional_power_w": "fresh",
+            "soc_percent": "fresh",
+            "max_charge_power_w": "fresh",
+        },
+        source_timestamps={"directional_power_w": timestamp},
+    )
+    context = [BatteryPriorityContext((battery,), 600, "complete")]
+    engine = EnergyStrategyEngine(battery_context_provider=lambda: context[0])
+    engine.configure_battery_priority(
+        mode="capacity_release", margin_w=25, charge_threshold_w=50, confirmation_samples=3
+    )
+    engine.decide(-40, activate_battery_priority=True)
+    assert not engine.battery_priority_input_changed()
+
+    battery = replace(
+        battery,
+        discharge_power_w=100,
+        source_timestamps={"directional_power_w": timestamp.replace(second=1)},
+    )
+    context[0] = BatteryPriorityContext((battery,), 600, "complete")
+    assert engine.battery_priority_input_changed()
+
+
 def _healthy_battery(*, remaining_charge_power_w: float | None) -> BatteryResource:
     return BatteryResource(
         resource_id="battery-1",

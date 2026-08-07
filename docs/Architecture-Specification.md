@@ -25,7 +25,7 @@ contracts. V3 introduces validated batteries and bounded calibration use.
 - Read DTU telemetry through local Modbus TCP.
 - Write only temporary per-port limits 0xD007, 0xD00D and 0xD013 when authorised.
 - Keep three port limits identical for an automatic command.
-- Support Manual, Simulation and Automatic Regulation modes.
+- Support Manual and Automatic Regulation modes.
 - Produce deterministic and explainable power-limit decisions.
 - Prepare vendor-neutral contracts for batteries and other resources.
 
@@ -55,7 +55,7 @@ contracts. V3 introduces validated batteries and bounded calibration use.
 3. Fail closed for writes: unknown limits, desynchronised ports, transport errors
    or incoherent measurements pause automatic control.
 4. Fail open for diagnostics: optional telemetry failure does not hide valid data.
-5. Simulation parity: same acquisition, context, policy and calculation; no write.
+5. Internal simulation is an observability/test tool; it is never a user control mode.
 6. Calibration informs but never authorises a command.
 7. Battery neutrality: policies receive normalized resources, not vendor APIs.
 
@@ -75,16 +75,51 @@ flowchart LR
     CO --> MC["Internal Modbus TCP Client"]
     MC --> DTU
     EM["Energy Manager / battery adapters"] --> PE
-    CA --> DIAG["Diagnostics and history"]
-    CM --> DIAG
-    PE --> DIAG
-    PC --> DIAG
-    SS --> DIAG
+    TR["Trace Recorder"] -. observes .-> CA
+    TR -. observes .-> PE
+    TR -. observes .-> PC
+    TR -. observes .-> SS
+    PH["Persistent History Recorder"] -. observes .-> TR
+    DIAG["Diagnostics"] -. reads .-> TR
+    DIAG -. reads .-> PH
 ~~~
 
 The coordinator is the only DTU data boundary. The Modbus client is the only
 component constructing Modbus frames. The scheduler is the only component that
 can execute an automatic command.
+
+Observability modules are independent observers: they never participate in a
+decision, request a measurement or authorise a command.
+
+### Operational decision tree
+
+~~~mermaid
+flowchart TD
+    M["Fresh, synchronized measurements"] --> V{"Snapshot and DTU limits valid?"}
+    V -- no --> P["Safety pause: no command"]
+    V -- yes --> E["Energy Strategy Engine"]
+    E --> B{"Battery Priority eligible?"}
+    B -- yes --> BP["Battery Priority / Capacity Release"]
+    B -- no --> ZI["Zero Injection"]
+    BP --> PC["Predictive Controller"]
+    ZI --> PC
+    PC --> SS["Safety Scheduler"]
+    SS --> C{"All write protections valid?"}
+    C -- yes --> D["Verified temporary DTU command"]
+    C -- no --> P
+    TR["Trace Recorder"] -. observes .-> E
+    TR -. observes .-> PC
+    TR -. observes .-> SS
+    PH["Persistent History Recorder"] -. observes .-> TR
+    DG["Diagnostics"] -. reads .-> TR
+    DG -. reads .-> PH
+~~~
+
+Battery transitions are decision inputs even when grid power remains inside the
+Zero Injection deadband. A fresh transition to discharge, directional-data
+freshness change, SOC/full-state change, or charge/capacity threshold crossing
+therefore requests a new coherent evaluation; it does not create polling or
+override Scheduler stabilization.
 
 ## 6. Common module contracts
 
@@ -224,8 +259,8 @@ minus 40 W, unchanged. `EnergyPolicyEngine` remains a compatibility alias for
 the earlier boundary. A battery-aware strategy with unavailable or low-confidence
 data must visibly fall back to zero injection.
 
-Build007-A adds `BatteryPriorityStrategy` as a Simulation-only comparison. Its
-candidate is bounded to 25 W of additional export. Build007-B adds an explicit,
+Build007-A adds `BatteryPriorityStrategy` as a passive Trace Recorder
+comparison. Its candidate is bounded to 25 W of additional export. Build007-B adds an explicit,
 disabled-by-default `observed_conservative` Production mode: only three fresh
 successive charging measurements above the configured threshold can apply that
 same bounded margin. A fresh discharge, unavailable, stale, inconsistent or
@@ -300,9 +335,7 @@ flowchart TD
     G --> S["Scheduler validation"]
     I --> S
     J --> S
-    S --> K{"Simulation?"}
-    K -- Yes --> L["Record simulated command"]
-    K -- No --> Q["Write D007, D00D, D013 and confirm"]
+    S --> Q["Write D007, D00D, D013 and confirm"]
 ~~~
 
 ### Default thresholds
@@ -378,21 +411,11 @@ sequenceDiagram
     Note over Sched,Ctrl: no automatic command during stabilization
 ~~~
 
-### Simulation
+### Internal simulation tools
 
-~~~mermaid
-sequenceDiagram
-    participant Inputs as Validated inputs
-    participant Ctrl as Predictive Controller
-    participant Sched as Scheduler
-    participant HA as Diagnostics
-
-    Inputs->>Ctrl: same snapshot as Automatic Regulation
-    Ctrl->>Sched: simulated plan
-    Sched-->>Ctrl: simulated result
-    Ctrl->>HA: strategy, limit, reason and timestamps
-    Note over Sched: no Modbus write is constructed or sent
-~~~
+Calculation-equivalent simulation is restricted to tests, Trace Recorder
+analysis and future offline replay. It has no Home Assistant controller-mode
+selector, no persistent mode and no command path.
 
 ### Failed write
 
@@ -483,12 +506,12 @@ No path replaces an unknown limit with zero, 2%, 100%, or a guess.
 
 ## 14. Migration
 
-- Keep Config Entry keys and internal Disabled, Simulation and Production values.
+- Keep Config Entry keys and migrate a legacy Simulation value to safe Manual.
 - Preserve entity IDs when visible labels change.
 - Treat the existing maximum-step setting as fine-step until formal migration.
 - Add options with documented defaults; never infer nominal power from DTU output.
-- Existing installations retain validated behavior until predictive mode is
-  explicitly enabled after Simulation validation.
+- Existing installations retain validated behavior until Automatic Regulation
+  is explicitly selected after hardware validation.
 - New installations may default to predictive only after hardware validation.
 - Store calibration profiles separately in a versioned local store.
 - Disable obsolete entities through the registry rather than deleting IDs.
@@ -501,7 +524,7 @@ new data is absent.
 ### V1 — Safe DTU control foundation
 
 Robust internal Modbus client, telemetry, temporary three-port control, Manual/
-Simulation/Automatic modes, scheduler, diagnostics and limit validation. UX and
+Automatic modes, scheduler, diagnostics and limit validation. UX and
 safety behavior are frozen after final validation.
 
 ### V2 — Predictive and policy foundation
@@ -522,7 +545,7 @@ An implementation conforms to this specification only if it:
 
 - writes solely within the documented temporary per-port register set;
 - requires a safe explainable plan before each automatic command;
-- keeps Simulation calculation-equivalent and write-free;
+- keeps internal simulation calculation-equivalent and outside the user control path;
 - never treats a failed or partial command as confirmed;
 - exposes enough data to reconstruct the last decision;
 - preserves compatibility through tested migration;

@@ -86,8 +86,6 @@ async def async_setup_entry(
             OpenEMSControllerSensor(coordinator, entry, "current_limit", "Limite DTU réelle", unit="%"),
             OpenEMSControllerSensor(coordinator, entry, "current_limit_source", "Source de la limite courante", EntityCategory.DIAGNOSTIC),
             OpenEMSControllerSensor(coordinator, entry, "ports_synchronization", "État de synchronisation des ports", EntityCategory.DIAGNOSTIC),
-            OpenEMSControllerSensor(coordinator, entry, "last_simulated_limit", "Dernière limite simulée", unit="%"),
-            OpenEMSControllerSensor(coordinator, entry, "simulated_limit", "Limite actuellement recommandée", unit="%"),
             OpenEMSControllerSensor(coordinator, entry, "calculated_limit", "Limite prédictive théorique", unit="%"),
             OpenEMSControllerSensor(coordinator, entry, "commanded_limit", "Prochaine limite commandée", unit="%"),
             OpenEMSControllerSensor(coordinator, entry, "waiting_state", "État d’attente", EntityCategory.DIAGNOSTIC),
@@ -106,7 +104,6 @@ async def async_setup_entry(
             OpenEMSControllerSensor(coordinator, entry, "commands_sent", "Commandes envoyées", EntityCategory.DIAGNOSTIC),
             OpenEMSControllerSensor(coordinator, entry, "commands_succeeded", "Commandes exécutées", EntityCategory.DIAGNOSTIC),
             OpenEMSControllerSensor(coordinator, entry, "commands_failed", "Commandes échouées", EntityCategory.DIAGNOSTIC),
-            OpenEMSControllerSensor(coordinator, entry, "commands_simulated", "Commandes simulées", EntityCategory.DIAGNOSTIC),
             OpenEMSControllerSensor(coordinator, entry, "last_error", "Dernière erreur du contrôleur", EntityCategory.DIAGNOSTIC),
             OpenEMSControllerSensor(coordinator, entry, "grid_source_timestamp", "Horodatage source puissance réseau", EntityCategory.DIAGNOSTIC, device_class=SensorDeviceClass.TIMESTAMP),
             OpenEMSControllerSensor(coordinator, entry, "pv_source_timestamp", "Horodatage source puissance PV", EntityCategory.DIAGNOSTIC, device_class=SensorDeviceClass.TIMESTAMP),
@@ -400,15 +397,7 @@ class OpenEMSControllerSensor(_DtuSensorBase):
                 else "Incertains"
             ),
             "calculated_limit": status.calculated_limit_percent,
-            # In Simulation this is intentionally only a displayed proposal:
-            # it is never submitted to the DTU.
-            "commanded_limit": (
-                controller.simulated_current_limit
-                if controller.mode.value == "Simulation"
-                else status.commanded_limit_percent
-            ),
-            "simulated_limit": status.simulated_limit_percent,
-            "last_simulated_limit": controller.last_simulated_limit,
+            "commanded_limit": status.commanded_limit_percent,
             "waiting_state": controller.waiting_state,
             "scheduler_inactive_reason": status.scheduler_inactive_reason,
             "watts_per_percent": controller.watts_per_percent,
@@ -425,7 +414,6 @@ class OpenEMSControllerSensor(_DtuSensorBase):
             "commands_sent": controller.commands_sent,
             "commands_succeeded": controller.commands_succeeded,
             "commands_failed": controller.commands_failed,
-            "commands_simulated": controller.commands_simulated,
             "last_error": status.last_error,
             "grid_source_timestamp": controller.measurement_sync_diagnostics.grid_source_timestamp,
             "pv_source_timestamp": controller.measurement_sync_diagnostics.pv_source_timestamp,
@@ -450,13 +438,12 @@ class OpenEMSControllerSensor(_DtuSensorBase):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Make the simulated nature of a displayed proposal explicit."""
+        """Describe the automatic command path without scheduling any work."""
         if self._field != "commanded_limit":
             return {}
-        is_simulation = self.coordinator.controller.mode.value == "Simulation"
         return {
-            "execution_mode": "Simulation" if is_simulation else "Production",
-            "is_simulation": is_simulation,
+            "execution_mode": "Production",
+            "is_simulation": False,
         }
 
 
