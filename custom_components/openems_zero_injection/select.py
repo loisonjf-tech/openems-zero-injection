@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from time import monotonic
+
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
@@ -19,7 +21,9 @@ async def async_setup_entry(
 ) -> None:
     """Set up the disabled-by-default controller mode selector."""
     coordinator: DtuProSCoordinator = hass.data[DOMAIN][entry.entry_id]
+    started = monotonic()
     async_add_entities([OpenEMSControllerModeSelect(coordinator, entry)])
+    coordinator.async_record_platform_setup("select", started, monotonic())
 
 
 class OpenEMSControllerModeSelect(CoordinatorEntity[DtuProSCoordinator], SelectEntity):

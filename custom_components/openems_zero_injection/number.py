@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from time import monotonic
+
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, PERCENTAGE, UnitOfPower
@@ -26,6 +28,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up the one common Manual-mode temporary power-limit control."""
     coordinator: DtuProSCoordinator = hass.data[DOMAIN][entry.entry_id]
+    started = monotonic()
     registry = er.async_get(hass)
     for port in (1, 2, 3):
         old_entity_id = registry.async_get_entity_id(
@@ -71,6 +74,7 @@ async def async_setup_entry(
             ),
         ]
     )
+    coordinator.async_record_platform_setup("number", started, monotonic())
 
 
 class DtuCommonTemporaryPowerLimitNumber(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
+from time import monotonic
 from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
@@ -29,6 +30,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up all Build002 read-only DTU sensors."""
     coordinator: DtuProSCoordinator = hass.data[DOMAIN][entry.entry_id]
+    started = monotonic()
     async_add_entities(
         [
             DtuConnectionSensor(coordinator, entry),
@@ -126,6 +128,7 @@ async def async_setup_entry(
             TraceRecorderSensor(coordinator, entry, "suspected_oscillations", "Oscillations suspectées Trace Recorder"),
         ]
     )
+    coordinator.async_record_platform_setup("sensor", started, monotonic())
 
 
 class _DtuSensorBase(CoordinatorEntity[DtuProSCoordinator], SensorEntity):

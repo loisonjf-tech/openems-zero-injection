@@ -202,6 +202,8 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         self._shutdown = False
         self._consecutive_transport_failures = 0
         self._cycle_timings_ms: dict[str, float | None] = {}
+        self._platform_forward_started: float | None = None
+        self._platform_setup_timings_ms: dict[str, dict[str, float]] = {}
         self._cycle_successes = 0
         self._transport_failed_this_cycle = False
         self._total_register_errors = 0
@@ -893,6 +895,38 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
     def cycle_timings_ms(self) -> dict[str, float | None]:
         """Return individual Modbus and coordinator durations for diagnostics."""
         return dict(self._cycle_timings_ms)
+
+    def async_begin_platform_forwarding(self) -> None:
+        """Mark when Home Assistant platform forwarding was requested.
+
+        Individual platforms use this timestamp only for setup diagnostics.  It
+        makes Home Assistant scheduling delay visible separately from OpenEMS
+        entity construction time.
+        """
+        self._platform_forward_started = monotonic()
+        self._platform_setup_timings_ms = {}
+
+    def async_record_platform_setup(
+        self, platform: str, started: float, finished: float
+    ) -> None:
+        """Record one platform's queue delay and local setup duration."""
+        queue_delay_ms = 0.0
+        if self._platform_forward_started is not None:
+            queue_delay_ms = max(
+                0.0, (started - self._platform_forward_started) * 1000
+            )
+        self._platform_setup_timings_ms[platform] = {
+            "queue_delay": queue_delay_ms,
+            "openems_setup": max(0.0, (finished - started) * 1000),
+        }
+
+    @property
+    def platform_setup_timings_ms(self) -> dict[str, dict[str, float]]:
+        """Return platform queue and OpenEMS construction timings."""
+        return {
+            platform: dict(timings)
+            for platform, timings in self._platform_setup_timings_ms.items()
+        }
 
     @property
     def manual_write_allowed(self) -> bool:
