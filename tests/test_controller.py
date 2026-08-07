@@ -18,7 +18,10 @@ from custom_components.openems_zero_injection.const import (
     ProductionStartupStrategy,
     SchedulerState,
 )
-from custom_components.openems_zero_injection.controller import ZeroInjectionController
+from custom_components.openems_zero_injection.controller import (
+    DecisionSnapshot,
+    ZeroInjectionController,
+)
 from custom_components.openems_zero_injection.energy_strategy import (
     BatteryPriorityContext,
 )
@@ -28,6 +31,14 @@ def fake_coordinator(
     *, automatic_writes_enabled: bool = True, temporary_limit_percent: int = 50
 ):
     timestamp = datetime.now(UTC)
+    energy_manager = SimpleNamespace(
+        snapshot=lambda: SimpleNamespace(
+            resources=(),
+            battery_count=0,
+            total_remaining_charge_power_w=None,
+            remaining_charge_coverage=SimpleNamespace(status="none"),
+        )
+    )
     coordinator = SimpleNamespace(
         automatic_write_allowed=automatic_writes_enabled,
         temporary_limits_ready=True,
@@ -43,8 +54,45 @@ def fake_coordinator(
         async_set_all_temporary_power_limits=AsyncMock(),
         async_takeover_temporary_power_limits=AsyncMock(),
         async_update_listeners=lambda: None,
+        energy_manager=energy_manager,
     )
     return coordinator
+
+
+def test_persistent_history_payload_records_limit_power_correlation(hass) -> None:
+    """The history retains evidence without asserting DTU limit semantics."""
+    timestamp = datetime.now(UTC)
+    coordinator = fake_coordinator(temporary_limit_percent=2)
+    coordinator.last_confirmed_temporary_limit = 2
+    coordinator.temporary_limit_source = "automatic_correction"
+    coordinator.temporary_limits_confirmation_timestamp = timestamp
+    controller = ZeroInjectionController(
+        hass,
+        coordinator,
+        AcquisitionEngine(hass, "sensor.grid", False),
+        installed_nominal_power_w=3000,
+    )
+    snapshot = DecisionSnapshot(
+        grid_power_w=-220,
+        grid_power_timestamp=timestamp,
+        dtu_power_w=574,
+        dtu_power_timestamp=timestamp,
+        temporary_limits=(2, 2, 2),
+        temporary_limits_timestamp=timestamp,
+        target_power_w=-40,
+        created_at=timestamp,
+    )
+
+    payload = controller._history_payload(snapshot, 2, None, None)
+
+    assert payload["temporary_limit_port_1_percent"] == 2
+    assert payload["temporary_limit_port_2_percent"] == 2
+    assert payload["temporary_limit_port_3_percent"] == 2
+    assert payload["last_confirmed_temporary_limit_percent"] == 2
+    assert payload["dtu_active_power_w"] == 574
+    assert payload["installed_nominal_power_w"] == 3000
+    assert payload["openems_theoretical_max_power_at_real_limit_w"] == 60
+    assert payload["grid_power_w"] == -220
 
 
 async def test_takeover_establishes_a_reference_before_first_production_decision(hass) -> None:

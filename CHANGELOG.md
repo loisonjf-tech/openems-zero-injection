@@ -9,6 +9,11 @@ Toutes les évolutions notables sont documentées dans ce fichier.
 - Historique optionnel JSONL quotidien dans `/config/openems_zero_injection/history/`, désactivé par défaut et conservé 30 jours par défaut.
 - Événements passifs de décision, résultat de commande et contexte toutes les quinze minutes, incluant `integration_version` et `algorithm_version`.
 - Diagnostics de file, rétention, écritures abandonnées et erreurs de stockage.
+- Les événements persistants conservent maintenant une observation corrélée de
+  la limite : trois ports, dernière limite confirmée, source de confirmation,
+  puissance active DTU, puissance nominale configurée, plafond théorique
+  OpenEMS et puissance réseau. Ces données servent uniquement à valider sur le
+  terrain la sémantique réelle des registres de limite.
 
 ### Safety
 

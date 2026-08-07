@@ -20,7 +20,15 @@ La puissance réactive est lue pour validation technique mais son caractère sig
 
 ## Limites de puissance Build003
 
-La note REV1.2, section 4.4.7, définit ces registres comme des `uint16` big-endian. La valeur est directement un pourcentage, sans coefficient. Pour les HMS de troisième génération, la plage autorisée est de **2 à 100 %**.
+La note REV1.2, section 4.4.7, définit ces registres comme des `uint16` big-endian. La valeur est présentée comme **Percentage: Temporary Limit Active Power**, sans coefficient, et la plage autorisée pour les HMS de troisième génération est de **2 à 100 %**.
+
+> La note ne définit pas explicitement le dénominateur de ce pourcentage : elle
+> ne dit pas s'il s'agit de la puissance nominale AC d'un micro-onduleur, d'un
+> groupe associé à un port, de l'installation totale, ni comment la limite se
+> comporte lorsque la puissance solaire disponible est plus faible. OpenEMS
+> enregistre donc sa référence théorique `puissance_nominale_configurée × %`
+> uniquement pour corrélation terrain ; elle ne doit pas être interprétée comme
+> une sémantique firmware validée.
 
 | Port | Registre temporaire | Registre permanent | Lecture | Écriture Build003 | Statut réel |
 | --- | ---: | ---: | --- | --- | --- |

@@ -1424,6 +1424,7 @@ class ZeroInjectionController:
         """Build a primitive, coherent passive history snapshot from cached data."""
         energy = self._coordinator.energy_manager.snapshot()
         battery = energy.resources[0] if energy.resources else None
+        limit_observation = self._build_dtu_limit_power_observation(snapshot)
         return {
             "controller_mode": self._mode.value,
             "scheduler_state": self._scheduler.state.value,
@@ -1435,6 +1436,12 @@ class ZeroInjectionController:
             ),
             "fallback_used": getattr(policy, "fallback_used", None),
             "real_dtu_limit_before_percent": current_limit,
+            "last_confirmed_temporary_limit_percent": getattr(
+                self._coordinator, "last_confirmed_temporary_limit", None
+            ),
+            "temporary_limit_source": getattr(
+                self._coordinator, "temporary_limit_source", "unknown"
+            ),
             "calculated_limit_percent": (
                 decision.calculated_limit_percent if decision else None
             ),
@@ -1455,6 +1462,13 @@ class ZeroInjectionController:
             "temporary_limits_source_timestamp": snapshot.temporary_limits_timestamp,
             "target_grid_power_w": snapshot.target_power_w,
             "installed_nominal_power_w": self._installed_nominal_power_w,
+            # This is OpenEMS' configured linear reference only.  It is
+            # recorded for field correlation and is not evidence that the DTU
+            # firmware applies the same relationship to these registers.
+            "openems_theoretical_max_power_at_real_limit_w": (
+                self._installed_nominal_power_w * current_limit / 100
+            ),
+            "dtu_limit_power_observation": limit_observation,
             "battery": {
                 "resource_id": battery.resource_id if battery else None,
                 "health": battery.health.value if battery else None,
