@@ -72,6 +72,7 @@ async def async_get_config_entry_diagnostics(
         f"0x{address:04X}": coordinator.power_limit_health(address)
         for address in power_limit_addresses
     }
+    permanent_limit_addresses = tuple(PORT_PERMANENT_POWER_LIMIT_REGISTERS.values())
     telemetry_health = {
         field: coordinator.measurement_health(field)
         for field in (
@@ -284,6 +285,11 @@ async def async_get_config_entry_diagnostics(
                 "port_3_permanent": data.port_3_permanent_power_limit_percent if data else None,
             },
             "power_limit_health": power_limit_health,
+            "permanent_limits_available": all(
+                power_limit_health[f"0x{address:04X}"]["available"]
+                for address in permanent_limit_addresses
+            ),
+            "permanent_limits_required_for_control": False,
             "unavailable_power_limit_registers": [
                 address
                 for address, health in power_limit_health.items()

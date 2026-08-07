@@ -251,6 +251,9 @@ async def test_permanent_limit_failure_does_not_affect_temporary_readiness(hass)
 
 async def test_permanent_sentinel_is_unavailable_without_affecting_control(hass, caplog) -> None:
     """An unsupported permanent value is diagnostic-only and logs its raw value."""
+    caplog.set_level(
+        logging.DEBUG, logger="custom_components.openems_zero_injection.coordinator"
+    )
     entry = MockConfigEntry(
         domain=DOMAIN, data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502}
     )
@@ -260,7 +263,7 @@ async def test_permanent_sentinel_is_unavailable_without_affecting_control(hass,
             side_effect=lambda _address, count: [0] * count
         )
         client.async_read_power_limit_register = AsyncMock(
-            side_effect=lambda address: 0xFFFF if address == 0xD014 else 50
+            side_effect=lambda address: 110 if address == 0xD014 else 50
         )
         coordinator = DtuProSCoordinator(hass, entry)
         await coordinator.async_refresh()
@@ -270,8 +273,14 @@ async def test_permanent_sentinel_is_unavailable_without_affecting_control(hass,
     health = coordinator.power_limit_health(0xD014)
     assert health["value"] is None
     assert health["available"] is False
-    assert "raw value=65535" in str(health["last_error"])
-    assert "raw value: 65535" in caplog.text
+    assert "raw value=110" in str(health["last_error"])
+    assert "optional permanent register 0xD014 unavailable" in caplog.text
+    assert not [
+        record
+        for record in caplog.records
+        if record.levelname in {"WARNING", "ERROR"}
+        and "0xD014 unavailable" in record.message
+    ]
 
 
 async def test_unsupported_permanent_register_is_diagnostic_only(hass) -> None:

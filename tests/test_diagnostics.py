@@ -66,6 +66,8 @@ async def test_diagnostics_include_connection_state(hass) -> None:
     assert diagnostics["controller"]["temporary_limits_ready"] is True
     assert diagnostics["measurements"]["power_limit_health"]["0xD00D"]["available"] is True
     assert diagnostics["measurements"]["unavailable_power_limit_registers"] == []
+    assert diagnostics["measurements"]["permanent_limits_available"] is True
+    assert diagnostics["measurements"]["permanent_limits_required_for_control"] is False
     energy_manager = diagnostics["energy_manager"]
     assert energy_manager["battery_count"] == 0
     assert energy_manager["total_max_charge_power_w"] is None

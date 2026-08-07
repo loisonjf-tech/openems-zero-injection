@@ -466,8 +466,17 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
     ) -> None:
         """Treat a permanent-register sentinel as optional unavailable data."""
         health = self._limit_health[address]
+        full_error = f"{error}; raw value={raw_value}"
+        if health.available or health.error != full_error:
+            _LOGGER.debug(
+                "DTU optional permanent register 0x%04X unavailable: %s",
+                address,
+                full_error,
+            )
         health.value = None
-        self._mark_register_failure(address, health, f"{error}; raw value={raw_value}")
+        health.available = False
+        health.error = full_error
+        health.consecutive_failures += 1
 
     def _mark_register_failure(
         self, address: int, health: _PowerLimitHealth, error: str
@@ -674,7 +683,7 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
                     self._permanent_limit_suppressed_until[address] = (
                         now + PERMANENT_LIMIT_FAILURE_BACKOFF
                     )
-                    _LOGGER.warning(
+                    _LOGGER.debug(
                         "DTU permanent register 0x%04X suppressed for 30 minutes after %s failures",
                         address,
                         health.consecutive_failures,
