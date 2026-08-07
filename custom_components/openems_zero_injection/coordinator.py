@@ -525,6 +525,7 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
         started = monotonic()
         now = datetime.now(UTC)
         batteries: tuple[BatteryResource, ...] = ()
+        battery_started = monotonic()
         if self._solarflow_enabled:
             battery = self._solarflow_adapter.read_resource(now)
             self._log_battery_source_freshness(battery.source_freshness)
@@ -534,6 +535,7 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             "connection": self._modbus.connection_diagnostics().get(
                 "last_connection_time_ms"
             ),
+            "battery_initialization": (monotonic() - battery_started) * 1000,
         }
         self._cycle_successes = 0
         self._transport_failed_this_cycle = False
@@ -591,6 +593,11 @@ class DtuProSCoordinator(DataUpdateCoordinator[DtuMeasurements]):
             daily = self._telemetry_health["daily_energy_wh"].value
 
         power_limit_values = await self._async_refresh_power_limits(now)
+        # A first connection is established by the first request. Refresh this
+        # timing after all initial reads so setup diagnostics do not show None.
+        self._cycle_timings_ms["connection"] = self._modbus.connection_diagnostics().get(
+            "last_connection_time_ms"
+        )
         if self._transport_failed_this_cycle and self._cycle_successes == 0:
             self._consecutive_transport_failures += 1
             if (

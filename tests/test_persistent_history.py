@@ -74,6 +74,22 @@ async def test_history_writes_versioned_daily_jsonl(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_history_start_creates_no_daily_file_before_an_event(tmp_path: Path) -> None:
+    """Startup only prepares the directory and worker; it does not write JSONL."""
+    directory = tmp_path / "history"
+    recorder = PersistentHistoryRecorder(
+        _Hass(tmp_path), enabled=True, retention_days=30,
+        integration_version="test", algorithm_version="algorithm", directory=directory,
+    )
+
+    await recorder.async_start()
+
+    assert directory.exists()
+    assert list(directory.glob("*.jsonl")) == []
+    await recorder.async_stop()
+
+
+@pytest.mark.asyncio
 async def test_periodic_sample_is_limited_to_fifteen_minutes(tmp_path: Path) -> None:
     recorder = PersistentHistoryRecorder(
         _Hass(tmp_path), enabled=True, retention_days=30,

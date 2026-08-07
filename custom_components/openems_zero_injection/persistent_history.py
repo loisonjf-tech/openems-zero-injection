@@ -15,6 +15,7 @@ from enum import StrEnum
 import json
 import logging
 from pathlib import Path
+from time import monotonic
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -93,14 +94,28 @@ class PersistentHistoryRecorder:
     async def async_start(self) -> None:
         """Start the passive writer only when persistence is enabled."""
         if not self._enabled or self._worker is not None:
+            if not self._enabled:
+                _LOGGER.debug("Persistent history startup skipped: disabled")
             return
+        started = monotonic()
         try:
-            await self._hass.async_add_executor_job(self._prepare_directory_sync)
+            preparation = await self._hass.async_add_executor_job(
+                self._prepare_directory_sync
+            )
         except OSError as err:
             self._record_write_error(err)
             return
         self._stopping = False
         self._worker = self._hass.async_create_task(self._async_worker())
+        _LOGGER.debug(
+            "Persistent history startup: directory_create_ms=%.1f retention_scan_purge_ms=%.1f "
+            "files_scanned=%s files_deleted=%s worker_started=true total_ms=%.1f",
+            preparation["directory_create_ms"],
+            preparation["retention_scan_purge_ms"],
+            preparation["files_scanned"],
+            preparation["files_deleted"],
+            (monotonic() - started) * 1000,
+        )
 
     async def async_stop(self) -> None:
         """Drain briefly on unload; never let storage delay integration shutdown."""
@@ -199,9 +214,19 @@ class PersistentHistoryRecorder:
                 for _ in batch:
                     self._queue.task_done()
 
-    def _prepare_directory_sync(self) -> None:
+    def _prepare_directory_sync(self) -> dict[str, float | int]:
+        """Create and purge only the history directory from an executor thread."""
+        started = monotonic()
         self._directory.mkdir(parents=True, exist_ok=True)
-        self._purge_expired_sync(dt_util.now().date())
+        directory_create_ms = (monotonic() - started) * 1000
+        purge_started = monotonic()
+        files_scanned, files_deleted = self._purge_expired_sync(dt_util.now().date())
+        return {
+            "directory_create_ms": directory_create_ms,
+            "retention_scan_purge_ms": (monotonic() - purge_started) * 1000,
+            "files_scanned": files_scanned,
+            "files_deleted": files_deleted,
+        }
 
     def _write_batch_sync(self, batch: list[dict[str, Any]]) -> int:
         self._directory.mkdir(parents=True, exist_ok=True)
@@ -224,15 +249,21 @@ class PersistentHistoryRecorder:
         self._purge_expired_sync(dt_util.now().date())
         return len(batch)
 
-    def _purge_expired_sync(self, today: date) -> None:
+    def _purge_expired_sync(self, today: date) -> tuple[int, int]:
+        """Purge only matching dated JSONL files in the configured history path."""
         cutoff = today - timedelta(days=self._retention_days)
+        scanned = 0
+        deleted = 0
         for candidate in self._directory.glob("????-??-??.jsonl"):
+            scanned += 1
             try:
                 candidate_day = date.fromisoformat(candidate.stem)
             except ValueError:
                 continue
             if candidate_day < cutoff:
                 candidate.unlink(missing_ok=True)
+                deleted += 1
+        return scanned, deleted
 
     def _record_write_error(self, err: OSError) -> None:
         self._write_errors += 1

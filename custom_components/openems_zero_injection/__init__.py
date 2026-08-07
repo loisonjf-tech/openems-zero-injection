@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+from time import monotonic
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
@@ -10,15 +13,51 @@ from .const import CONF_CONTROLLER_MODE, ControllerMode, DOMAIN, PLATFORMS
 from .coordinator import DtuProSCoordinator
 
 
+_LOGGER = logging.getLogger(__name__)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up the DTU Pro-S connectivity integration from a config entry."""
+    setup_started = monotonic()
+    phase_started = monotonic()
     await _async_migrate_legacy_simulation(hass, entry)
+    _LOGGER.debug(
+        "OpenEMS setup entry %s: legacy_migration_ms=%.1f",
+        entry.entry_id,
+        (monotonic() - phase_started) * 1000,
+    )
+    phase_started = monotonic()
     coordinator = DtuProSCoordinator(hass, entry)
+    _LOGGER.debug(
+        "OpenEMS setup entry %s: coordinator_initialization_ms=%.1f",
+        entry.entry_id,
+        (monotonic() - phase_started) * 1000,
+    )
+    phase_started = monotonic()
     await coordinator.async_config_entry_first_refresh()
+    _LOGGER.debug(
+        "OpenEMS setup entry %s: initial_refresh_ms=%.1f timings_ms=%s",
+        entry.entry_id,
+        (monotonic() - phase_started) * 1000,
+        coordinator.cycle_timings_ms,
+    )
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     entry.async_on_unload(entry.add_update_listener(_async_update_options))
+    phase_started = monotonic()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    _LOGGER.debug(
+        "OpenEMS setup entry %s: platforms_entities_ms=%.1f",
+        entry.entry_id,
+        (monotonic() - phase_started) * 1000,
+    )
+    phase_started = monotonic()
     await coordinator.controller.async_start()
+    _LOGGER.debug(
+        "OpenEMS setup entry %s: controller_history_start_ms=%.1f total_ms=%.1f",
+        entry.entry_id,
+        (monotonic() - phase_started) * 1000,
+        (monotonic() - setup_started) * 1000,
+    )
     return True
 
 
