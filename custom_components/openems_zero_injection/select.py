@@ -26,7 +26,6 @@ class OpenEMSControllerModeSelect(CoordinatorEntity[DtuProSCoordinator], SelectE
     """Explicitly choose manual operation or automatic regulation."""
 
     _attr_name = "Mode du contrôleur"
-    _attr_options = ["Manuel", "Régulation automatique"]
     _attr_entity_category = EntityCategory.CONFIG
     _attr_icon = "mdi:transmission-tower"
 
@@ -47,6 +46,11 @@ class OpenEMSControllerModeSelect(CoordinatorEntity[DtuProSCoordinator], SelectE
             ControllerMode.DISABLED: "Manuel",
             ControllerMode.PRODUCTION: "Régulation automatique",
         }.get(self.coordinator.controller.mode, "Manuel")
+
+    @property
+    def options(self) -> list[str]:
+        """Expose only the two supported user-facing controller modes."""
+        return ["Manuel", "Régulation automatique"]
 
     @property
     def available(self) -> bool:
