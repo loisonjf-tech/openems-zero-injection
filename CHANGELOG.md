@@ -45,6 +45,10 @@ Toutes les évolutions notables sont documentées dans ce fichier.
 
 ### Changed
 
+- Les entités de tableau de bord possèdent désormais un nom traduit propre et
+  un identifiant lisible `sensor.openems_*`. Une migration ciblée renomme
+  uniquement les identifiants génériques générés par Home Assistant, tout en
+  conservant les `unique_id`, l’historique et les noms personnalisés.
 - Le sélecteur Home Assistant ne propose désormais que **Manuel** et
   **Régulation automatique**. Une ancienne option `Simulation` est migrée vers
   Manuel et les anciennes entités de simulation sont désactivées proprement.

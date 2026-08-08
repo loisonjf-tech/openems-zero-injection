@@ -19,6 +19,11 @@ from custom_components.openems_zero_injection.energy_strategy import (
     EnergyStrategyDecision,
     EnergyStrategyReasonCode,
 )
+from custom_components.openems_zero_injection.sensor import (
+    _DASHBOARD_SENSOR_OBJECT_IDS,
+    _dashboard_entity_id,
+    _migrate_generic_dashboard_entity_ids,
+)
 
 
 async def test_connection_sensor_reports_connected(hass) -> None:
@@ -187,6 +192,12 @@ async def test_dashboard_entities_read_cached_state_without_control_io(hass) -> 
 
     registry = er.async_get(hass)
 
+    for suffix in _DASHBOARD_SENSOR_OBJECT_IDS:
+        entity_id = registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{entry.entry_id}_{suffix}"
+        )
+        assert entity_id == _dashboard_entity_id(suffix)
+
     def state_for(suffix: str):
         entity_id = registry.async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_{suffix}")
         assert entity_id is not None
@@ -209,3 +220,34 @@ async def test_dashboard_entities_read_cached_state_without_control_io(hass) -> 
     controller.energy_policy_engine.decide.assert_not_called()
     client.async_read_input_registers.assert_not_awaited()
     client.async_read_power_limit_register.assert_not_awaited()
+
+
+async def test_dashboard_entity_registry_migrates_only_generic_entity_ids(hass) -> None:
+    """The naming repair retains a unique ID and user-selected IDs untouched."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502},
+    )
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    unique_id = f"{entry.entry_id}_energy_strategy_effective"
+    generic = registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        unique_id,
+        suggested_object_id="local_technique_hoymiles_dtu_pro_s_5",
+    )
+    custom = registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{entry.entry_id}_adaptive_confidence",
+        suggested_object_id="mon_nom_adaptatif",
+    )
+
+    _migrate_generic_dashboard_entity_ids(hass, entry)
+
+    migrated = registry.async_get(_dashboard_entity_id("energy_strategy_effective"))
+    assert migrated is not None
+    assert migrated.unique_id == unique_id
+    assert registry.async_get(generic.entity_id) is None
+    assert registry.async_get(custom.entity_id) is not None

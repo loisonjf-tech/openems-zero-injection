@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
+import re
 from time import monotonic
 from typing import Any
 
@@ -12,6 +13,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, UnitOfEnergy, UnitOfPower, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -25,12 +27,65 @@ from .registers import (
 )
 
 
+# Unique IDs deliberately remain unchanged: Home Assistant uses them to retain
+# history and customisations.  These object IDs only repair the automatically
+# generated, generic IDs created by the first dashboard-entity increment.
+_DASHBOARD_SENSOR_OBJECT_IDS: dict[str, str] = {
+    "solarflow_soc_percent": "solarflow_soc_percent",
+    "solarflow_directional_power_w": "solarflow_directional_power_w",
+    "energy_strategy_effective": "energy_strategy_effective",
+    "energy_strategy_directive": "energy_control_directive",
+    "energy_strategy_reason": "energy_strategy_reason",
+    "measurement_health": "measurement_health",
+    "persistent_history_status": "persistent_history_status",
+    "adaptive_nominal_gain": "adaptive_nominal_gain_w_per_percent",
+    "adaptive_estimated_gain": "adaptive_estimated_gain_w_per_percent",
+    "adaptive_confidence": "adaptive_confidence",
+    "adaptive_limit_range": "adaptive_limit_range",
+    "adaptive_accepted_observations": "adaptive_accepted_observations",
+    "adaptive_rejected_observations": "adaptive_rejected_observations",
+    "adaptive_comparable_predictions": "adaptive_comparable_predictions",
+    "adaptive_nominal_median_error": "adaptive_nominal_median_error_w",
+    "adaptive_adaptive_median_error": "adaptive_adaptive_median_error_w",
+    "adaptive_nominal_signed_bias": "adaptive_nominal_signed_bias_w",
+    "adaptive_adaptive_signed_bias": "adaptive_adaptive_signed_bias_w",
+    "adaptive_better_percent": "adaptive_better_percent",
+    "adaptive_candidate_limit": "adaptive_candidate_limit_percent",
+    "adaptive_last_observation_reason": "adaptive_last_observation_reason",
+}
+
+
+def _dashboard_entity_id(suffix: str) -> str:
+    """Return the stable, readable entity ID for one dashboard entity."""
+    return f"sensor.openems_{_DASHBOARD_SENSOR_OBJECT_IDS[suffix]}"
+
+
+def _migrate_generic_dashboard_entity_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Rename only integration-generated generic IDs, never user custom IDs."""
+    registry = er.async_get(hass)
+    for suffix in _DASHBOARD_SENSOR_OBJECT_IDS:
+        unique_id = f"{entry.entry_id}_{suffix}"
+        current_entity_id = registry.async_get_entity_id("sensor", DOMAIN, unique_id)
+        if current_entity_id is None:
+            continue
+        current_object_id = current_entity_id.split(".", maxsplit=1)[1]
+        if not re.fullmatch(r".*hoymiles_dtu_pro_s_\d+", current_object_id):
+            continue
+        expected_entity_id = _dashboard_entity_id(suffix)
+        if registry.async_get(expected_entity_id) is not None:
+            continue
+        registry.async_update_entity(
+            current_entity_id, new_entity_id=expected_entity_id
+        )
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up all Build002 read-only DTU sensors."""
     coordinator: DtuProSCoordinator = hass.data[DOMAIN][entry.entry_id]
     started = monotonic()
+    _migrate_generic_dashboard_entity_ids(hass, entry)
     async_add_entities(
         [
             DtuConnectionSensor(coordinator, entry),
@@ -335,6 +390,7 @@ class SolarFlowBatterySensor(_DtuSensorBase):
     """Expose one passive normalized SolarFlow diagnostic without I/O."""
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_has_entity_name = True
 
     def __init__(
         self, coordinator: DtuProSCoordinator, entry: ConfigEntry, field: str,
@@ -344,6 +400,9 @@ class SolarFlowBatterySensor(_DtuSensorBase):
         self._field = field
         self._attr_translation_key = f"solarflow_{field}"
         self._attr_native_unit_of_measurement = unit
+        suffix = f"solarflow_{field}"
+        if suffix in _DASHBOARD_SENSOR_OBJECT_IDS:
+            self._attr_entity_id = _dashboard_entity_id(suffix)
 
     @property
     def available(self) -> bool:
@@ -389,6 +448,7 @@ class EnergyStrategySensor(_DtuSensorBase):
     """
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_has_entity_name = True
 
     def __init__(
         self, coordinator: DtuProSCoordinator, entry: ConfigEntry, field: str
@@ -396,6 +456,7 @@ class EnergyStrategySensor(_DtuSensorBase):
         super().__init__(coordinator, entry, f"energy_strategy_{field}")
         self._field = field
         self._attr_translation_key = f"energy_strategy_{field}"
+        self._attr_entity_id = _dashboard_entity_id(f"energy_strategy_{field}")
 
     @property
     def available(self) -> bool:
@@ -430,10 +491,12 @@ class MeasurementHealthSensor(_DtuSensorBase):
     """Summarise existing control-measurement health without performing I/O."""
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_has_entity_name = True
     _attr_translation_key = "measurement_health"
 
     def __init__(self, coordinator: DtuProSCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry, "measurement_health")
+        self._attr_entity_id = _dashboard_entity_id("measurement_health")
 
     @property
     def available(self) -> bool:
@@ -470,10 +533,12 @@ class PersistentHistoryStatusSensor(_DtuSensorBase):
     """Expose cached persistent-history writer health without filesystem I/O."""
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_has_entity_name = True
     _attr_translation_key = "persistent_history_status"
 
     def __init__(self, coordinator: DtuProSCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry, "persistent_history_status")
+        self._attr_entity_id = _dashboard_entity_id("persistent_history_status")
 
     @property
     def available(self) -> bool:
@@ -505,6 +570,7 @@ class AdaptiveLimitModelSensor(_DtuSensorBase):
     """Expose passive adaptive-model facts without granting control authority."""
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -518,6 +584,7 @@ class AdaptiveLimitModelSensor(_DtuSensorBase):
         self._field = field
         self._attr_translation_key = f"adaptive_{field}"
         self._attr_native_unit_of_measurement = unit
+        self._attr_entity_id = _dashboard_entity_id(f"adaptive_{field}")
 
     @property
     def available(self) -> bool:
