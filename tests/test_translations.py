@@ -35,6 +35,27 @@ def test_french_translation_keys_exist_for_controller_entities() -> None:
         ("sensor", "grid_source_timestamp"),
         ("sensor", "pv_source_timestamp"),
         ("sensor", "measurement_sync_reason"),
+        ("sensor", "solarflow_soc_percent"),
+        ("sensor", "solarflow_directional_power_w"),
+        ("sensor", "energy_strategy_effective"),
+        ("sensor", "energy_strategy_directive"),
+        ("sensor", "energy_strategy_reason"),
+        ("sensor", "measurement_health"),
+        ("sensor", "persistent_history_status"),
+        ("sensor", "adaptive_nominal_gain"),
+        ("sensor", "adaptive_estimated_gain"),
+        ("sensor", "adaptive_confidence"),
+        ("sensor", "adaptive_limit_range"),
+        ("sensor", "adaptive_accepted_observations"),
+        ("sensor", "adaptive_rejected_observations"),
+        ("sensor", "adaptive_comparable_predictions"),
+        ("sensor", "adaptive_nominal_median_error"),
+        ("sensor", "adaptive_adaptive_median_error"),
+        ("sensor", "adaptive_nominal_signed_bias"),
+        ("sensor", "adaptive_adaptive_signed_bias"),
+        ("sensor", "adaptive_better_percent"),
+        ("sensor", "adaptive_candidate_limit"),
+        ("sensor", "adaptive_last_observation_reason"),
         ("select", "controller_mode"),
     ):
         assert source["entity"][platform][key]["name"]
@@ -44,6 +65,10 @@ def test_french_translation_keys_exist_for_controller_entities() -> None:
     assert (
         french["entity"]["sensor"]["calculated_limit"]["name"]
         == "Limite prédictive théorique"
+    )
+    assert (
+        french["entity"]["sensor"]["adaptive_candidate_limit"]["name"]
+        == "Limite candidate adaptative — non appliquée"
     )
 
 

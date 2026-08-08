@@ -6,6 +6,15 @@ Toutes les évolutions notables sont documentées dans ce fichier.
 
 ### Added
 
+- Entités ciblées pour le futur tableau de bord Home Assistant : stratégie et
+  directive énergétiques, motif traduit, SOC et puissance directionnelle
+  SolarFlow, santé synthétique des mesures, état de l'historique persistant et
+  indicateurs du modèle adaptatif passif. Elles lisent exclusivement des caches
+  existants et ne déclenchent aucune communication avec le DTU ou la batterie.
+- La puissance directionnelle SolarFlow est explicitement nommée avec sa
+  convention : valeur négative = charge, valeur positive = décharge. La
+  **Limite candidate adaptative — non appliquée** est exposée séparément et
+  marquée passive afin de ne pas être confondue avec une commande DTU.
 - Historique optionnel JSONL quotidien dans `/config/openems_zero_injection/history/`, désactivé par défaut et conservé 30 jours par défaut.
 - Événements passifs de décision, résultat de commande et contexte toutes les quinze minutes, incluant `integration_version` et `algorithm_version`.
 - Diagnostics de file, rétention, écritures abandonnées et erreurs de stockage.

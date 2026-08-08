@@ -83,6 +83,19 @@ async def async_setup_entry(
                 coordinator, entry, "data_age_seconds", "Âge des données batterie SolarFlow",
                 unit=UnitOfTime.SECONDS,
             ),
+            SolarFlowBatterySensor(
+                coordinator, entry, "soc_percent", "Niveau de charge batterie SolarFlow",
+                unit="%",
+            ),
+            SolarFlowBatterySensor(
+                coordinator, entry, "directional_power_w", "Puissance batterie SolarFlow",
+                unit=UnitOfPower.WATT,
+            ),
+            EnergyStrategySensor(coordinator, entry, "effective"),
+            EnergyStrategySensor(coordinator, entry, "directive"),
+            EnergyStrategySensor(coordinator, entry, "reason"),
+            MeasurementHealthSensor(coordinator, entry),
+            PersistentHistoryStatusSensor(coordinator, entry),
             OpenEMSControllerSensor(coordinator, entry, "controller_state", "État du contrôleur"),
             OpenEMSControllerSensor(coordinator, entry, "scheduler_state", "État du planificateur"),
             OpenEMSControllerSensor(coordinator, entry, "current_limit", "Limite DTU réelle", unit="%"),
@@ -126,6 +139,20 @@ async def async_setup_entry(
             TraceRecorderSensor(coordinator, entry, "weighted_time_in_tolerance_percent", "Temps pondéré dans la tolérance", unit="%"),
             TraceRecorderSensor(coordinator, entry, "average_absolute_error_w", "Erreur absolue moyenne Trace Recorder", unit=UnitOfPower.WATT),
             TraceRecorderSensor(coordinator, entry, "suspected_oscillations", "Oscillations suspectées Trace Recorder"),
+            AdaptiveLimitModelSensor(coordinator, entry, "nominal_gain", unit="W/%"),
+            AdaptiveLimitModelSensor(coordinator, entry, "estimated_gain", unit="W/%"),
+            AdaptiveLimitModelSensor(coordinator, entry, "confidence"),
+            AdaptiveLimitModelSensor(coordinator, entry, "limit_range"),
+            AdaptiveLimitModelSensor(coordinator, entry, "accepted_observations"),
+            AdaptiveLimitModelSensor(coordinator, entry, "rejected_observations"),
+            AdaptiveLimitModelSensor(coordinator, entry, "comparable_predictions"),
+            AdaptiveLimitModelSensor(coordinator, entry, "nominal_median_error", unit=UnitOfPower.WATT),
+            AdaptiveLimitModelSensor(coordinator, entry, "adaptive_median_error", unit=UnitOfPower.WATT),
+            AdaptiveLimitModelSensor(coordinator, entry, "nominal_signed_bias", unit=UnitOfPower.WATT),
+            AdaptiveLimitModelSensor(coordinator, entry, "adaptive_signed_bias", unit=UnitOfPower.WATT),
+            AdaptiveLimitModelSensor(coordinator, entry, "better_percent", unit="%"),
+            AdaptiveLimitModelSensor(coordinator, entry, "candidate_limit", unit="%"),
+            AdaptiveLimitModelSensor(coordinator, entry, "last_observation_reason"),
         ]
     )
     coordinator.async_record_platform_setup("sensor", started, monotonic())
@@ -337,7 +364,7 @@ class SolarFlowBatterySensor(_DtuSensorBase):
         if not resources:
             return {}
         resource = resources[0]
-        return {
+        attributes = {
             "adapter_id": resource.adapter_id,
             "adapter_version": resource.adapter_version,
             "last_updated": resource.last_updated.isoformat() if resource.last_updated else None,
@@ -351,6 +378,214 @@ class SolarFlowBatterySensor(_DtuSensorBase):
             "source_max_age_seconds": resource.source_max_age_seconds,
             "source_freshness": resource.source_freshness,
         }
+        return attributes
+
+
+class EnergyStrategySensor(_DtuSensorBase):
+    """Expose the latest already-evaluated energy-policy result.
+
+    Reading this entity never calls ``EnergyStrategyEngine.decide``.  The
+    controller stores the result at the normal decision boundary.
+    """
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self, coordinator: DtuProSCoordinator, entry: ConfigEntry, field: str
+    ) -> None:
+        super().__init__(coordinator, entry, f"energy_strategy_{field}")
+        self._field = field
+        self._attr_translation_key = f"energy_strategy_{field}"
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    @property
+    def native_value(self) -> str:
+        decision = self.coordinator.controller.last_energy_strategy_decision
+        if decision is None:
+            return "unknown"
+        if self._field == "effective":
+            return decision.policy_id
+        if self._field == "directive":
+            return decision.dtu_control_directive.value
+        if decision.comparison is not None:
+            return decision.comparison.reason_code.value
+        return decision.reason_code.value
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        decision = self.coordinator.controller.last_energy_strategy_decision
+        if decision is None:
+            return {}
+        return {
+            "decision_timestamp": decision.decision_timestamp.isoformat(),
+            "input_snapshot_id": decision.input_snapshot_id,
+            "fallback_used": decision.fallback_used,
+        }
+
+
+class MeasurementHealthSensor(_DtuSensorBase):
+    """Summarise existing control-measurement health without performing I/O."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_translation_key = "measurement_health"
+
+    def __init__(self, coordinator: DtuProSCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry, "measurement_health")
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    @property
+    def native_value(self) -> str:
+        data = self.coordinator.data
+        sync = self.coordinator.controller.measurement_sync_diagnostics
+        if (
+            data is None
+            or not data.connected
+            or data.active_power_w is None
+            or not self.coordinator.temporary_limits_ready
+            or sync.reason is not None
+        ):
+            return "blocked"
+        if data.last_error:
+            return "degraded"
+        return "healthy"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        sync = self.coordinator.controller.measurement_sync_diagnostics
+        return {
+            "grid_age_seconds": sync.grid_age_seconds,
+            "pv_age_seconds": sync.pv_age_seconds,
+            "synchronized": sync.reason is None,
+            "temporary_limits_ready": self.coordinator.temporary_limits_ready,
+        }
+
+
+class PersistentHistoryStatusSensor(_DtuSensorBase):
+    """Expose cached persistent-history writer health without filesystem I/O."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_translation_key = "persistent_history_status"
+
+    def __init__(self, coordinator: DtuProSCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry, "persistent_history_status")
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    @property
+    def native_value(self) -> str:
+        recorder = self.coordinator.persistent_history_recorder
+        diagnostics = recorder.diagnostics()
+        if not diagnostics["enabled"]:
+            return "disabled"
+        if diagnostics["last_error"] or diagnostics["write_errors"] or diagnostics["events_dropped"]:
+            return "degraded"
+        return "active" if recorder.is_running else "unavailable"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        diagnostics = self.coordinator.persistent_history_recorder.diagnostics()
+        return {
+            "retention_days": diagnostics["retention_days"],
+            "queue_size": diagnostics["queue_size"],
+            "queue_capacity": diagnostics["queue_capacity"],
+            "events_dropped": diagnostics["events_dropped"],
+            "write_errors": diagnostics["write_errors"],
+        }
+
+
+class AdaptiveLimitModelSensor(_DtuSensorBase):
+    """Expose passive adaptive-model facts without granting control authority."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: DtuProSCoordinator,
+        entry: ConfigEntry,
+        field: str,
+        *,
+        unit: str | None = None,
+    ) -> None:
+        super().__init__(coordinator, entry, f"adaptive_{field}")
+        self._field = field
+        self._attr_translation_key = f"adaptive_{field}"
+        self._attr_native_unit_of_measurement = unit
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    def _snapshot(self) -> dict[str, Any]:
+        """Build a passive view from cached model/controller state only."""
+        controller = self.coordinator.controller
+        model = controller.adaptive_limit_model
+        diagnostics = model.diagnostics()
+        current_limit = controller.status.real_dtu_limit_percent
+        grid_error = controller.status.grid_error_w
+        candidate = None
+        profile = None
+        if current_limit is not None:
+            profile = model.profile_for(current_limit)
+            if grid_error is not None:
+                candidate = model.candidate_for(
+                    current_limit_percent=current_limit, grid_error_w=grid_error
+                )
+        metrics = diagnostics["prediction_metrics"]
+        observation = diagnostics["last_observation"]
+        last_reason = None
+        if observation is not None:
+            last_reason = (
+                observation.get("rejection_reason")
+                or observation.get("prediction_non_comparable_reason")
+            )
+        return {
+            "diagnostics": diagnostics,
+            "metrics": metrics,
+            "profile": profile,
+            "candidate": candidate,
+            "last_reason": last_reason or "none",
+        }
+
+    @property
+    def native_value(self) -> Any:
+        view = self._snapshot()
+        diagnostics = view["diagnostics"]
+        metrics = view["metrics"]
+        profile = view["profile"]
+        candidate = view["candidate"]
+        fields: dict[str, Any] = {
+            "nominal_gain": diagnostics["gain_nominal_w_per_percent"],
+            "estimated_gain": (
+                candidate.gain_estimated_w_per_percent if candidate else None
+            ),
+            "confidence": candidate.confidence.value if candidate else "none",
+            "limit_range": candidate.limit_range if candidate else (profile.limit_range if profile else "unknown"),
+            "accepted_observations": diagnostics["accepted_observations"],
+            "rejected_observations": diagnostics["rejected_observations"],
+            "comparable_predictions": metrics["comparable_predictions"],
+            "nominal_median_error": metrics["nominal_median_absolute_error_w"],
+            "adaptive_median_error": metrics["adaptive_median_absolute_error_w"],
+            "nominal_signed_bias": metrics["nominal_mean_signed_error_w"],
+            "adaptive_signed_bias": metrics["adaptive_mean_signed_error_w"],
+            "better_percent": metrics["adaptive_better_percent"],
+            "candidate_limit": candidate.limit_candidate_percent if candidate else None,
+            "last_observation_reason": view["last_reason"],
+        }
+        return fields[self._field]
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        if self._field != "candidate_limit":
+            return {}
+        return {"applied": False, "mode": "passive"}
 
 
 class OpenEMSControllerSensor(_DtuSensorBase):

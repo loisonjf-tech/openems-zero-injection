@@ -88,6 +88,20 @@ Chaque prédiction adaptative est figée avant le résultat de la commande puis
 comparée hors échantillon au modèle nominal après stabilisation ; les métriques
 restent donc exploitables pour décider ultérieurement d'une activation.
 
+## Entités pour tableau de bord
+
+Les entités de conduite exposent désormais la stratégie énergétique effective,
+la directive DTU, son motif, le SOC SolarFlow, la puissance directionnelle
+**(− charge / + décharge)**, l’état de santé des mesures et l’état de
+l’historique persistant. Les puissances maximale et restante de charge ainsi
+que la santé batterie restent les agrégats passifs déjà disponibles.
+
+La page d’analyse peut utiliser les entités diagnostiques du modèle adaptatif :
+gain nominal et estimé, confiance, plage de limite, observations, prédictions
+comparables, erreurs médianes, biais signés et pourcentage d’amélioration. La
+**Limite candidate adaptative — non appliquée** est strictement informative :
+elle ne peut ni modifier le Scheduler ni être envoyée au DTU.
+
 Les statistiques de session sont agrégées pendant toute la session, indépendamment du buffer des 100 chronologies : elles ne sont donc pas tronquées lorsqu’une session comporte davantage de commandes. Les médianes utilisent un échantillon borné ; les compteurs, moyennes, maximums et couverture pondérée restent complets. Une absence de mesures ou une télémétrie trop espacée ne peut jamais conclure à une commande inefficace : le résultat est alors **indéterminé**.
 
 Le mode diagnostic détaillé, le polling accéléré et les exports CSV/JSON restent volontairement hors périmètre. Les identifiants enregistrés (`policy_id`, stratégie, contexte et résultats) sont stables et indépendants de la langue ; l’interface Home Assistant les présente via ses traductions.

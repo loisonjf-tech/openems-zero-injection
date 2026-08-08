@@ -46,7 +46,7 @@ from .decision import (
     calculate_predictive_power_limit,
 )
 from .energy_policy import EnergyPolicyEngine
-from .energy_strategy import DtuControlDirective
+from .energy_strategy import DtuControlDirective, EnergyStrategyDecision
 from .history import DecisionHistory, DecisionRecord
 from .learning import LearningSample, PassiveLearningEngine
 from .scheduler import SafetyScheduler
@@ -218,6 +218,9 @@ class ZeroInjectionController:
         self._context_analyzer = ContextAnalyzer()
         self._calibration_manager = CalibrationManager()
         self._energy_policy_engine = EnergyPolicyEngine()
+        # Last already-evaluated policy result.  This is observability state
+        # only: entities must never ask the strategy engine to decide again.
+        self._last_energy_strategy_decision: EnergyStrategyDecision | None = None
         self._trace_recorder = TraceRecorder()
         self._persistent_history_recorder = persistent_history_recorder
         self._last_history_transition_signature: tuple[object, ...] | None = None
@@ -321,6 +324,11 @@ class ZeroInjectionController:
     def energy_policy_engine(self) -> EnergyPolicyEngine:
         """Expose the V1-compatible target policy boundary."""
         return self._energy_policy_engine
+
+    @property
+    def last_energy_strategy_decision(self) -> EnergyStrategyDecision | None:
+        """Return the latest cached policy result without evaluating it."""
+        return self._last_energy_strategy_decision
 
     @property
     def trace_recorder(self) -> TraceRecorder:
@@ -474,6 +482,7 @@ class ZeroInjectionController:
             self._last_simulated_command_time = None
             self._last_evaluated_snapshot = None
             self._takeover_pending = False
+            self._last_energy_strategy_decision = None
         elif self._scheduler.state is SchedulerState.PAUSED:
             self._scheduler.reset()
         if self._mode is ControllerMode.SIMULATION and previous_mode is not ControllerMode.SIMULATION:
@@ -736,6 +745,7 @@ class ZeroInjectionController:
                 compare_battery_priority=self._mode is ControllerMode.SIMULATION,
                 activate_battery_priority=self._mode is ControllerMode.PRODUCTION,
             )
+            self._last_energy_strategy_decision = policy
             if policy.comparison is not None:
                 comparison = policy.comparison
                 self._trace_recorder.record_strategy_comparison(

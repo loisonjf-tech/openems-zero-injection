@@ -1,6 +1,7 @@
 """Tests for the OpenEMS connection diagnostic sensor."""
 
-from unittest.mock import AsyncMock, patch
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock, patch
 from dataclasses import replace
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -11,6 +12,12 @@ from custom_components.openems_zero_injection.const import (
     CONF_DTU_PORT,
     DOMAIN,
     ControllerMode,
+)
+from custom_components.openems_zero_injection.battery import BatteryHealth, BatteryResource
+from custom_components.openems_zero_injection.energy_strategy import (
+    DtuControlDirective,
+    EnergyStrategyDecision,
+    EnergyStrategyReasonCode,
 )
 
 
@@ -116,3 +123,89 @@ async def test_connection_sensor_reports_connected(hass) -> None:
     )
     assert trace_mode_entity is not None
     assert hass.states.get(trace_mode_entity).state == "normal"
+
+
+async def test_dashboard_entities_read_cached_state_without_control_io(hass) -> None:
+    """Dashboard entities only expose already-cached controller and battery data."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_DTU_HOST: "192.0.2.10", CONF_DTU_PORT: 502},
+    )
+    entry.add_to_hass(hass)
+    with patch(
+        "custom_components.openems_zero_injection.coordinator.DtuProSModbusClient"
+    ) as client_class:
+        client = client_class.return_value
+        client.async_check_connectivity = AsyncMock(return_value=True)
+        client.async_read_input_registers = AsyncMock(
+            side_effect=lambda _address, count: [0] * count
+        )
+        client.async_read_power_limit_register = AsyncMock(return_value=50)
+        client.async_write_temporary_power_limit = AsyncMock()
+        client.async_disconnect = AsyncMock()
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    controller = coordinator.controller
+    client.async_read_input_registers.reset_mock()
+    client.async_read_power_limit_register.reset_mock()
+    coordinator.energy_manager.set_batteries(
+        (
+            BatteryResource(
+                resource_id="solarflow-1",
+                name="SolarFlow",
+                adapter_id="zendure_solarflow",
+                adapter_version="test",
+                available=True,
+                health=BatteryHealth.HEALTHY,
+                last_updated=datetime.now(UTC),
+                data_age_seconds=1,
+                soc_percent=62,
+                directional_power_w=-348,
+                charge_power_w=348,
+                discharge_power_w=0,
+                max_charge_power_w=1000,
+                remaining_charge_power_w=652,
+            ),
+        )
+    )
+    controller._last_energy_strategy_decision = EnergyStrategyDecision(
+        target_grid_power_w=-40,
+        policy_id="zero_injection",
+        reason="Configured zero-injection target",
+        confidence=1.0,
+        fallback_used=False,
+        decision_timestamp=datetime.now(UTC),
+        input_snapshot_id="test-snapshot",
+        reason_code=EnergyStrategyReasonCode.CONFIGURED_ZERO_INJECTION_TARGET,
+        dtu_control_directive=DtuControlDirective.NORMAL_REGULATION,
+    )
+    controller._energy_policy_engine.decide = MagicMock()
+    coordinator.async_update_listeners()
+    await hass.async_block_till_done()
+
+    registry = er.async_get(hass)
+
+    def state_for(suffix: str):
+        entity_id = registry.async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_{suffix}")
+        assert entity_id is not None
+        state = hass.states.get(entity_id)
+        assert state is not None
+        return state
+
+    assert state_for("energy_strategy_effective").state == "zero_injection"
+    assert state_for("energy_strategy_directive").state == "normal_regulation"
+    assert state_for("energy_strategy_reason").state == "configured_zero_injection_target"
+    assert state_for("solarflow_soc_percent").state == "62"
+    directional = state_for("solarflow_directional_power_w")
+    assert directional.state == "-348"
+    assert state_for("persistent_history_status").state == "disabled"
+    assert state_for("adaptive_nominal_gain").state == "30.0"
+    candidate = state_for("adaptive_candidate_limit")
+    assert candidate.state == "unknown"
+    assert candidate.attributes["applied"] is False
+
+    controller.energy_policy_engine.decide.assert_not_called()
+    client.async_read_input_registers.assert_not_awaited()
+    client.async_read_power_limit_register.assert_not_awaited()

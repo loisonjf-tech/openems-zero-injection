@@ -91,6 +91,11 @@ class PersistentHistoryRecorder:
         """Whether persistence is explicitly enabled by the user."""
         return self._enabled
 
+    @property
+    def is_running(self) -> bool:
+        """Return cached worker state without touching the filesystem."""
+        return self._worker is not None and not self._worker.done()
+
     async def async_start(self) -> None:
         """Start the passive writer only when persistence is enabled."""
         if not self._enabled or self._worker is not None:
@@ -189,6 +194,7 @@ class PersistentHistoryRecorder:
             "events_dropped": self._events_dropped,
             "write_errors": self._write_errors,
             "last_error": self._last_error,
+            "worker_running": self.is_running,
             "periodic_interval_seconds": HISTORY_PERIODIC_SECONDS,
         }
 
