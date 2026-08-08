@@ -402,7 +402,10 @@ class SolarFlowBatterySensor(_DtuSensorBase):
         self._attr_native_unit_of_measurement = unit
         suffix = f"solarflow_{field}"
         if suffix in _DASHBOARD_SENSOR_OBJECT_IDS:
-            self._attr_entity_id = _dashboard_entity_id(suffix)
+            # ``entity_id`` (not ``_attr_entity_id``) is the value consumed by
+            # EntityPlatform before its first entity-registry entry is made.
+            # This gives new installations a readable ID immediately.
+            self.entity_id = _dashboard_entity_id(suffix)
 
     @property
     def available(self) -> bool:
@@ -456,7 +459,7 @@ class EnergyStrategySensor(_DtuSensorBase):
         super().__init__(coordinator, entry, f"energy_strategy_{field}")
         self._field = field
         self._attr_translation_key = f"energy_strategy_{field}"
-        self._attr_entity_id = _dashboard_entity_id(f"energy_strategy_{field}")
+        self.entity_id = _dashboard_entity_id(f"energy_strategy_{field}")
 
     @property
     def available(self) -> bool:
@@ -496,7 +499,7 @@ class MeasurementHealthSensor(_DtuSensorBase):
 
     def __init__(self, coordinator: DtuProSCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry, "measurement_health")
-        self._attr_entity_id = _dashboard_entity_id("measurement_health")
+        self.entity_id = _dashboard_entity_id("measurement_health")
 
     @property
     def available(self) -> bool:
@@ -538,7 +541,7 @@ class PersistentHistoryStatusSensor(_DtuSensorBase):
 
     def __init__(self, coordinator: DtuProSCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry, "persistent_history_status")
-        self._attr_entity_id = _dashboard_entity_id("persistent_history_status")
+        self.entity_id = _dashboard_entity_id("persistent_history_status")
 
     @property
     def available(self) -> bool:
@@ -584,7 +587,7 @@ class AdaptiveLimitModelSensor(_DtuSensorBase):
         self._field = field
         self._attr_translation_key = f"adaptive_{field}"
         self._attr_native_unit_of_measurement = unit
-        self._attr_entity_id = _dashboard_entity_id(f"adaptive_{field}")
+        self.entity_id = _dashboard_entity_id(f"adaptive_{field}")
 
     @property
     def available(self) -> bool:
