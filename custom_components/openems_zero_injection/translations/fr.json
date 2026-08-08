@@ -25,7 +25,24 @@
         "data": {
           "grid_power_entity_id": "Capteur de puissance réseau",
           "grid_power_inverted": "Inverser le signe de la puissance réseau",
-          "installed_nominal_power_w": "Puissance nominale de l’installation photovoltaïque"
+          "installed_nominal_power_w": "Puissance nominale de l’installation photovoltaïque",
+          "temporary_limit_validation_mode": "Mode de validation des limites temporaires",
+          "production_startup_strategy": "Stratégie de démarrage Production",
+          "takeover_limit_percent": "Limite de puissance de prise de contrôle",
+          "auto_resume_production": "Reprendre automatiquement Production après redémarrage"
+          ,"solarflow_enabled": "Activer l’adaptateur SolarFlow en lecture seule"
+          ,"solarflow_soc_entity_id": "Capteur de niveau de charge SolarFlow"
+          ,"solarflow_power_entity_id": "Capteur de puissance directionnelle SolarFlow"
+          ,"solarflow_grid_input_power_entity_id": "Capteur SolarFlow gridInputPower (diagnostic)"
+          ,"solarflow_charge_limit_entity_id": "Capteur de limite de charge SolarFlow"
+          ,"solarflow_power_sign": "Convention de signe de puissance SolarFlow"
+          ,"solarflow_charge_limit_verified": "Unité et signification de la limite de charge vérifiées"
+          ,"battery_priority_mode": "Mode Priorité Batterie"
+          ,"battery_priority_margin_w": "Marge Priorité Batterie"
+          ,"battery_priority_charge_threshold_w": "Seuil de confirmation de charge batterie"
+          ,"battery_priority_confirmation_samples": "Mesures de charge fraîches consécutives"
+          ,"persistent_history_enabled": "Activer l’historique persistant d’observabilité"
+          ,"persistent_history_retention_days": "Conservation de l’historique persistant (jours)"
         }
       }
     }
@@ -35,18 +52,74 @@
       "controller_state": {"name": "État du contrôleur"},
       "scheduler_state": {"name": "État du planificateur"},
       "current_limit": {"name": "Limite DTU réelle"},
-      "calculated_limit": {"name": "Limite DTU calculée"},
-      "simulated_limit": {"name": "Limite DTU simulée"},
+      "current_limit_source": {"name": "Source de la limite courante"},
+      "ports_synchronization": {"name": "État de synchronisation des ports"},
+      "calculated_limit": {"name": "Limite prédictive théorique"},
+      "commanded_limit": {"name": "Prochaine limite commandée"},
+      "waiting_state": {"name": "État d’attente"},
+      "scheduler_inactive_reason": {"name": "Motif d’inactivité du planificateur"},
       "watts_per_percent": {"name": "Puissance correspondant à 1 %"},
+      "port_1_temporary_power_limit_percent": {"name": "Limite temporaire réelle DTU port 1"},
+      "port_2_temporary_power_limit_percent": {"name": "Limite temporaire réelle DTU port 2"},
+      "port_3_temporary_power_limit_percent": {"name": "Limite temporaire réelle DTU port 3"},
+      "energy_manager_battery_count": {"name": "Nombre de batteries détectées"},
+      "energy_manager_total_max_charge_power_w": {"name": "Puissance maximale totale de charge"},
+      "energy_manager_total_current_charge_power_w": {"name": "Puissance actuelle de charge"},
+      "energy_manager_total_remaining_charge_power_w": {"name": "Capacité restante de charge"},
+      "energy_manager_state": {"name": "État Energy Manager"},
+      "solarflow_health": {"name": "État de santé batterie SolarFlow", "state": {"healthy": "Saine", "stale": "Périmée", "inconsistent": "Incohérente", "fault": "En défaut", "unavailable": "Indisponible"}},
+      "solarflow_data_age_seconds": {"name": "Âge des données batterie SolarFlow"},
       "last_decision": {"name": "Motif de la dernière décision"},
       "last_command_result": {"name": "Résultat de la dernière commande"},
-      "commands_simulated": {"name": "Commandes simulées"}
+      "trace_mode": {
+        "name": "Mode Trace Recorder",
+        "state": {"normal": "Normal"}
+      },
+      "trace_session_active": {
+        "name": "Session de régulation active",
+        "state": {"active": "Active", "inactive": "Inactive"}
+      },
+      "trace_session_started_at": {"name": "Début de la session de régulation"},
+      "trace_data_coverage_percent": {"name": "Couverture des données Trace Recorder"},
+      "trace_commands_confirmed": {"name": "Commandes confirmées Trace Recorder"},
+      "trace_commands_effective": {"name": "Commandes efficaces Trace Recorder"},
+      "trace_commands_ineffective": {"name": "Commandes inefficaces Trace Recorder"},
+      "trace_commands_indeterminate": {"name": "Commandes indéterminées Trace Recorder"},
+      "trace_median_energy_response_ms": {"name": "Temps de réponse énergétique médian"},
+      "trace_weighted_time_in_tolerance_percent": {"name": "Temps pondéré dans la tolérance"},
+      "trace_average_absolute_error_w": {"name": "Erreur absolue moyenne Trace Recorder"},
+      "trace_suspected_oscillations": {"name": "Oscillations suspectées Trace Recorder"},
+      "grid_source_timestamp": {"name": "Horodatage source puissance réseau"},
+      "pv_source_timestamp": {"name": "Horodatage source puissance PV"},
+      "grid_measurement_age": {"name": "Âge mesure réseau"},
+      "pv_measurement_age": {"name": "Âge mesure PV"},
+      "measurement_timestamp_difference": {"name": "Écart temporel réseau/PV"},
+      "measurement_sync_tolerance": {"name": "Tolérance synchronisation mesures"},
+      "measurement_sync_reason": {"name": "Motif de désynchronisation des mesures"},
+      "solarflow_soc_percent": {"name": "Niveau de charge batterie SolarFlow"},
+      "solarflow_directional_power_w": {"name": "Puissance batterie SolarFlow (− charge / + décharge)"},
+      "energy_strategy_effective": {"name": "Stratégie énergétique effective", "state": {"zero_injection": "Zéro injection uniquement", "battery_capacity_release": "Maximiser la charge batterie", "battery_priority_observed_conservative": "Favoriser la charge batterie", "unknown": "Inconnue"}},
+      "energy_strategy_directive": {"name": "Directive énergétique actuelle", "state": {"normal_regulation": "Régulation zéro injection", "release_dtu_to_maximum": "Libérer le DTU à 100 %", "unknown": "Inconnue"}},
+      "energy_strategy_reason": {"name": "Motif de la stratégie énergétique", "state": {"configured_zero_injection_target": "Cible zéro injection configurée", "battery_priority_simulation": "Simulation de priorité batterie", "battery_priority_no_battery": "Aucune batterie configurée", "battery_priority_battery_unavailable": "Batterie indisponible", "battery_priority_battery_data_stale": "Données batterie périmées", "battery_priority_battery_data_inconsistent": "Données batterie incohérentes", "battery_priority_battery_fault": "Batterie en défaut", "battery_priority_capacity_partial": "Capacité batterie partielle", "battery_priority_capacity_unknown": "Capacité batterie inconnue", "battery_priority_battery_full": "Batterie pleine", "battery_priority_target_not_export_oriented": "Cible non orientée injection", "battery_priority_disabled": "Priorité batterie désactivée", "battery_priority_verified_mode_reserved": "Mode Priorité Batterie vérifié réservé", "battery_priority_charge_confirmation_pending": "Confirmation de charge en attente", "battery_priority_battery_discharging": "Batterie en décharge", "battery_priority_battery_idle": "Batterie au repos", "battery_priority_observed_conservative": "Charge batterie favorisée", "battery_capacity_release_active": "Capacité batterie disponible", "battery_capacity_release_discharging": "Batterie en décharge : DTU libéré", "battery_capacity_release_full": "Batterie pleine", "battery_capacity_release_saturated": "Capacité de charge batterie saturée", "battery_capacity_release_waiting_to_release": "Confirmation avant libération du DTU", "battery_capacity_release_hold_normal": "Maintien de la régulation zéro injection", "battery_capacity_release_hold_release": "Maintien de la libération du DTU", "battery_capacity_release_capacity_unknown": "Capacité de charge batterie inconnue", "battery_capacity_release_capacity_stale": "Capacité de charge batterie périmée", "battery_capacity_release_soc_stale": "Niveau de charge batterie périmé", "unknown": "Inconnue"}},
+      "measurement_health": {"name": "État de santé des mesures", "state": {"healthy": "Saines", "degraded": "Dégradé", "blocked": "Régulation bloquée", "unknown": "Inconnu"}},
+      "persistent_history_status": {"name": "État de l’historique persistant", "state": {"disabled": "Désactivé", "active": "Actif", "degraded": "Dégradé", "unavailable": "Indisponible"}},
+      "adaptive_nominal_gain": {"name": "Gain nominal du modèle"},
+      "adaptive_estimated_gain": {"name": "Gain adaptatif estimé"},
+      "adaptive_confidence": {"name": "Niveau de confiance du modèle adaptatif", "state": {"none": "Aucune confiance", "insufficient": "Confiance insuffisante", "low": "Faible", "medium": "Moyenne", "high": "Élevée"}},
+      "adaptive_limit_range": {"name": "Plage de limitation du modèle adaptatif", "state": {"unknown": "Inconnue"}},
+      "adaptive_accepted_observations": {"name": "Observations adaptatives acceptées"},
+      "adaptive_rejected_observations": {"name": "Observations adaptatives rejetées"},
+      "adaptive_comparable_predictions": {"name": "Prédictions adaptatives comparables"},
+      "adaptive_nominal_median_error": {"name": "Erreur médiane du modèle nominal"},
+      "adaptive_adaptive_median_error": {"name": "Erreur médiane du modèle adaptatif"},
+      "adaptive_nominal_signed_bias": {"name": "Biais signé du modèle nominal"},
+      "adaptive_adaptive_signed_bias": {"name": "Biais signé du modèle adaptatif"},
+      "adaptive_better_percent": {"name": "Prédictions améliorées par le modèle adaptatif"},
+      "adaptive_candidate_limit": {"name": "Limite candidate adaptative — non appliquée"},
+      "adaptive_last_observation_reason": {"name": "Dernier motif adaptatif de rejet ou non-comparabilité", "state": {"none": "Aucun", "command_too_small": "Variation de commande trop faible", "insufficient_pre_command_context": "Contexte avant commande insuffisant", "pre_command_measurements_unstable": "Mesures avant commande instables", "post_stabilization_timeout": "Délai après stabilisation dépassé", "battery_context_changed": "Contexte batterie modifié", "post_power_unstable": "Puissance après commande instable", "power_change_too_small": "Variation de puissance observée trop faible", "power_change_wrong_direction": "Variation de puissance dans le mauvais sens", "gain_outside_conservative_bounds": "Gain observé hors bornes conservatrices", "adaptive_confidence_insufficient": "Confiance adaptative insuffisante", "observation_indeterminate": "Observation indéterminée"}}
     },
     "select": {
       "controller_mode": {"name": "Mode du contrôleur"}
-    },
-    "switch": {
-      "enable_manual_dtu_writes": {"name": "Autoriser les écritures manuelles DTU"}
     }
   },
   "exceptions": {

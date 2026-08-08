@@ -5,12 +5,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import struct
+from time import monotonic
 
 from .const import (
     DEFAULT_DEVICE_ID,
-    MODBUS_INTER_REQUEST_DELAY_SECONDS,
     MODBUS_RECONNECT_BACKOFF_MAX_SECONDS,
-    MODBUS_RECONNECT_BACKOFF_THRESHOLD,
     MODBUS_TIMEOUT_SECONDS,
 )
 from .registers import POWER_LIMIT_REGISTERS, TEMPORARY_POWER_LIMIT_REGISTERS
@@ -46,13 +45,15 @@ class DtuProSModbusClient:
         self._writer: asyncio.StreamWriter | None = None
         self._transaction_id = 0
         self._lock = asyncio.Lock()
-        self._last_request_time: float | None = None
         self._has_connected_once = False
         self._reconnections = 0
         self._total_errors = 0
         self._consecutive_failures = 0
         self._last_error: str | None = None
         self._last_success: float | None = None
+        self._last_failure_time: float | None = None
+        self._last_response_time_ms: float | None = None
+        self._last_connection_time_ms: float | None = None
 
     @property
     def connected(self) -> bool:
@@ -69,7 +70,8 @@ class DtuProSModbusClient:
         if self.connected:
             return True
         await self._async_disconnect_locked()
-        await self._async_backoff_before_connect()
+        self._async_backoff_before_connect()
+        started = monotonic()
         try:
             async with asyncio.timeout(MODBUS_TIMEOUT_SECONDS):
                 self._reader, self._writer = await asyncio.open_connection(
@@ -77,10 +79,17 @@ class DtuProSModbusClient:
                 )
         except (OSError, TimeoutError) as err:
             raise DtuConnectionError(str(err) or "Connection failed") from err
+        self._last_connection_time_ms = (monotonic() - started) * 1000
         if self._has_connected_once:
             self._reconnections += 1
         self._has_connected_once = True
-        _LOGGER.debug("Connected to DTU Modbus TCP endpoint %s:%s", self.host, self.port)
+        _LOGGER.debug(
+            "DTU Modbus connection host=%s port=%s unit=%s duration_ms=%.1f result=ok attempts=1",
+            self.host,
+            self.port,
+            self.device_id,
+            self._last_connection_time_ms,
+        )
         return True
 
     async def async_check_connectivity(self) -> bool:
@@ -145,9 +154,10 @@ class DtuProSModbusClient:
 
     async def _async_request_locked(self, function_code: int, data: bytes) -> bytes:
         """Send exactly one PDU and return its response while holding the lock."""
+        address, count_or_value = struct.unpack(">HH", data)
+        started = monotonic()
         try:
             await self._async_connect_locked()
-            await self._async_wait_between_requests()
             self._transaction_id = (self._transaction_id + 1) & 0xFFFF
             transaction_id = self._transaction_id
             pdu = bytes([function_code]) + data
@@ -173,44 +183,58 @@ class DtuProSModbusClient:
                     raise DtuConnectionError("Invalid Modbus TCP response length")
                 response = await self._reader.readexactly(length - 1)
                 self._record_success()
+                self._last_response_time_ms = (monotonic() - started) * 1000
+                _LOGGER.debug(
+                    "DTU Modbus request address=0x%04X count=%s unit=%s duration_ms=%.1f result=ok attempts=1",
+                    address,
+                    count_or_value,
+                    self.device_id,
+                    self._last_response_time_ms,
+                )
                 return response
         except DtuConnectionError as err:
+            self._last_response_time_ms = (monotonic() - started) * 1000
+            _LOGGER.debug(
+                "DTU Modbus request address=0x%04X count=%s unit=%s duration_ms=%.1f result=error exception=%r attempts=1",
+                address, count_or_value, self.device_id, self._last_response_time_ms, err,
+            )
             self._record_failure(str(err))
             await self._async_disconnect_locked()
             raise
         except (OSError, asyncio.IncompleteReadError, TimeoutError) as err:
             message = str(err) or "Modbus communication failed"
+            self._last_response_time_ms = (monotonic() - started) * 1000
+            _LOGGER.debug(
+                "DTU Modbus request address=0x%04X count=%s unit=%s duration_ms=%.1f result=error exception=%r attempts=1",
+                address, count_or_value, self.device_id, self._last_response_time_ms, err,
+            )
             self._record_failure(message)
             await self._async_disconnect_locked()
             raise DtuConnectionError(message) from err
 
-    async def _async_wait_between_requests(self) -> None:
-        """Avoid overwhelming a DTU while preserving async event-loop behavior."""
-        now = asyncio.get_running_loop().time()
-        if self._last_request_time is not None:
-            delay = MODBUS_INTER_REQUEST_DELAY_SECONDS - (now - self._last_request_time)
-            if delay > 0:
-                await asyncio.sleep(delay)
-        self._last_request_time = asyncio.get_running_loop().time()
-
-    async def _async_backoff_before_connect(self) -> None:
-        """Use bounded, non-blocking delay after repeated connection failures."""
-        if self._consecutive_failures < MODBUS_RECONNECT_BACKOFF_THRESHOLD:
+    def _async_backoff_before_connect(self) -> None:
+        """Refuse premature reconnects without sleeping in an update callback."""
+        if self._consecutive_failures == 0 or self._last_failure_time is None:
             return
-        exponent = self._consecutive_failures - MODBUS_RECONNECT_BACKOFF_THRESHOLD
-        delay = min(2**exponent, MODBUS_RECONNECT_BACKOFF_MAX_SECONDS)
-        _LOGGER.debug("Waiting %s seconds before DTU reconnect", delay)
-        await asyncio.sleep(delay)
+        delay = min(
+            5 * (2 ** (self._consecutive_failures - 1)),
+            MODBUS_RECONNECT_BACKOFF_MAX_SECONDS,
+        )
+        elapsed = asyncio.get_running_loop().time() - self._last_failure_time
+        if elapsed < delay:
+            raise DtuConnectionError("Modbus reconnect backoff active")
 
     def _record_success(self) -> None:
         self._consecutive_failures = 0
         self._last_error = None
         self._last_success = asyncio.get_running_loop().time()
+        self._last_failure_time = None
 
     def _record_failure(self, error: str) -> None:
         self._total_errors += 1
         self._consecutive_failures += 1
         self._last_error = error
+        self._last_failure_time = asyncio.get_running_loop().time()
 
     def connection_diagnostics(self) -> dict[str, int | str | None | bool]:
         """Return client connection state without exposing any credentials."""
@@ -220,6 +244,8 @@ class DtuProSModbusClient:
             "consecutive_failures": self._consecutive_failures,
             "last_error": self._last_error,
             "reconnections": self._reconnections,
+            "last_response_time_ms": self._last_response_time_ms,
+            "last_connection_time_ms": self._last_connection_time_ms,
         }
 
     def _decode_read_response(

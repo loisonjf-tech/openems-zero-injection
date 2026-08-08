@@ -14,6 +14,9 @@ class DecisionReason(StrEnum):
     GRID_IMPORT = "Grid import"
     LIMIT_UNCHANGED = "Limit unchanged"
     MAXIMUM_STEP_APPLIED = "Maximum step applied"
+    PREDICTIVE_LIMIT_APPLIED = "Predictive limit applied"
+    FINE_CORRECTION_APPLIED = "Fine correction applied"
+    BATTERY_CAPACITY_RELEASE_APPLIED = "Battery capacity release applied"
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +29,24 @@ class ControlDecision:
     applied_limit_percent: int
     reason: DecisionReason
     command_needed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class PredictiveControlDecision:
+    """A deterministic predictive decision with its transparent inputs."""
+
+    grid_error_w: float
+    estimated_load_w: float
+    calculated_limit_percent: int
+    applied_limit_percent: int
+    reason: DecisionReason
+    strategy: str
+    command_needed: bool
+
+    @property
+    def predictive_limit_percent(self) -> int:
+        """Return the direct predicted limit under its explicit diagnostic name."""
+        return self.calculated_limit_percent
 
 
 def calculate_power_limit(
@@ -89,6 +110,89 @@ def calculate_power_limit(
         applied,
         reason,
         applied != current_limit_percent,
+    )
+
+
+def calculate_predictive_power_limit(
+    *,
+    grid_power_w: float,
+    pv_power_w: float,
+    target_grid_power_w: float,
+    deadband_w: float,
+    current_limit_percent: int,
+    installed_nominal_power_w: float,
+    predictive_error_threshold_w: float,
+    fine_correction_step_percent: int,
+    minimum_limit_percent: int,
+    maximum_limit_percent: int,
+) -> PredictiveControlDecision:
+    """Choose a direct predictive target or a bounded fine correction.
+
+    The calculation has no side effects.  A direct limit is used only for a
+    significant grid error; near the target, the existing correction law is
+    deliberately bounded to a small final step.
+    """
+    if installed_nominal_power_w <= 0:
+        raise ValueError("installed_nominal_power_w must be positive")
+    if deadband_w < 0 or predictive_error_threshold_w <= 0:
+        raise ValueError("invalid predictive configuration")
+    if fine_correction_step_percent < 1:
+        raise ValueError("fine_correction_step_percent must be positive")
+
+    error = grid_power_w - target_grid_power_w
+    estimated_load = pv_power_w + grid_power_w
+    predictive_limit = _clamp(
+        _round_away_from_zero(
+            (estimated_load - target_grid_power_w)
+            / installed_nominal_power_w
+            * 100
+        ),
+        minimum_limit_percent,
+        maximum_limit_percent,
+    )
+    if abs(error) <= deadband_w:
+        return PredictiveControlDecision(
+            error,
+            estimated_load,
+            predictive_limit,
+            current_limit_percent,
+            DecisionReason.WITHIN_DEADBAND,
+            "within_deadband",
+            False,
+        )
+    if abs(error) >= predictive_error_threshold_w:
+        return PredictiveControlDecision(
+            error,
+            estimated_load,
+            predictive_limit,
+            predictive_limit,
+            DecisionReason.PREDICTIVE_LIMIT_APPLIED,
+            "predictive",
+            predictive_limit != current_limit_percent,
+        )
+
+    fine = calculate_power_limit(
+        grid_power_w=grid_power_w,
+        target_grid_power_w=target_grid_power_w,
+        deadband_w=deadband_w,
+        current_limit_percent=current_limit_percent,
+        watts_per_percent=installed_nominal_power_w / 100,
+        minimum_limit_percent=minimum_limit_percent,
+        maximum_limit_percent=maximum_limit_percent,
+        maximum_step_percent=fine_correction_step_percent,
+    )
+    return PredictiveControlDecision(
+        error,
+        estimated_load,
+        predictive_limit,
+        fine.applied_limit_percent,
+        (
+            DecisionReason.FINE_CORRECTION_APPLIED
+            if fine.command_needed
+            else fine.reason
+        ),
+        "fine_correction",
+        fine.command_needed,
     )
 
 

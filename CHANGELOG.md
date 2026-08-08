@@ -2,17 +2,352 @@
 
 Toutes les évolutions notables sont documentées dans ce fichier.
 
+## [Unreleased] — Observabilité persistante et modèle adaptatif passif
+
+### Added
+
+- Entités ciblées pour le futur tableau de bord Home Assistant : stratégie et
+  directive énergétiques, motif traduit, SOC et puissance directionnelle
+  SolarFlow, santé synthétique des mesures, état de l'historique persistant et
+  indicateurs du modèle adaptatif passif. Elles lisent exclusivement des caches
+  existants et ne déclenchent aucune communication avec le DTU ou la batterie.
+- La puissance directionnelle SolarFlow est explicitement nommée avec sa
+  convention : valeur négative = charge, valeur positive = décharge. La
+  **Limite candidate adaptative — non appliquée** est exposée séparément et
+  marquée passive afin de ne pas être confondue avec une commande DTU.
+- Historique optionnel JSONL quotidien dans `/config/openems_zero_injection/history/`, désactivé par défaut et conservé 30 jours par défaut.
+- Événements passifs de décision, résultat de commande et contexte toutes les quinze minutes, incluant `integration_version` et `algorithm_version`.
+- Diagnostics de file, rétention, écritures abandonnées et erreurs de stockage.
+- Les événements persistants conservent maintenant une observation corrélée de
+  la limite : trois ports, dernière limite confirmée, source de confirmation,
+  puissance active DTU, puissance nominale configurée, plafond théorique
+  OpenEMS et puissance réseau. Ces données servent uniquement à valider sur le
+  terrain la sémantique réelle des registres de limite.
+- Les événements persistants conservent désormais la puissance directionnelle
+  SolarFlow signée, `gridInputPower` et les métadonnées de chaque source
+  batterie (entité, horodatage, âge et fraîcheur), sans modifier la stratégie
+  énergétique.
+- Modèle adaptatif passif des limites DTU : gains locaux `W/%` par plages
+  `2–10`, `11–25`, `26–50`, `51–75` et `76–100 %`, médiane robuste,
+  dispersion, âge et confiance. Il observe uniquement les commandes
+  automatiques confirmées après stabilisation et n'influence aucune consigne.
+- Diagnostics et historique persistant : gain nominal, gain observé, estimation
+  adaptative, confiance, observation acceptée ou indéterminée, motif de rejet
+  et limite candidate adaptative.
+- Validation prédictive hors échantillon : avant chaque observation, le gain
+  adaptatif déjà acquis prédit passivement la variation de puissance. Les
+  erreurs nominale/adaptative, signées et absolues, ainsi que le pourcentage de
+  prédictions améliorées, sont agrégés globalement et par plage de limite.
+
+### Safety
+
+- Le Trace Recorder circulaire existant reste inchangé. L’historique ne crée aucune lecture Modbus/batterie ni écriture supplémentaire et une panne de stockage ne peut pas affecter la régulation.
+
+### Changed
+
+- Les entités de tableau de bord possèdent désormais un nom traduit propre et
+  un identifiant lisible `sensor.openems_*`. Une migration ciblée renomme
+  uniquement les identifiants génériques générés par Home Assistant, tout en
+  conservant les `unique_id`, l’historique et les noms personnalisés.
+- Le sélecteur Home Assistant ne propose désormais que **Manuel** et
+  **Régulation automatique**. Une ancienne option `Simulation` est migrée vers
+  Manuel et les anciennes entités de simulation sont désactivées proprement.
+- Les transitions batterie déterminantes pour Capacity Release demandent une
+  nouvelle évaluation cohérente même si la puissance réseau reste dans sa zone
+  morte. Elles ne contournent jamais la stabilisation ni les gardes du Scheduler.
+- Le gain utilisé pour toute décision reste explicitement le gain nominal : le
+  modèle adaptatif est purement observateur dans ce premier incrément.
+
+## [0.8.0-alpha.1] - 2026-07-31 — Battery capacity release
+
+### Added
+
+- Le mode optionnel `capacity_release` lit la limite SolarFlow vérifiée et
+  libère le DTU à `100 %` lorsque la batterie est fraîche, non pleine et loin
+  de sa saturation de charge.
+- Hystérésis de capacité asymétrique : un instantané cohérent à
+  `< max - 100 W` libère immédiatement le DTU, y compris à `0 W` stable ;
+  trois publications fraîches distinctes à `>= max - 50 W` sont toujours
+  nécessaires pour revenir à Zero Injection.
+- `chargeMaxLimit` validé devient une capacité de configuration mémorisée en
+  mémoire durant l'exécution : son absence de republication ne l'expire plus.
+  Une donnée invalide ou indisponible efface immédiatement ce cache ; un
+  redémarrage exige toujours une nouvelle publication valide.
+- Une décharge batterie fraîche supérieure à `5 W` devient une priorité de
+  Capacity Release : elle demande immédiatement `100 %` au DTU, sans attendre
+  trois publications, après validation des données de sécurité.
+- Une observation corrélée DTU/limite est ajoutée aux diagnostics et aux traces
+  de commande : puissance nominale configurée, limite demandée, plafond
+  théorique, puissance active lue, limites temporaires des trois ports, âge de
+  leur dernière confirmation et état de stabilisation du Scheduler.
+
+### Safety
+
+- La limite `chargeMaxLimit` n’est acceptée qu’en `W` ou `kW`, après une
+  publication valide postérieure au démarrage et dans les cinq minutes.
+- Le Scheduler, les protections Modbus et l’absence de commande Zendure sont
+  inchangés. Toute donnée requise invalide ou périmée replie vers Zero Injection.
+- Cette observation ne déclenche aucune lecture Modbus, écriture ou décision
+  supplémentaire : elle ne fait qu'associer des données déjà acquises.
+
+## [0.7.0-alpha.5] - 2026-07-25 — SolarFlow source-specific freshness
+
+### Changed
+
+- La puissance directionnelle SolarFlow et `grid_input_power_w` utilisent un
+  seuil court fixe de `30 s` ; le SOC utilise un seuil long fixe de `10 min`.
+- Le SOC est désormais une donnée d'état facultative : un SOC périmé seul ne
+  rend pas la batterie indisponible tant que la puissance directionnelle reste
+  fraîche et valide.
+- Les diagnostics indiquent maintenant le seuil de fraîcheur appliqué à chaque
+  source, en plus de son horodatage, âge et état.
+- L'ancienne option générique d'âge des données batterie est retirée : les
+  seuils spécifiques s'appliquent aussi aux entrées de configuration existantes.
+
+### Safety
+
+- Une puissance directionnelle périmée, invalide ou indisponible conserve le
+  repli immédiat existant vers Zero Injection. Aucune stratégie n'est activée
+  automatiquement et aucune régulation DTU n'est modifiée.
+
+## [0.7.0-alpha.4] - 2026-07-25 — Controller state recovery observability
+
+### Changed
+
+- Le capteur de diagnostic `calculated_limit` est affiché comme **Limite
+  prédictive théorique**, pour le distinguer de la limite réellement retenue
+  pour une commande.
+- Après le retour d'un instantané réseau/PV valide, une erreur de mesure
+  transitoire est effacée et l'état affiché revient à l'état réel du Scheduler,
+  même lorsqu'aucune nouvelle commande ni décision n'est nécessaire.
+
+### Safety
+
+- Aucun changement de calcul, de Scheduler, de trafic Modbus ou de commande
+  DTU.
+
+## [0.7.0-alpha.3] - 2026-07-25 — Decision and SolarFlow observability
+
+### Added
+
+- Bloc diagnostic `last_command_decision`, construit exclusivement depuis une
+  seule trace de commande : mesures, limites avant/calculée/demandée, résultat,
+  confirmations et motif restent donc temporellement cohérents.
+- Indication explicite lorsqu'aucune trace de commande n'existe encore.
+- Fraîcheur SolarFlow détaillée par source obligatoire (`soc_percent` et
+  `directional_power_w`) : entité source, horodatage, âge et état.
+
+### Changed
+
+- Les transitions de fraîcheur SolarFlow sont journalisées une seule fois lors
+  d'un changement d'état, sans avertissement répété à chaque cycle.
+
+### Safety
+
+- Aucun changement au moteur prédictif, au Scheduler, aux écritures DTU, au
+  trafic Modbus ou à la stratégie batterie.
+
+## [0.7.0-alpha.2] - 2026-07-25 — Build007-B conservative activation
+
+### Added
+
+- Mode optionnel `observed_conservative` de priorité batterie, désactivé par
+  défaut : après trois mesures fraîches consécutives de charge supérieure à
+  `50 W`, il transmet une cible bornée à `−65 W` au lieu de `−40 W`.
+- Diagnostics de mode, marge appliquée, cibles initiale/finale, compteur de
+  confirmations, puissance observée et transitions d'activation/repli.
+
+### Safety
+
+- Une décharge supérieure à `50 W`, une donnée batterie absente, périmée,
+  incohérente ou en défaut restaure immédiatement la cible Zero Injection.
+- `chargeMaxLimit` n'est toujours pas utilisé. Aucune commande batterie n'est
+  créée et le Predictive Controller, le Scheduler et le client DTU restent
+  inchangés.
+
+## [0.7.0-alpha.1] - 2026-07-25 — Build007
+
+### Added
+
+- `BatteryPriorityStrategy` générique, pure et limitée à une comparaison en
+  Simulation avec une réserve maximale de `25 W`.
+- Diagnostics et historique passif Trace Recorder : cible effective, candidate,
+  écart, gain théorique de stockage et motif de repli.
+
+### Safety
+
+- Production reste exclusivement sur `ZeroInjectionStrategy`. Build007 ne crée
+  aucune écriture batterie, aucune écriture DTU, aucun polling ni tâche.
+
+## [0.6.0-alpha.3] - 2026-07-25 — Successful-command logging
+
+### Changed
+
+- Les requêtes et confirmations de limites temporaires réussies sont journalisées
+  au niveau `INFO`, et non plus comme avertissements.
+- Une confirmation incohérente reste un `WARNING`; un échec réel de commande ou
+  de transport reste un `ERROR`.
+
+### Tests
+
+- Ajout d'un test garantissant qu'une commande automatique confirmée ne produit
+  aucun journal `ERROR`.
+
+## [0.6.0-alpha.2] - 2026-07-25 — SolarFlow directional-power correction
+
+### Changed
+
+- La source directionnelle par défaut est désormais
+  `sensor.solarflow_800_plus_bat_in_out` : négatif = charge, positif =
+  décharge et zéro = inactive.
+- `gridInputPower` est conservé comme information diagnostique facultative.
+- `chargeMaxLimit` est explicitement ignoré : aucune capacité maximale ou
+  restante n'est déduite de sa valeur `1000` non validée.
+
+### Safety
+
+- Aucune écriture batterie, aucun trafic Modbus, aucune modification du
+  contrôleur, du Scheduler ou du client DTU.
+
+## [0.6.0-alpha.1] - 2026-07-25 — Build006
+
+### Added
+
+- `EnergyStrategyEngine` pur et `ZeroInjectionStrategy`, avec des modèles de
+  décision horodatés, identifiants de snapshot et codes de motif stables.
+- Test de non-régression déterministe confirmant que l'encapsulation produit
+  strictement la même cible que Build005 pour un même instantané.
+
+### Compatibility
+
+- `EnergyPolicyEngine`, `EnergyPolicyDecision` et `ZeroInjectionPolicy` restent
+  disponibles comme alias compatibles. Le contrôleur, le Scheduler, le client
+  DTU et toutes les sorties de régulation restent inchangés.
+
+### Safety
+
+- `BatteryPriorityStrategy` est absente et inactive. Build006 ne crée ni
+  écriture batterie, ni trafic Modbus, ni tâche supplémentaire.
+
+## [0.5.0-alpha.1] - 2026-07-25 — Build005
+
+### Added
+
+- Adaptateur Zendure SolarFlow strictement en lecture seule, alimenté par les états Home Assistant existants.
+- `BatteryResource`, santé normalisée, motifs stables, fraîcheur et capacités de charge normalisées.
+- Agrégats multi-batteries sans somme partielle trompeuse, avec couverture exposée dans les diagnostics.
+
+### Safety
+
+- Aucune écriture SolarFlow, aucun appel cloud, aucune lecture Modbus supplémentaire et aucun changement du contrôleur, du Scheduler ou des décisions DTU.
+
+## [0.4.0-alpha.4] - 2026-07-25 — Build004 RC4
+
+### Added
+
+- Chronologie passive et explicable par commande : décision, politique, contexte, objectif, justification, trois résultats Modbus, confirmation commune, début de stabilisation, observations réseau/PV et évaluation finale.
+- Schéma de trace versionné et exclusivement sérialisable, séparant les entrées pré-décision des observations post-commande pour préparer le rejeu hors ligne futur sans l’implémenter.
+- Rapport de session complet : compteurs, durées Modbus, réponse énergétique, erreur, amplitudes, sur-corrections, oscillations et couverture temporelle pondérée.
+- Traductions anglaises et françaises des états visibles du Trace Recorder.
+
+### Changed
+
+- Le buffer circulaire conserve toujours au plus 100 chronologies détaillées, mais les métriques de session ne sont plus tronquées par cette limite.
+- Les compteurs, moyennes, maximums et couverture couvrent toute la session ; les médianes sont calculées sur un réservoir borné explicitement diagnostique.
+
+### Safety
+
+- RC4 ne crée ni requête Modbus, ni polling, ni tâche, ni écriture disque. Il n’influence ni la décision, ni le Scheduler, ni les délais de stabilisation.
+- RC5, dont la stratégie d’écrêtement avec libération est gelée, n’est pas implémenté dans cette version.
+
+### Tests
+
+- Ajout des tests de conservation des métriques au-delà du buffer détaillé et de sérialisation/explainabilité des timelines.
+
+## [0.4.0-alpha.3] - 2026-07-24 — Build004 RC3
+
+### Post-release corrective diagnostics
+
+### Fixed
+
+- La fraîcheur du capteur réseau utilise désormais sa dernière publication Home Assistant (`last_updated`) plutôt que son seul changement de valeur. Une mesure stable mais régulièrement actualisée ne provoque plus une fausse désynchronisation.
+- La synchronisation utilise l'horodatage de lecture propre à la puissance PV DTU lorsqu'il est disponible ; la tolérance reste de 25 s, sans nouveau polling.
+- Sans batterie configurée, les totaux de charge Energy Manager sont désormais inconnus (`None`) et non plus artificiellement égaux à `0 W`.
+
+### Added
+
+- Diagnostics et capteurs de diagnostic : horodatages réseau/PV, âges, écart, tolérance de synchronisation et motif détaillé d'un instantané refusé.
+
+### Trace Recorder Foundation
+
+### Added
+
+- Fondation passive `TraceRecorder` : buffer circulaire en mémoire limité aux 100 dernières commandes, sans écriture disque ni polling supplémentaire.
+- Traces horodatées séparant l'horodatage source, la réception OpenEMS et le temps monotone pour les décisions, les trois écritures temporaires et les observations déjà disponibles.
+- Sessions de régulation ouvertes en Production et clôturées au changement de mode, au rechargement, à l'arrêt ou après une modification majeure de configuration.
+- Métriques prudentes : durée Modbus, première variation PV observée, retour dans la tolérance, erreur finale, amplitude, sur-correction, oscillation suspectée et qualité/couverture de données.
+- Diagnostics et capteurs de diagnostic Trace Recorder en lecture seule.
+
+### Safety
+
+- Le recorder ne crée aucun client Modbus, aucune tâche, aucune temporisation, aucune écriture et ne retourne aucune décision au Scheduler.
+- Une commande avec télémétrie insuffisante ou trouée est classée **indéterminée**, jamais inefficace.
+
+### Remaining validation
+
+- Le mode diagnostic détaillé, le polling temporairement accéléré et les exports CSV/JSON restent réservés à Build004 RC4.
+
+## [0.4.0-alpha.2] - 2026-07-22 — Build004 RC2
+
+### Added
+
+- Contrôleur prédictif : lorsque la puissance PV DTU et la puissance réseau sont fraîches, il calcule directement une limite DTU à partir de la consommation estimée et de la cible réseau.
+- Correction fine bornée à 2 % pour les erreurs résiduelles sous le seuil prédictif ; le scheduler conserve le délai de stabilisation de 12 secondes.
+- Contrats passifs `ContextAnalyzer`, `CalibrationManager` et `EnergyPolicyEngine`, avec la politique compatible V1 `ZeroInjectionPolicy`.
+- Spécification d’architecture officielle dans `docs/Architecture-Specification.md`.
+
+### Safety
+
+- Les écritures, registres temporaires, confirmations sur les trois ports, modes Manuel/Simulation/Production et pauses de sécurité restent inchangés.
+- Les nouveaux contrats Context, Calibration et Policy n’émettent aucune écriture et ne modifient pas encore le comportement de sécurité.
+
+### Tests
+
+- Ajout de tests unitaires pour le calcul prédictif, la correction fine et les contrats passifs Build004 RC2.
+
+### Remaining validation
+
+- Validation réelle en mode Simulation puis en Régulation automatique avant activation sur l’installation.
+- Analyse de contexte avancée, calibration active et SolarFlow restent hors périmètre de Build004 RC2.
+
 ## [0.4.0-alpha.1] - 2026-07-17 — Build004
 
 ### Added
 
+- Interface V1 simplifiée : modes affichés **Manuel**, **Simulation** et **Régulation automatique**, sans modifier les valeurs internes historiques.
+- Curseur unique de limite temporaire manuelle, limité de 2 à 100 %, appliqué et confirmé sur les trois ports temporaires.
+- Migration non destructive : les trois anciennes commandes manuelles par port sont conservées dans le registre Home Assistant, mais désactivées automatiquement par l’intégration.
+
+- Stratégie Production optionnelle **Prise de contrôle** : trois écritures temporaires `0x06` confirmées établissent une limite de départ locale sans dépendre d'une relecture `0x03`; le délai de stabilisation reste obligatoire avant toute régulation.
+- Option explicite de reprise automatique après redémarrage : elle ne s'applique qu'à un mode Production précédemment enregistré, à une stratégie Prise de contrôle, et après une connexion DTU réussie.
+- Diagnostics séparant connexion DTU, lisibilité et cohérence des limites temporaires, source de la limite active, stratégie de démarrage et reprise automatique.
+- Mode de validation des limites temporaires : **Compatibilité** par défaut, avec conservation d'une limite locale uniquement après les trois accusés de réception `0x06`; le mode **Strict** conserve l'exigence de relectures `0x03` fraîches et cohérentes.
+
 - Acquisition configurable de la puissance réseau locale et contrôleur déterministe avec cible, zone morte, estimation W/% et pas maximal.
 - Modes Disabled, Simulation et Production ; scheduler central avec délai de stabilisation de 12 secondes par défaut.
 - Historique borné des décisions, diagnostics de contrôleur et collecte passive des données d'apprentissage.
+- Abstraction `BatteryManager` neutre vis-à-vis du constructeur, réservée à V1.1 ; elle ne lit aucune batterie et n'influence pas la V1.
+- Couche `EnergyManager` passive, indépendante du scheduler DTU, avec modèle multi-batteries et agrégats diagnostics de capacité de charge ; aucun adaptateur ni calcul EMS n'influence la régulation.
+- Le mode du contrôleur est désormais persistant dans les options de l’intégration et restauré explicitement au démarrage ou au rechargement ; un repli invalide vers Désactivé est journalisé.
+- En mode Désactivé, la puissance réseau locale reste publiée lorsqu’elle est disponible et le motif d’inactivité du planificateur est exposé.
+- Les limites permanentes hors plage documentée journalisent leur valeur brute, deviennent uniquement indisponibles et sont supprimées temporairement des lectures répétées sans affecter le contrôle.
+- L’interface Simulation expose désormais un état de planificateur cohérent et affiche la prochaine proposition de limite avec une indication explicite qu’aucune commande DTU ne sera envoyée.
+- Les commandes manuelles et les lectures réelles de limites temporaires portent désormais des noms distincts. Les lectures connues restent visibles avec leur état de fraîcheur lors d’un échec ponctuel du coordinator.
+- Les autorisations d’écriture manuelle et automatique sont désormais distinctes : l’interrupteur manuel ne bloque plus le scheduler Production, tandis que Simulation interdit toute écriture réelle.
 
 ### Safety
 
-- Production exige trois mesures réseau valides, des limites temporaires cohérentes et l'interrupteur Build003 activé.
+- La régulation automatique est suspendue après une écriture manuelle partielle ; aucune correction automatique n’est tentée avant une resynchronisation explicite réussie.
 - Les seules écritures automatiques sont les limites temporaires des trois ports, suivies d'une relecture complète.
 - Aucune intégration Zendure/SolarFlow, aucune écriture permanente, aucun PID ni retry automatique.
 - Une erreur isolée d'une limite temporaire conserve la dernière valeur avec un état périmé et suspend les commandes Production jusqu'à trois lectures temporaires fraîches et cohérentes.
@@ -24,6 +359,9 @@ Toutes les évolutions notables sont documentées dans ce fichier.
 - La puissance nominale photovoltaïque est maintenant un paramètre utilisateur persistant (3000 W par défaut pour l'installation actuelle). Le coefficient W/% est dérivé exclusivement de cette valeur et n'est plus réglable indépendamment.
 - Simulation sépare strictement la limite DTU réelle, la limite calculée et la recommandation virtuelle. Elle attend désormais une variation physique supérieure à 30 W avant d'autoriser une nouvelle commande virtuelle.
 - Les compteurs de décisions et de commandes sont maintenant explicitement comptés depuis le démarrage, indépendamment de l'historique borné à 200 enregistrements.
+- Les entités de configuration et de contrôleur ne dépendent plus de la disponibilité globale du coordinateur Modbus ; elles restent visibles pendant une panne DTU.
+- Le coordinateur sérialise désormais ses propres rafraîchissements, conserve le client TCP entre les lectures et sépare les cadences : puissance 10 s, énergie et limites temporaires 30 s, informations et limites permanentes 5 min.
+- Après une erreur de transport, les dernières données valides restent publiées comme périmées pendant deux échecs globaux ; le client applique ensuite un backoff non bloquant de 5, 10, 20 puis 30 s.
 
 ## [0.3.0-alpha.1] - 2026-07-16 — Build003 RC1
 

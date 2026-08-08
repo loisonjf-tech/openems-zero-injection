@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -26,6 +27,36 @@ from .registers import (
 )
 
 
+def _directional_source_state_diagnostics(
+    hass: HomeAssistant, entity_id: str | None
+) -> dict[str, Any]:
+    """Expose raw Home Assistant timestamps for the battery-source field test.
+
+    This is diagnostics-only.  It deliberately does not alter the adapter's
+    current freshness rules or subscribe to any Home Assistant event.
+    """
+    state = hass.states.get(entity_id) if entity_id else None
+    now = datetime.now(UTC)
+
+    def details(timestamp: datetime | None) -> dict[str, Any]:
+        if timestamp is None:
+            return {"timestamp": None, "age_seconds": None}
+        timestamp_utc = timestamp.astimezone(UTC)
+        return {
+            "timestamp": timestamp_utc.isoformat(),
+            "age_seconds": max(0.0, (now - timestamp_utc).total_seconds()),
+        }
+
+    return {
+        "entity_id": entity_id,
+        "entity_available": state is not None and state.state not in {"unknown", "unavailable"},
+        "state": state.state if state else None,
+        "last_changed": details(state.last_changed if state else None),
+        "last_updated": details(state.last_updated if state else None),
+        "last_reported": details(getattr(state, "last_reported", None) if state else None),
+    }
+
+
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
@@ -41,6 +72,7 @@ async def async_get_config_entry_diagnostics(
         f"0x{address:04X}": coordinator.power_limit_health(address)
         for address in power_limit_addresses
     }
+    permanent_limit_addresses = tuple(PORT_PERMANENT_POWER_LIMIT_REGISTERS.values())
     telemetry_health = {
         field: coordinator.measurement_health(field)
         for field in (
@@ -53,6 +85,9 @@ async def async_get_config_entry_diagnostics(
             "reactive_power_var",
         )
     }
+    energy_manager = coordinator.energy_manager.snapshot()
+    trace = controller.trace_recorder.diagnostics()
+    sync = controller.measurement_sync_diagnostics
     return {
         "dtu_ip": entry.data[CONF_DTU_HOST],
         "port": entry.data[CONF_DTU_PORT],
@@ -63,11 +98,81 @@ async def async_get_config_entry_diagnostics(
             "last_communication_error": data.last_error if data else None,
             "last_success": data.last_success.isoformat() if data and data.last_success else None,
             "response_time_ms": data.response_time_ms if data else None,
+            "cycle_timings_ms": coordinator.cycle_timings_ms,
             **coordinator.connection_diagnostics(),
         },
-        "manual_writes_enabled": coordinator.manual_writes_enabled,
+        "manual_write_allowed": coordinator.manual_write_allowed,
+        "automatic_write_allowed": coordinator.automatic_write_allowed,
+        "temporary_limit_validation": {
+            "mode": coordinator.temporary_limit_validation_mode.value,
+            "last_confirmed_limit": coordinator.last_confirmed_temporary_limit,
+            "compatibility_limit_available": coordinator.compatibility_limit_available,
+            "temporary_registers_readable": coordinator.temporary_limits_readable,
+            "temporary_registers_fresh": coordinator.temporary_limits_fresh,
+            "temporary_registers_identical": coordinator.temporary_limits_identical,
+            "current_limit_source": coordinator.temporary_limit_source,
+            "current_limit_source_label": {
+                "modbus_readback": "Relecture Modbus",
+                "takeover_confirmed": "Prise de contrôle confirmée",
+                "automatic_correction": "Dernière correction automatique confirmée",
+                "manual_command": "Commande manuelle confirmée",
+            }.get(coordinator.temporary_limit_source, "Inconnue"),
+            "ports_synchronized": coordinator.temporary_limits_synchronized,
+            "last_manual_command_confirmed": (
+                coordinator.last_manual_command_confirmed.isoformat()
+                if coordinator.last_manual_command_confirmed
+                else None
+            ),
+            "last_manual_command_error": coordinator.last_manual_command_error,
+        },
+        "energy_manager": {
+            "state": energy_manager.state,
+            "battery_count": energy_manager.battery_count,
+            "total_max_charge_power_w": energy_manager.total_max_charge_power_w,
+            "total_current_charge_power_w": energy_manager.total_current_charge_power_w,
+            "total_remaining_charge_power_w": energy_manager.total_remaining_charge_power_w,
+            "unknown_reason": energy_manager.unknown_reason,
+            "aggregate_coverage": {
+                "max_charge": energy_manager.max_charge_coverage.status,
+                "current_charge": energy_manager.current_charge_coverage.status,
+                "remaining_charge": energy_manager.remaining_charge_coverage.status,
+            },
+            "batteries": [
+                {
+                    "resource_id": battery.resource_id,
+                    "adapter_id": battery.adapter_id,
+                    "adapter_version": battery.adapter_version,
+                    "health": battery.health.value,
+                    "last_updated": battery.last_updated.isoformat() if battery.last_updated else None,
+                    "data_age_seconds": battery.data_age_seconds,
+                    "soc_percent": battery.soc_percent,
+                    "directional_power_w": battery.directional_power_w,
+                    "charge_power_w": battery.charge_power_w,
+                    "discharge_power_w": battery.discharge_power_w,
+                    "grid_input_power_w": battery.grid_input_power_w,
+                    "max_charge_power_w": battery.max_charge_power_w,
+                    "remaining_charge_power_w": battery.remaining_charge_power_w,
+                    "anomalies": [reason.value for reason in battery.anomalies],
+                    "source_entities": battery.source_entities,
+                    "source_timestamps": {
+                        source: timestamp.isoformat() if timestamp else None
+                        for source, timestamp in battery.source_timestamps.items()
+                    },
+                    "source_ages_seconds": battery.source_ages_seconds,
+                    "source_max_age_seconds": battery.source_max_age_seconds,
+                    "source_freshness": battery.source_freshness,
+                    "directional_source_state": _directional_source_state_diagnostics(
+                        hass, battery.source_entities.get("directional_power_w")
+                    ),
+                }
+                for battery in energy_manager.resources
+            ],
+        },
+        "trace_recorder": trace,
+        "persistent_history": coordinator.persistent_history_recorder.diagnostics(),
         "controller": {
             "mode": controller.mode.value,
+            "mode_restore_source": controller.mode_restore_source,
             "state": controller.status.state,
             "grid_power_entity_id": entry.options.get(
                 CONF_GRID_POWER_ENTITY_ID, DEFAULT_GRID_POWER_ENTITY_ID
@@ -76,6 +181,7 @@ async def async_get_config_entry_diagnostics(
                 CONF_GRID_POWER_INVERTED, DEFAULT_GRID_POWER_INVERTED
             ),
             "scheduler_state": controller.scheduler.state.value,
+            "scheduler_inactive_reason": controller.status.scheduler_inactive_reason,
             "next_command_allowed_in_seconds": controller.scheduler.remaining_seconds(),
             "last_error": controller.status.last_error,
             "last_decision_code": controller.status.last_decision,
@@ -83,6 +189,56 @@ async def async_get_config_entry_diagnostics(
             "last_decision_sequence": controller.last_decision_sequence,
             "last_command_sequence": controller.last_command_sequence,
             "real_dtu_limit": controller.status.real_dtu_limit_percent,
+            # A single observation built from the controller's latest valid
+            # decision snapshot.  It deliberately does not trigger Modbus I/O.
+            "dtu_limit_power_observation": (
+                controller.dtu_limit_power_observation
+            ),
+            "next_proposed_limit": controller.status.calculated_limit_percent,
+            "next_commanded_limit": controller.status.commanded_limit_percent,
+            "predictive": {
+                "strategy": controller.status.predictive_strategy,
+                "estimated_load_w": controller.status.estimated_load_w,
+                "policy_id": controller.status.policy_id,
+                "policy_reason": controller.status.policy_reason,
+                "battery_priority_comparison": (
+                    controller.energy_policy_engine.last_comparison.as_dict()
+                    if controller.energy_policy_engine.last_comparison
+                    else None
+                ),
+                "battery_priority": controller.energy_policy_engine.battery_priority_diagnostics,
+                "last_command_decision": trace["last_command_decision"],
+                "context": {
+                    "kind": controller.context_analyzer.classify().kind.value,
+                    "confidence": controller.context_analyzer.classify().confidence,
+                    "reason": controller.context_analyzer.classify().reason,
+                },
+                "calibration": {
+                    "confidence": controller.calibration_manager.profile.confidence.value,
+                    "accepted_samples": controller.calibration_manager.profile.accepted_samples,
+                    "rejected_samples": controller.calibration_manager.profile.rejected_samples,
+                },
+                "adaptive_limit_model": controller.adaptive_limit_model.diagnostics(),
+            },
+            "measurement_synchronization": {
+                "grid_source_timestamp": (
+                    sync.grid_source_timestamp.isoformat()
+                    if sync.grid_source_timestamp
+                    else None
+                ),
+                "pv_source_timestamp": (
+                    sync.pv_source_timestamp.isoformat()
+                    if sync.pv_source_timestamp
+                    else None
+                ),
+                "grid_age_seconds": sync.grid_age_seconds,
+                "pv_age_seconds": sync.pv_age_seconds,
+                "difference_seconds": sync.difference_seconds,
+                "tolerance_seconds": sync.tolerance_seconds,
+                "reason": sync.reason,
+            },
+            "next_displayed_limit": controller.status.commanded_limit_percent,
+            "waiting_state": controller.waiting_state,
             "installed_nominal_power_w": controller.installed_nominal_power_w,
             "watts_per_percent": controller.watts_per_percent,
             "installed_power_source": controller.installed_power_source,
@@ -94,21 +250,23 @@ async def async_get_config_entry_diagnostics(
             "previous_installed_nominal_power_w": (
                 controller.previous_installed_nominal_power_w
             ),
-            "simulated_current_limit": controller.simulated_current_limit,
-            "last_simulated_limit": controller.last_simulated_limit,
-            "last_simulated_command_time": (
-                controller.last_simulated_command_time.isoformat()
-                if controller.last_simulated_command_time
-                else None
-            ),
             "temporary_limits_ready": coordinator.temporary_limits_ready,
             "temporary_limits_fresh": coordinator.temporary_limits_fresh,
+            "takeover_pending": controller.takeover_pending,
+            "production_startup_strategy": coordinator.production_startup_strategy.value,
+            "takeover_limit_percent": coordinator.takeover_limit_percent,
+            "auto_resume_production": coordinator.auto_resume_production,
+            "refresh_schedule_seconds": {
+                "power": 10,
+                "energy": 30,
+                "temporary_limits": 30,
+                "permanent_limits": 300,
+            },
             "counters": {
                 "decisions_evaluated_since_start": controller.decisions_evaluated,
                 "commands_sent": controller.commands_sent,
                 "commands_succeeded": controller.commands_succeeded,
                 "commands_failed": controller.commands_failed,
-                "commands_simulated": controller.commands_simulated,
                 "blocked_stabilization": controller.decisions_blocked_stabilization,
                 "limit_unchanged": controller.decisions_limit_unchanged,
                 "within_deadband": controller.decisions_within_deadband,
@@ -128,6 +286,11 @@ async def async_get_config_entry_diagnostics(
                 "port_3_permanent": data.port_3_permanent_power_limit_percent if data else None,
             },
             "power_limit_health": power_limit_health,
+            "permanent_limits_available": all(
+                power_limit_health[f"0x{address:04X}"]["available"]
+                for address in permanent_limit_addresses
+            ),
+            "permanent_limits_required_for_control": False,
             "unavailable_power_limit_registers": [
                 address
                 for address, health in power_limit_health.items()

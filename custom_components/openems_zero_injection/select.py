@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from time import monotonic
+
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
@@ -19,14 +21,15 @@ async def async_setup_entry(
 ) -> None:
     """Set up the disabled-by-default controller mode selector."""
     coordinator: DtuProSCoordinator = hass.data[DOMAIN][entry.entry_id]
+    started = monotonic()
     async_add_entities([OpenEMSControllerModeSelect(coordinator, entry)])
+    coordinator.async_record_platform_setup("select", started, monotonic())
 
 
 class OpenEMSControllerModeSelect(CoordinatorEntity[DtuProSCoordinator], SelectEntity):
-    """Explicitly choose Disabled, Simulation, or Production."""
+    """Explicitly choose manual operation or automatic regulation."""
 
     _attr_name = "Mode du contrôleur"
-    _attr_options = ["Désactivé", "Simulation", "Production"]
     _attr_entity_category = EntityCategory.CONFIG
     _attr_icon = "mdi:transmission-tower"
 
@@ -44,17 +47,28 @@ class OpenEMSControllerModeSelect(CoordinatorEntity[DtuProSCoordinator], SelectE
     @property
     def current_option(self) -> str:
         return {
-            ControllerMode.DISABLED: "Désactivé",
-            ControllerMode.SIMULATION: "Simulation",
-            ControllerMode.PRODUCTION: "Production",
-        }[self.coordinator.controller.mode]
+            ControllerMode.DISABLED: "Manuel",
+            ControllerMode.PRODUCTION: "Régulation automatique",
+        }.get(self.coordinator.controller.mode, "Manuel")
+
+    @property
+    def options(self) -> list[str]:
+        """Expose only the two supported user-facing controller modes."""
+        return ["Manuel", "Régulation automatique"]
+
+    @property
+    def available(self) -> bool:
+        """The local controller mode remains selectable during DTU outages."""
+        return True
 
     async def async_select_option(self, option: str) -> None:
-        """Apply an explicit mode choice; no mode is restored automatically."""
+        """Apply and persist an explicit local mode choice."""
         modes = {
+            "Manuel": ControllerMode.DISABLED.value,
+            # Compatibility aliases for existing select-service automations.
             "Désactivé": ControllerMode.DISABLED.value,
-            "Simulation": ControllerMode.SIMULATION.value,
+            "Régulation automatique": ControllerMode.PRODUCTION.value,
             "Production": ControllerMode.PRODUCTION.value,
         }
-        await self.coordinator.controller.async_set_mode(modes[option])
+        await self.coordinator.async_set_controller_mode(modes[option])
         self.async_write_ha_state()

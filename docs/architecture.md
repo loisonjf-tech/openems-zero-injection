@@ -1,5 +1,9 @@
 # Build004 architecture
 
+> This historical Build004 overview is superseded by
+> [Architecture Specification](Architecture-Specification.md), the project's
+> official architecture reference for future evolution.
+
 ```text
 Home Assistant grid sensor -> AcquisitionEngine -> Decision Engine
                                                -> SafetyScheduler -> DTU coordinator -> Modbus TCP

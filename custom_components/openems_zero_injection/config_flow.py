@@ -17,12 +17,54 @@ from .const import (
     CONF_GRID_POWER_ENTITY_ID,
     CONF_GRID_POWER_INVERTED,
     CONF_INSTALLED_NOMINAL_POWER_W,
+    CONF_AUTO_RESUME_PRODUCTION,
+    CONF_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
+    CONF_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
+    CONF_BATTERY_PRIORITY_MARGIN_W,
+    CONF_BATTERY_PRIORITY_MODE,
+    CONF_PERSISTENT_HISTORY_ENABLED,
+    CONF_PERSISTENT_HISTORY_RETENTION_DAYS,
+    CONF_PRODUCTION_STARTUP_STRATEGY,
+    CONF_TAKEOVER_LIMIT_PERCENT,
+    CONF_TEMPORARY_LIMIT_VALIDATION_MODE,
+    CONF_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID,
+    CONF_SOLARFLOW_CHARGE_LIMIT_VERIFIED,
+    CONF_SOLARFLOW_GRID_INPUT_POWER_ENTITY_ID,
+    CONF_SOLARFLOW_POWER_ENTITY_ID,
+    CONF_SOLARFLOW_POWER_SIGN,
+    CONF_SOLARFLOW_SOC_ENTITY_ID,
+    CONF_SOLARFLOW_ENABLED,
     DEFAULT_DTU_PORT,
     DEFAULT_GRID_POWER_ENTITY_ID,
     DEFAULT_GRID_POWER_INVERTED,
     DEFAULT_INSTALLED_NOMINAL_POWER_W,
+    DEFAULT_AUTO_RESUME_PRODUCTION,
+    DEFAULT_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
+    DEFAULT_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
+    DEFAULT_BATTERY_PRIORITY_MARGIN_W,
+    DEFAULT_BATTERY_PRIORITY_MODE,
+    DEFAULT_PERSISTENT_HISTORY_ENABLED,
+    DEFAULT_PERSISTENT_HISTORY_RETENTION_DAYS,
+    DEFAULT_PRODUCTION_STARTUP_STRATEGY,
+    DEFAULT_TEMPORARY_LIMIT_VALIDATION_MODE,
+    DEFAULT_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID,
+    DEFAULT_SOLARFLOW_CHARGE_LIMIT_VERIFIED,
+    DEFAULT_SOLARFLOW_POWER_ENTITY_ID,
+    DEFAULT_SOLARFLOW_POWER_SIGN,
+    DEFAULT_SOLARFLOW_SOC_ENTITY_ID,
+    DEFAULT_SOLARFLOW_ENABLED,
+    DEFAULT_SOLARFLOW_GRID_INPUT_POWER_ENTITY_ID,
+    DEFAULT_TAKEOVER_LIMIT_PERCENT,
     MAX_INSTALLED_NOMINAL_POWER_W,
     MIN_INSTALLED_NOMINAL_POWER_W,
+    MAX_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
+    MAX_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
+    MAX_BATTERY_PRIORITY_MARGIN_W,
+    MIN_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
+    MIN_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
+    MIN_BATTERY_PRIORITY_MARGIN_W,
+    MIN_PERSISTENT_HISTORY_RETENTION_DAYS,
+    MAX_PERSISTENT_HISTORY_RETENTION_DAYS,
     DOMAIN,
 )
 from .modbus import DtuConnectionError, DtuProSModbusClient
@@ -128,6 +170,168 @@ class OpenEMSOptionsFlow(config_entries.OptionsFlow):
                         vol.Range(
                             min=MIN_INSTALLED_NOMINAL_POWER_W,
                             max=MAX_INSTALLED_NOMINAL_POWER_W,
+                        ),
+                    ),
+                    vol.Required(
+                        CONF_TEMPORARY_LIMIT_VALIDATION_MODE,
+                        default=options.get(
+                            CONF_TEMPORARY_LIMIT_VALIDATION_MODE,
+                            DEFAULT_TEMPORARY_LIMIT_VALIDATION_MODE,
+                        ),
+                    ): vol.In(
+                        {
+                            "compatibility": "Mode compatibilité",
+                            "strict": "Mode strict",
+                        }
+                    ),
+                    vol.Required(
+                        CONF_PRODUCTION_STARTUP_STRATEGY,
+                        default=options.get(
+                            CONF_PRODUCTION_STARTUP_STRATEGY,
+                            DEFAULT_PRODUCTION_STARTUP_STRATEGY,
+                        ),
+                    ): vol.In(
+                        {
+                            "safe": "Mode sécurisé",
+                            "takeover": "Prise de contrôle",
+                        }
+                    ),
+                    vol.Required(
+                        CONF_TAKEOVER_LIMIT_PERCENT,
+                        default=options.get(
+                            CONF_TAKEOVER_LIMIT_PERCENT,
+                            DEFAULT_TAKEOVER_LIMIT_PERCENT,
+                        ),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=2, max=100)),
+                    vol.Required(
+                        CONF_AUTO_RESUME_PRODUCTION,
+                        default=options.get(
+                            CONF_AUTO_RESUME_PRODUCTION,
+                            DEFAULT_AUTO_RESUME_PRODUCTION,
+                        ),
+                    ): selector.BooleanSelector(),
+                    vol.Required(
+                        CONF_SOLARFLOW_ENABLED,
+                        default=options.get(
+                            CONF_SOLARFLOW_ENABLED, DEFAULT_SOLARFLOW_ENABLED
+                        ),
+                    ): selector.BooleanSelector(),
+                    vol.Required(
+                        CONF_SOLARFLOW_SOC_ENTITY_ID,
+                        default=options.get(
+                            CONF_SOLARFLOW_SOC_ENTITY_ID,
+                            DEFAULT_SOLARFLOW_SOC_ENTITY_ID,
+                        ),
+                    ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+                    vol.Required(
+                        CONF_SOLARFLOW_POWER_ENTITY_ID,
+                        default=options.get(
+                            CONF_SOLARFLOW_POWER_ENTITY_ID,
+                            DEFAULT_SOLARFLOW_POWER_ENTITY_ID,
+                        ),
+                    ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+                    vol.Optional(
+                        CONF_SOLARFLOW_GRID_INPUT_POWER_ENTITY_ID,
+                        default=options.get(
+                            CONF_SOLARFLOW_GRID_INPUT_POWER_ENTITY_ID,
+                            DEFAULT_SOLARFLOW_GRID_INPUT_POWER_ENTITY_ID,
+                        ),
+                    ): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="sensor")
+                    ),
+                    vol.Optional(
+                        CONF_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID,
+                        default=options.get(
+                            CONF_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID,
+                            DEFAULT_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID,
+                        ),
+                    ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+                    vol.Required(
+                        CONF_SOLARFLOW_POWER_SIGN,
+                        default=options.get(
+                            CONF_SOLARFLOW_POWER_SIGN, DEFAULT_SOLARFLOW_POWER_SIGN
+                        ),
+                    ): vol.In({
+                        "unknown": "Unknown / not confirmed",
+                        "positive_charging": "Positive = charging",
+                        "positive_discharging": "Positive = discharging",
+                    }),
+                    vol.Required(
+                        CONF_SOLARFLOW_CHARGE_LIMIT_VERIFIED,
+                        default=options.get(
+                            CONF_SOLARFLOW_CHARGE_LIMIT_VERIFIED,
+                            DEFAULT_SOLARFLOW_CHARGE_LIMIT_VERIFIED,
+                        ),
+                    ): selector.BooleanSelector(),
+                    vol.Required(
+                        CONF_BATTERY_PRIORITY_MODE,
+                        default=options.get(
+                            CONF_BATTERY_PRIORITY_MODE,
+                            DEFAULT_BATTERY_PRIORITY_MODE,
+                        ),
+                    ): vol.In({
+                        "disabled": "Désactivé",
+                        "observed_conservative": "Charge observée — conservateur",
+                        "capacity_release": "Libération selon capacité de charge",
+                        "verified": "Vérifié (réservé)",
+                    }),
+                    vol.Required(
+                        CONF_BATTERY_PRIORITY_MARGIN_W,
+                        default=options.get(
+                            CONF_BATTERY_PRIORITY_MARGIN_W,
+                            DEFAULT_BATTERY_PRIORITY_MARGIN_W,
+                        ),
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(
+                            min=MIN_BATTERY_PRIORITY_MARGIN_W,
+                            max=MAX_BATTERY_PRIORITY_MARGIN_W,
+                        ),
+                    ),
+                    vol.Required(
+                        CONF_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
+                        default=options.get(
+                            CONF_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
+                            DEFAULT_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
+                        ),
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(
+                            min=MIN_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
+                            max=MAX_BATTERY_PRIORITY_CHARGE_THRESHOLD_W,
+                        ),
+                    ),
+                    vol.Required(
+                        CONF_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
+                        default=options.get(
+                            CONF_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
+                            DEFAULT_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
+                        ),
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(
+                            min=MIN_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
+                            max=MAX_BATTERY_PRIORITY_CONFIRMATION_SAMPLES,
+                        ),
+                    ),
+                    vol.Required(
+                        CONF_PERSISTENT_HISTORY_ENABLED,
+                        default=options.get(
+                            CONF_PERSISTENT_HISTORY_ENABLED,
+                            DEFAULT_PERSISTENT_HISTORY_ENABLED,
+                        ),
+                    ): selector.BooleanSelector(),
+                    vol.Required(
+                        CONF_PERSISTENT_HISTORY_RETENTION_DAYS,
+                        default=options.get(
+                            CONF_PERSISTENT_HISTORY_RETENTION_DAYS,
+                            DEFAULT_PERSISTENT_HISTORY_RETENTION_DAYS,
+                        ),
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(
+                            min=MIN_PERSISTENT_HISTORY_RETENTION_DAYS,
+                            max=MAX_PERSISTENT_HISTORY_RETENTION_DAYS,
                         ),
                     ),
                 }

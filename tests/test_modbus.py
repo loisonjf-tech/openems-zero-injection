@@ -55,7 +55,9 @@ async def test_valid_input_register_response() -> None:
         "custom_components.openems_zero_injection.modbus.asyncio.open_connection",
         AsyncMock(return_value=(reader, writer)),
     ):
-        assert await DtuProSModbusClient("x", 502).async_read_input_registers(0x3004, 1) == [2]
+        client = DtuProSModbusClient("x", 502)
+        assert await client.async_read_input_registers(0x3004, 1) == [2]
+    assert client.connection_diagnostics()["last_response_time_ms"] is not None
 
 
 async def test_valid_holding_register_power_limit_response() -> None:
@@ -181,6 +183,9 @@ async def test_empty_response_closes_then_reconnects_cleanly() -> None:
         client = DtuProSModbusClient("x", 502)
         with pytest.raises(DtuConnectionError):
             await client.async_read_input_registers(0, 1)
+        # The next normal coordinator cycle occurs after the initial five-second
+        # transport backoff; do not attempt an immediate reconnect storm.
+        client._last_failure_time = asyncio.get_running_loop().time() - 5
         assert await client.async_read_input_registers(0, 1) == [2]
 
     broken_writer.close.assert_called_once()
@@ -202,6 +207,21 @@ async def test_timeout_closes_connection_and_records_error() -> None:
     assert not client.connected
     assert client.connection_diagnostics()["total_errors"] == 1
     writer.close.assert_called_once()
+
+
+async def test_reconnect_backoff_is_immediate_and_does_not_block_event_loop() -> None:
+    """A failed transport delays reconnect eligibility without a blocking sleep."""
+    client = DtuProSModbusClient("x", 502)
+    client._record_failure("timeout")
+    open_connection = AsyncMock()
+    with patch(
+        "custom_components.openems_zero_injection.modbus.asyncio.open_connection",
+        open_connection,
+    ):
+        with pytest.raises(DtuConnectionError, match="backoff"):
+            await asyncio.wait_for(client.async_read_input_registers(0, 1), timeout=0.1)
+
+    open_connection.assert_not_awaited()
 
 
 async def test_concurrent_requests_are_serialized() -> None:

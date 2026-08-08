@@ -5,23 +5,48 @@ from enum import StrEnum
 
 DOMAIN = "openems_zero_injection"
 NAME = "OpenEMS Zero Injection"
-VERSION = "0.4.0-alpha.1"
+VERSION = "0.8.0-alpha.1"
+# Stable identifier written beside every persistent observation.  It is
+# intentionally independent from the user-facing integration version.
+ALGORITHM_VERSION = "build007_capacity_release"
 
 CONF_DTU_HOST = "dtu_host"
 CONF_DTU_PORT = "dtu_port"
 CONF_GRID_POWER_ENTITY_ID = "grid_power_entity_id"
 CONF_GRID_POWER_INVERTED = "grid_power_inverted"
 CONF_INSTALLED_NOMINAL_POWER_W = "installed_nominal_power_w"
+CONF_CONTROLLER_MODE = "controller_mode"
+CONF_TEMPORARY_LIMIT_VALIDATION_MODE = "temporary_limit_validation_mode"
+CONF_LAST_CONFIRMED_TEMPORARY_LIMIT = "last_confirmed_temporary_limit"
+CONF_LAST_CONFIRMED_TEMPORARY_LIMIT_SOURCE = "last_confirmed_temporary_limit_source"
+CONF_PRODUCTION_STARTUP_STRATEGY = "production_startup_strategy"
+CONF_TAKEOVER_LIMIT_PERCENT = "takeover_limit_percent"
+CONF_AUTO_RESUME_PRODUCTION = "auto_resume_production"
+CONF_SOLARFLOW_SOC_ENTITY_ID = "solarflow_soc_entity_id"
+CONF_SOLARFLOW_POWER_ENTITY_ID = "solarflow_power_entity_id"
+CONF_SOLARFLOW_GRID_INPUT_POWER_ENTITY_ID = "solarflow_grid_input_power_entity_id"
+CONF_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID = "solarflow_charge_limit_entity_id"
+CONF_SOLARFLOW_POWER_SIGN = "solarflow_power_sign"
+CONF_SOLARFLOW_CHARGE_LIMIT_VERIFIED = "solarflow_charge_limit_verified"
+CONF_SOLARFLOW_ENABLED = "solarflow_enabled"
+CONF_BATTERY_PRIORITY_MODE = "battery_priority_mode"
+CONF_BATTERY_PRIORITY_MARGIN_W = "battery_priority_margin_w"
+CONF_BATTERY_PRIORITY_CHARGE_THRESHOLD_W = "battery_priority_charge_threshold_w"
+CONF_BATTERY_PRIORITY_CONFIRMATION_SAMPLES = "battery_priority_confirmation_samples"
+CONF_PERSISTENT_HISTORY_ENABLED = "persistent_history_enabled"
+CONF_PERSISTENT_HISTORY_RETENTION_DAYS = "persistent_history_retention_days"
 
 DEFAULT_DTU_PORT = 502
 DEFAULT_DEVICE_ID = 1
 MODBUS_TIMEOUT_SECONDS = 5
-MODBUS_INTER_REQUEST_DELAY_SECONDS = 0.15
-MODBUS_RECONNECT_BACKOFF_THRESHOLD = 3
 MODBUS_RECONNECT_BACKOFF_MAX_SECONDS = 30
-PLATFORMS = ("sensor", "number", "switch", "select")
+PLATFORMS = ("sensor", "number", "select")
 SCAN_INTERVAL = timedelta(seconds=10)
+ENERGY_SCAN_INTERVAL = timedelta(seconds=30)
+TEMPORARY_LIMIT_SCAN_INTERVAL = timedelta(seconds=30)
+GENERAL_INFO_SCAN_INTERVAL = timedelta(minutes=5)
 PERMANENT_LIMIT_SCAN_INTERVAL = timedelta(minutes=5)
+PERMANENT_LIMIT_FAILURE_BACKOFF = timedelta(minutes=30)
 POWER_LIMIT_FAILURE_LOG_INTERVAL_SECONDS = 300
 
 DEFAULT_GRID_POWER_ENTITY_ID = "sensor.te31njn2n150704_l3_p"
@@ -34,18 +59,62 @@ MIN_INSTALLED_NOMINAL_POWER_W = 100
 MAX_INSTALLED_NOMINAL_POWER_W = 50_000
 INSTALLED_NOMINAL_POWER_STEP_W = 10
 DEFAULT_MAXIMUM_STEP_PERCENT = 5
+DEFAULT_PREDICTIVE_ERROR_THRESHOLD_W = 250
+DEFAULT_FINE_CORRECTION_STEP_PERCENT = 2
+DEFAULT_TEMPORARY_LIMIT_VALIDATION_MODE = "compatibility"
+DEFAULT_PRODUCTION_STARTUP_STRATEGY = "safe"
+DEFAULT_TAKEOVER_LIMIT_PERCENT = 100
+DEFAULT_AUTO_RESUME_PRODUCTION = False
+DEFAULT_SOLARFLOW_SOC_ENTITY_ID = "sensor.solarflow_800_plus_electric_level"
+DEFAULT_SOLARFLOW_POWER_ENTITY_ID = "sensor.solarflow_800_plus_bat_in_out"
+DEFAULT_SOLARFLOW_GRID_INPUT_POWER_ENTITY_ID = "sensor.solarflow_800_plus_grid_input_power"
+DEFAULT_SOLARFLOW_CHARGE_LIMIT_ENTITY_ID = "sensor.solarflow_800_plus_charge_max_limit"
+DEFAULT_SOLARFLOW_POWER_SIGN = "positive_discharging"
+DEFAULT_SOLARFLOW_CHARGE_LIMIT_VERIFIED = False
+# The directional battery power drives the conservative Battery Priority
+# eligibility. SOC is useful state information, but SolarFlow publishes it
+# much less frequently and it must not make a fresh power observation stale.
+DEFAULT_BATTERY_DATA_MAX_AGE_SECONDS = 30
+DEFAULT_SOLARFLOW_SOC_MAX_AGE_SECONDS = 600
+DEFAULT_SOLARFLOW_CHARGE_LIMIT_MAX_AGE_SECONDS = 300
+DEFAULT_SOLARFLOW_ENABLED = False
+DEFAULT_BATTERY_PRIORITY_MODE = "disabled"
+DEFAULT_BATTERY_PRIORITY_MARGIN_W = 25
+DEFAULT_BATTERY_PRIORITY_CHARGE_THRESHOLD_W = 50
+DEFAULT_BATTERY_PRIORITY_CONFIRMATION_SAMPLES = 3
+DEFAULT_PERSISTENT_HISTORY_ENABLED = False
+DEFAULT_PERSISTENT_HISTORY_RETENTION_DAYS = 30
+MIN_PERSISTENT_HISTORY_RETENTION_DAYS = 1
+MAX_PERSISTENT_HISTORY_RETENTION_DAYS = 365
+DEFAULT_BATTERY_PRIORITY_SATURATION_TOLERANCE_W = 50
+MIN_BATTERY_PRIORITY_MARGIN_W = 0
+MAX_BATTERY_PRIORITY_MARGIN_W = 100
+MIN_BATTERY_PRIORITY_CHARGE_THRESHOLD_W = 1
+MAX_BATTERY_PRIORITY_CHARGE_THRESHOLD_W = 1_000
+MIN_BATTERY_PRIORITY_CONFIRMATION_SAMPLES = 1
+MAX_BATTERY_PRIORITY_CONFIRMATION_SAMPLES = 10
 GRID_POWER_MIN_W = -20_000
 GRID_POWER_MAX_W = 20_000
 CONTROLLER_INTERVAL = timedelta(seconds=3)
 VALID_GRID_MEASUREMENTS_REQUIRED = 3
 GRID_MEASUREMENT_MAX_AGE_SECONDS = 10
 DTU_MEASUREMENT_MAX_AGE_SECONDS = 25
-TEMPORARY_LIMIT_MAX_AGE_SECONDS = 25
+TEMPORARY_LIMIT_MAX_AGE_SECONDS = 65
+GLOBAL_TRANSPORT_FAILURES_UNAVAILABLE = 3
 MEASUREMENT_SYNC_MAX_DIFFERENCE_SECONDS = 25
+# A controller decision is only useful after an observable physical change.
+# Smaller fluctuations are normal measurement noise and must not create a new
+# decision/history entry or cause Home Assistant state churn.
+SIGNIFICANT_POWER_CHANGE_W = 30
+INTERNAL_SIMULATION_DIAGNOSTIC_REFRESH_SECONDS = 300
 
 
 class ControllerMode(StrEnum):
-    """Explicit controller modes; the integration starts disabled."""
+    """Persisted controller modes.
+
+    ``SIMULATION`` is retained solely for internal trace/test compatibility.
+    It is no longer a Home Assistant selectable or restorable user mode.
+    """
 
     DISABLED = "Disabled"
     SIMULATION = "Simulation"
@@ -61,3 +130,17 @@ class SchedulerState(StrEnum):
     VERIFYING = "Verifying"
     ERROR = "Error"
     PAUSED = "Paused"
+
+
+class TemporaryLimitValidationMode(StrEnum):
+    """How Production validates temporary DTU power-limit registers."""
+
+    STRICT = "strict"
+    COMPATIBILITY = "compatibility"
+
+
+class ProductionStartupStrategy(StrEnum):
+    """How Production establishes a first trustworthy limit reference."""
+
+    SAFE = "safe"
+    TAKEOVER = "takeover"

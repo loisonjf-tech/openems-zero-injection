@@ -20,7 +20,15 @@ La puissance réactive est lue pour validation technique mais son caractère sig
 
 ## Limites de puissance Build003
 
-La note REV1.2, section 4.4.7, définit ces registres comme des `uint16` big-endian. La valeur est directement un pourcentage, sans coefficient. Pour les HMS de troisième génération, la plage autorisée est de **2 à 100 %**.
+La note REV1.2, section 4.4.7, définit ces registres comme des `uint16` big-endian. La valeur est présentée comme **Percentage: Temporary Limit Active Power**, sans coefficient, et la plage autorisée pour les HMS de troisième génération est de **2 à 100 %**.
+
+> La note ne définit pas explicitement le dénominateur de ce pourcentage : elle
+> ne dit pas s'il s'agit de la puissance nominale AC d'un micro-onduleur, d'un
+> groupe associé à un port, de l'installation totale, ni comment la limite se
+> comporte lorsque la puissance solaire disponible est plus faible. OpenEMS
+> enregistre donc sa référence théorique `puissance_nominale_configurée × %`
+> uniquement pour corrélation terrain ; elle ne doit pas être interprétée comme
+> une sémantique firmware validée.
 
 | Port | Registre temporaire | Registre permanent | Lecture | Écriture Build003 | Statut réel |
 | --- | ---: | ---: | --- | --- | --- |
@@ -28,6 +36,6 @@ La note REV1.2, section 4.4.7, définit ces registres comme des `uint16` big-end
 | 2 | `0xD00D` | `0xD00E` | `0x03` | `0x06` temporaire seulement | à valider |
 | 3 | `0xD013` | `0xD014` | `0x03` | `0x06` temporaire seulement | à valider |
 
-Les registres globaux `0xD001` et `0xD002` ne sont ni lus ni écrits par ce build. Les registres temporaires sont lus à chaque cycle normal ; un échec isolé conserve la dernière valeur, marquée non fraîche, et interdit toute commande automatique jusqu'au retour de trois lectures fraîches et identiques. Les registres permanents `0xD008`, `0xD00E` et `0xD014` sont lus au démarrage puis toutes les cinq minutes uniquement à des fins de diagnostic : leur indisponibilité ne suspend jamais le contrôleur. Après une écriture automatique, les trois registres temporaires sont relus avec `0x03` : les trois valeurs doivent correspondre à la consigne. Aucune écriture de restauration ni répétition automatique n'est tentée en cas d'erreur.
+Les registres globaux `0xD001` et `0xD002` ne sont ni lus ni écrits par ce build. Les registres temporaires sont lus au démarrage puis toutes les 30 secondes. En mode **Strict**, trois lectures `0x03` fraîches et identiques sont exigées avant et après une commande. En mode **Compatibilité**, les trois accusés de réception `0x06` d'une écriture commune établissent la limite locale confirmée lorsque les relectures `0x03` ne sont pas fiables. La stratégie optionnelle **Prise de contrôle** utilise exclusivement ces trois échos `0x06` pour créer la première référence locale. Les registres permanents `0xD008`, `0xD00E` et `0xD014` sont lus au démarrage puis toutes les cinq minutes uniquement à des fins de diagnostic : leur indisponibilité ne suspend jamais le contrôleur. Aucune écriture de restauration ni répétition automatique n'est tentée en cas d'erreur.
 
-Toutes les lectures du client passent par un verrou asynchrone unique. Les trames sont espacées d'au moins 150 ms. Une réponse vide, tronquée, une erreur de socket ou un timeout ferme immédiatement la socket ; le cycle normal suivant recrée la connexion. Les erreurs répétées déclenchent un backoff asynchrone borné, sans bloquer Home Assistant. Chaque registre conserve indépendamment sa dernière valeur valide, son horodatage, son état frais/périmé et son nombre d'échecs consécutifs.
+Toutes les lectures et écritures du client passent par un verrou asynchrone unique, sans temporisation artificielle entre les trames. Les journaux de debug indiquent l'adresse, le nombre de registres, l'unité Modbus, la durée, le résultat, l'exception éventuelle et le nombre de tentatives. Une réponse vide, tronquée, une erreur de socket ou un timeout ferme immédiatement la socket ; la reconnexion est ensuite éligible après 5, 10, 20 puis 30 secondes, sans bloquer Home Assistant. Après deux échecs d'un registre permanent, ce registre est suspendu 30 minutes. Chaque registre conserve indépendamment sa dernière valeur valide, son horodatage, son état frais/périmé et son nombre d'échecs consécutifs.

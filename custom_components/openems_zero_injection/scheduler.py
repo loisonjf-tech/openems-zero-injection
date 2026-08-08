@@ -45,7 +45,20 @@ class SafetyScheduler:
         """Manually re-arm the scheduler after an error or pause."""
         if not self._lock.locked():
             self._state = SchedulerState.IDLE
+            self._next_allowed_at = None
             self._last_error = None
+
+    def command_block_reason(self) -> str | None:
+        """Return a non-error reason when a new command must not start yet."""
+        if self._state in {SchedulerState.PAUSED, SchedulerState.ERROR}:
+            return "Scheduler is paused"
+        if self._lock.locked():
+            self._state = SchedulerState.WAITING
+            return "Command already in progress"
+        if self.remaining_seconds() > 0:
+            self._state = SchedulerState.WAITING
+            return "Waiting for stabilization"
+        return None
 
     async def async_execute(
         self,
@@ -58,14 +71,8 @@ class SafetyScheduler:
             return False, "Disabled"
         if mode is ControllerMode.SIMULATION:
             return False, "Simulation mode"
-        if self._state in {SchedulerState.PAUSED, SchedulerState.ERROR}:
-            return False, "Scheduler is paused"
-        if self._lock.locked():
-            self._state = SchedulerState.WAITING
-            return False, "Command already in progress"
-        if self.remaining_seconds() > 0:
-            self._state = SchedulerState.WAITING
-            return False, "Waiting for stabilization"
+        if reason := self.command_block_reason():
+            return False, reason
 
         async with self._lock:
             self._state = SchedulerState.WRITING
@@ -82,23 +89,3 @@ class SafetyScheduler:
             self._state = SchedulerState.WAITING
             self._last_error = None
             return True, "Command confirmed"
-
-    async def async_simulate(self) -> tuple[bool, str]:
-        """Accept one virtual command using the same safety timing as Production."""
-        if self._state in {SchedulerState.PAUSED, SchedulerState.ERROR}:
-            return False, "Scheduler is paused"
-        if self._lock.locked():
-            self._state = SchedulerState.WAITING
-            return False, "Command already in progress"
-        if self.remaining_seconds() > 0:
-            self._state = SchedulerState.WAITING
-            return False, "Waiting for stabilization"
-
-        async with self._lock:
-            self._state = SchedulerState.VERIFYING
-            self._next_allowed_at = datetime.now(UTC) + timedelta(
-                seconds=self._delay_seconds
-            )
-            self._state = SchedulerState.WAITING
-            self._last_error = None
-            return True, "Command simulated"

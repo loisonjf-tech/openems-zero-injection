@@ -1,0 +1,66 @@
+{
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "solarflow_soc_entity_id": "SolarFlow state-of-charge sensor",
+          "solarflow_enabled": "Enable SolarFlow read-only adapter",
+          "solarflow_power_entity_id": "SolarFlow directional power sensor",
+          "solarflow_grid_input_power_entity_id": "SolarFlow grid-input power sensor (diagnostic)",
+          "solarflow_charge_limit_entity_id": "SolarFlow charge-limit sensor",
+          "solarflow_power_sign": "SolarFlow power sign convention",
+          "solarflow_charge_limit_verified": "Charge-limit unit and meaning verified",
+          "battery_priority_mode": "Battery Priority mode",
+          "battery_priority_margin_w": "Battery Priority margin",
+          "battery_priority_charge_threshold_w": "Battery charge confirmation threshold",
+          "battery_priority_confirmation_samples": "Consecutive fresh charging measurements"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "trace_mode": {
+        "name": "Trace Recorder mode",
+        "state": {"normal": "Normal"}
+      },
+      "trace_session_active": {
+        "name": "Active regulation session",
+        "state": {"active": "Active", "inactive": "Inactive"}
+      },
+      "trace_session_started_at": {"name": "Regulation session start"},
+      "trace_data_coverage_percent": {"name": "Trace data coverage"},
+      "trace_commands_confirmed": {"name": "Confirmed trace commands"},
+      "trace_commands_effective": {"name": "Effective trace commands"},
+      "trace_commands_ineffective": {"name": "Ineffective trace commands"},
+      "trace_commands_indeterminate": {"name": "Indeterminate trace commands"},
+      "trace_median_energy_response_ms": {"name": "Median energy response time"},
+      "trace_weighted_time_in_tolerance_percent": {"name": "Weighted time in tolerance"},
+      "trace_average_absolute_error_w": {"name": "Average absolute error"},
+      "trace_suspected_oscillations": {"name": "Suspected oscillations"}
+      ,"solarflow_health": {"name": "SolarFlow battery health", "state": {"healthy": "Healthy", "stale": "Stale", "inconsistent": "Inconsistent", "fault": "Fault", "unavailable": "Unavailable"}}
+      ,"solarflow_data_age_seconds": {"name": "SolarFlow battery data age"}
+      ,"solarflow_soc_percent": {"name": "SolarFlow battery state of charge"}
+      ,"solarflow_directional_power_w": {"name": "SolarFlow battery power (− charging / + discharging)"}
+      ,"energy_strategy_effective": {"name": "Effective energy strategy", "state": {"zero_injection": "Zero injection only", "battery_capacity_release": "Maximize battery charging", "battery_priority_observed_conservative": "Favor battery charging", "unknown": "Unknown"}}
+      ,"energy_strategy_directive": {"name": "Current energy directive", "state": {"normal_regulation": "Zero-injection regulation", "release_dtu_to_maximum": "Release DTU to 100%", "unknown": "Unknown"}}
+      ,"energy_strategy_reason": {"name": "Energy strategy reason", "state": {"configured_zero_injection_target": "Configured zero-injection target", "battery_priority_simulation": "Battery priority simulation", "battery_priority_no_battery": "No battery configured", "battery_priority_battery_unavailable": "Battery unavailable", "battery_priority_battery_data_stale": "Battery data stale", "battery_priority_battery_data_inconsistent": "Battery data inconsistent", "battery_priority_battery_fault": "Battery fault", "battery_priority_capacity_partial": "Partial battery capacity", "battery_priority_capacity_unknown": "Battery capacity unknown", "battery_priority_battery_full": "Battery full", "battery_priority_target_not_export_oriented": "Target is not export-oriented", "battery_priority_disabled": "Battery priority disabled", "battery_priority_verified_mode_reserved": "Verified battery priority reserved", "battery_priority_charge_confirmation_pending": "Charging confirmation pending", "battery_priority_battery_discharging": "Battery discharging", "battery_priority_battery_idle": "Battery idle", "battery_priority_observed_conservative": "Battery charging favored", "battery_capacity_release_active": "Battery capacity available", "battery_capacity_release_discharging": "Battery discharging: DTU released", "battery_capacity_release_full": "Battery full", "battery_capacity_release_saturated": "Battery charging capacity saturated", "battery_capacity_release_waiting_to_release": "Waiting to release DTU", "battery_capacity_release_hold_normal": "Maintaining zero-injection regulation", "battery_capacity_release_hold_release": "Maintaining DTU release", "battery_capacity_release_capacity_unknown": "Battery capacity unknown", "battery_capacity_release_capacity_stale": "Battery capacity stale", "battery_capacity_release_soc_stale": "Battery state of charge stale", "unknown": "Unknown"}}
+      ,"measurement_health": {"name": "Measurement health", "state": {"healthy": "Healthy", "degraded": "Degraded", "blocked": "Control blocked", "unknown": "Unknown"}}
+      ,"persistent_history_status": {"name": "Persistent history status", "state": {"disabled": "Disabled", "active": "Active", "degraded": "Degraded", "unavailable": "Unavailable"}}
+      ,"adaptive_nominal_gain": {"name": "Nominal model gain"}
+      ,"adaptive_estimated_gain": {"name": "Estimated adaptive gain"}
+      ,"adaptive_confidence": {"name": "Adaptive model confidence", "state": {"none": "No confidence", "insufficient": "Insufficient confidence", "low": "Low", "medium": "Medium", "high": "High"}}
+      ,"adaptive_limit_range": {"name": "Adaptive model limit range", "state": {"unknown": "Unknown"}}
+      ,"adaptive_accepted_observations": {"name": "Accepted adaptive observations"}
+      ,"adaptive_rejected_observations": {"name": "Rejected adaptive observations"}
+      ,"adaptive_comparable_predictions": {"name": "Comparable adaptive predictions"}
+      ,"adaptive_nominal_median_error": {"name": "Nominal model median error"}
+      ,"adaptive_adaptive_median_error": {"name": "Adaptive model median error"}
+      ,"adaptive_nominal_signed_bias": {"name": "Nominal model signed bias"}
+      ,"adaptive_adaptive_signed_bias": {"name": "Adaptive model signed bias"}
+      ,"adaptive_better_percent": {"name": "Predictions improved by adaptive model"}
+      ,"adaptive_candidate_limit": {"name": "Adaptive candidate limit — not applied"}
+      ,"adaptive_last_observation_reason": {"name": "Last adaptive rejection or non-comparability reason", "state": {"none": "None", "command_too_small": "Command change too small", "insufficient_pre_command_context": "Insufficient pre-command context", "pre_command_measurements_unstable": "Pre-command measurements unstable", "post_stabilization_timeout": "Post-stabilization timeout", "battery_context_changed": "Battery context changed", "post_power_unstable": "Post-command power unstable", "power_change_too_small": "Observed power change too small", "power_change_wrong_direction": "Observed power change has wrong direction", "gain_outside_conservative_bounds": "Observed gain outside conservative bounds", "adaptive_confidence_insufficient": "Adaptive confidence insufficient", "observation_indeterminate": "Observation indeterminate"}}
+    }
+  }
+}
