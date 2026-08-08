@@ -5,7 +5,7 @@ from enum import StrEnum
 
 DOMAIN = "openems_zero_injection"
 NAME = "OpenEMS Zero Injection"
-VERSION = "0.8.0-alpha.1"
+VERSION = "0.8.0a1"
 # Stable identifier written beside every persistent observation.  It is
 # intentionally independent from the user-facing integration version.
 ALGORITHM_VERSION = "build007_capacity_release"
