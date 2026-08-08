@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_interval
 
+from .adaptive_limit import AdaptiveLimitModel
 from .acquisition import AcquisitionEngine
 from .battery import BatteryManager, NullBatteryManager
 from .const import (
@@ -213,6 +214,7 @@ class ZeroInjectionController:
         self._scheduler = SafetyScheduler(self._stabilization_delay_seconds)
         self._history = DecisionHistory()
         self._learning = PassiveLearningEngine()
+        self._adaptive_limit_model: AdaptiveLimitModel | None = None
         self._context_analyzer = ContextAnalyzer()
         self._calibration_manager = CalibrationManager()
         self._energy_policy_engine = EnergyPolicyEngine()
@@ -260,6 +262,9 @@ class ZeroInjectionController:
         self.set_installed_nominal_power(
             installed_nominal_power_w, source=installed_power_source, log_change=False
         )
+        self._adaptive_limit_model = AdaptiveLimitModel(
+            nominal_gain_w_per_percent=self.watts_per_percent
+        )
 
     @property
     def mode(self) -> ControllerMode:
@@ -290,6 +295,12 @@ class ZeroInjectionController:
     @property
     def learning(self) -> PassiveLearningEngine:
         return self._learning
+
+    @property
+    def adaptive_limit_model(self) -> AdaptiveLimitModel:
+        """Expose the passive adaptive model without control authority."""
+        assert self._adaptive_limit_model is not None
+        return self._adaptive_limit_model
 
     @property
     def battery_manager(self) -> BatteryManager:
@@ -541,6 +552,10 @@ class ZeroInjectionController:
         self._installed_power_source = source
         self._installed_power_updated_at = datetime.now(UTC)
         self._configuration_generation += 1
+        if self._adaptive_limit_model is not None:
+            self._adaptive_limit_model.reset(
+                nominal_gain_w_per_percent=self.watts_per_percent
+            )
         self._rotate_trace_session("installed_nominal_power_changed")
         if log_change:
             logging.getLogger(__name__).info(
@@ -695,6 +710,13 @@ class ZeroInjectionController:
                 deadband_w=self._deadband_w,
                 dtu_limit_observation=self._record_dtu_limit_power_observation(snapshot),
             )
+            self._adaptive_limit_model.record_baseline(
+                timestamp=snapshot.created_at,
+                power_w=snapshot.dtu_power_w,
+                grid_power_w=snapshot.grid_power_w,
+                battery_signature=self._adaptive_battery_signature(),
+            )
+            self._observe_adaptive_limit_model(snapshot, current_limit)
             self._record_periodic_history(snapshot, current_limit)
             if not self._requires_new_decision(snapshot):
                 if (
@@ -909,6 +931,17 @@ class ZeroInjectionController:
             if success:
                 self.commands_succeeded += 1
                 now = datetime.now(UTC)
+                if (
+                    policy.dtu_control_directive
+                    is DtuControlDirective.NORMAL_REGULATION
+                ):
+                    self._adaptive_limit_model.register_confirmed_command(
+                        timestamp=now,
+                        limit_before_percent=current_limit,
+                        limit_after_percent=decision.applied_limit_percent,
+                        power_before_w=snapshot.dtu_power_w,
+                        battery_signature=self._adaptive_battery_signature(),
+                    )
                 self._learning.record(
                     LearningSample(
                         timestamp=now,
@@ -1345,6 +1378,38 @@ class ZeroInjectionController:
         if self._persistent_history_recorder is not None:
             self._persistent_history_recorder.record(event_type, payload, timestamp=timestamp)
 
+    def _adaptive_battery_signature(self) -> tuple[object, ...]:
+        """Capture existing battery state without reading an adapter or entity."""
+        energy = self._coordinator.energy_manager.snapshot()
+        return tuple(
+            (
+                battery.resource_id,
+                battery.health.value,
+                round(battery.charge_power_w or 0.0, 1),
+                round(battery.discharge_power_w or 0.0, 1),
+                tuple(sorted(battery.source_freshness.items())),
+            )
+            for battery in energy.resources
+        )
+
+    def _observe_adaptive_limit_model(
+        self, snapshot: DecisionSnapshot, current_limit: int
+    ) -> None:
+        """Let the passive model qualify one already-confirmed command effect."""
+        observation = self._adaptive_limit_model.observe(
+            timestamp=snapshot.created_at,
+            power_w=snapshot.dtu_power_w,
+            scheduler_stabilizing=self._scheduler.remaining_seconds(snapshot.created_at)
+            > 0,
+            battery_signature=self._adaptive_battery_signature(),
+        )
+        if observation is not None and self._persistent_history_recorder is not None:
+            self._record_persistent_history(
+                HistoryEventType.TRANSITION,
+                self._history_payload(snapshot, current_limit, None, None),
+                timestamp=snapshot.created_at,
+            )
+
     def _record_periodic_history(
         self, snapshot: DecisionSnapshot, current_limit: int
     ) -> None:
@@ -1425,6 +1490,19 @@ class ZeroInjectionController:
         energy = self._coordinator.energy_manager.snapshot()
         battery = energy.resources[0] if energy.resources else None
         limit_observation = self._build_dtu_limit_power_observation(snapshot)
+        grid_error = (
+            decision.grid_error_w
+            if decision is not None
+            else snapshot.grid_power_w - snapshot.target_power_w
+        )
+        adaptive_candidate = self._adaptive_limit_model.candidate_for(
+            current_limit_percent=current_limit,
+            grid_error_w=grid_error,
+        )
+        adaptive_diagnostics = self._adaptive_limit_model.diagnostics(
+            now=snapshot.created_at
+        )
+        latest_adaptive_observation = adaptive_diagnostics["last_observation"]
         return {
             "controller_mode": self._mode.value,
             "scheduler_state": self._scheduler.state.value,
@@ -1469,6 +1547,127 @@ class ZeroInjectionController:
                 self._installed_nominal_power_w * current_limit / 100
             ),
             "dtu_limit_power_observation": limit_observation,
+            "adaptive_limit_model": {
+                "mode": "passive",
+                "gain_nominal_w_per_percent": self.watts_per_percent,
+                "gain_observed_w_per_percent": (
+                    latest_adaptive_observation["gain_observed_w_per_percent"]
+                    if latest_adaptive_observation
+                    else None
+                ),
+                "adaptive_gain_before_observation_w_per_percent": (
+                    latest_adaptive_observation[
+                        "adaptive_gain_before_observation_w_per_percent"
+                    ]
+                    if latest_adaptive_observation
+                    else None
+                ),
+                "gain_estimated_w_per_percent": (
+                    adaptive_candidate.gain_estimated_w_per_percent
+                ),
+                # This explicit value proves the adaptive estimate is never
+                # consumed by the controller in this first increment.
+                "gain_used_w_per_percent": self.watts_per_percent,
+                "limit_range": adaptive_candidate.limit_range,
+                "confidence": adaptive_candidate.confidence.value,
+                "accepted_observations": adaptive_diagnostics[
+                    "accepted_observations"
+                ],
+                "rejected_observations": adaptive_diagnostics[
+                    "rejected_observations"
+                ],
+                "power_before_w": (
+                    latest_adaptive_observation["power_before_w"]
+                    if latest_adaptive_observation
+                    else None
+                ),
+                "power_after_w": (
+                    latest_adaptive_observation["power_after_w"]
+                    if latest_adaptive_observation
+                    else None
+                ),
+                "limit_before_percent": (
+                    latest_adaptive_observation["limit_before_percent"]
+                    if latest_adaptive_observation
+                    else None
+                ),
+                "limit_after_percent": (
+                    latest_adaptive_observation["limit_after_percent"]
+                    if latest_adaptive_observation
+                    else None
+                ),
+                "observation_accepted": (
+                    latest_adaptive_observation["accepted"]
+                    if latest_adaptive_observation
+                    else None
+                ),
+                "predicted_nominal_power_change_w": (
+                    latest_adaptive_observation[
+                        "predicted_nominal_power_change_w"
+                    ]
+                    if latest_adaptive_observation
+                    else None
+                ),
+                "predicted_adaptive_power_change_w": (
+                    latest_adaptive_observation[
+                        "predicted_adaptive_power_change_w"
+                    ]
+                    if latest_adaptive_observation
+                    else None
+                ),
+                "observed_power_change_w": (
+                    latest_adaptive_observation["observed_power_change_w"]
+                    if latest_adaptive_observation
+                    else None
+                ),
+                "nominal_error_w": (
+                    latest_adaptive_observation["nominal_error_w"]
+                    if latest_adaptive_observation
+                    else None
+                ),
+                "adaptive_error_w": (
+                    latest_adaptive_observation["adaptive_error_w"]
+                    if latest_adaptive_observation
+                    else None
+                ),
+                "nominal_signed_error_w": (
+                    latest_adaptive_observation["nominal_signed_error_w"]
+                    if latest_adaptive_observation
+                    else None
+                ),
+                "adaptive_signed_error_w": (
+                    latest_adaptive_observation["adaptive_signed_error_w"]
+                    if latest_adaptive_observation
+                    else None
+                ),
+                "prediction_comparable": (
+                    latest_adaptive_observation["prediction_comparable"]
+                    if latest_adaptive_observation
+                    else False
+                ),
+                "prediction_non_comparable_reason": (
+                    latest_adaptive_observation[
+                        "prediction_non_comparable_reason"
+                    ]
+                    if latest_adaptive_observation
+                    else "no_resolved_observation"
+                ),
+                "adaptive_model_better": (
+                    latest_adaptive_observation["adaptive_model_better"]
+                    if latest_adaptive_observation
+                    else None
+                ),
+                "rejection_reason": (
+                    latest_adaptive_observation["rejection_reason"]
+                    if latest_adaptive_observation
+                    else None
+                ),
+                "adaptive_candidate_limit_percent": (
+                    adaptive_candidate.limit_candidate_percent
+                ),
+                "profiles": adaptive_diagnostics["profiles"],
+                "prediction_metrics": adaptive_diagnostics["prediction_metrics"],
+            },
             "battery": {
                 "resource_id": battery.resource_id if battery else None,
                 "health": battery.health.value if battery else None,

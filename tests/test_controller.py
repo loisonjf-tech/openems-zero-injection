@@ -127,6 +127,68 @@ def test_persistent_history_payload_records_limit_power_correlation(hass) -> Non
     assert payload["battery"]["grid_input_power_w"] == 292
     assert payload["battery"]["source_entities"]["directional_power_w"] == "sensor.bat_in_out"
     assert payload["battery"]["source_freshness"]["soc_percent"] == "fresh"
+    adaptive = payload["adaptive_limit_model"]
+    assert adaptive["mode"] == "passive"
+    assert adaptive["gain_nominal_w_per_percent"] == 30
+    assert adaptive["gain_used_w_per_percent"] == 30
+    assert adaptive["adaptive_candidate_limit_percent"] is None
+    assert adaptive["prediction_comparable"] is False
+
+
+def test_adaptive_limit_model_cannot_change_the_controller_decision(hass) -> None:
+    """A trained passive profile remains strictly outside the command path."""
+    timestamp = datetime.now(UTC)
+    coordinator = fake_coordinator(temporary_limit_percent=50)
+    controller = ZeroInjectionController(
+        hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
+    )
+    snapshot = DecisionSnapshot(
+        grid_power_w=-220,
+        grid_power_timestamp=timestamp,
+        dtu_power_w=900,
+        dtu_power_timestamp=timestamp,
+        temporary_limits=(50, 50, 50),
+        temporary_limits_timestamp=timestamp,
+        target_power_w=-40,
+        created_at=timestamp,
+    )
+    before = controller._calculate_decision(snapshot, 50, -40)
+    model = controller.adaptive_limit_model
+    model.record_baseline(
+        timestamp=timestamp - timedelta(seconds=20),
+        power_w=900,
+        grid_power_w=-220,
+        battery_signature=(),
+    )
+    model.record_baseline(
+        timestamp=timestamp - timedelta(seconds=10),
+        power_w=900,
+        grid_power_w=-220,
+        battery_signature=(),
+    )
+    model.register_confirmed_command(
+        timestamp=timestamp,
+        limit_before_percent=13,
+        limit_after_percent=18,
+        power_before_w=900,
+        battery_signature=(),
+    )
+    assert model.observe(
+        timestamp=timestamp + timedelta(seconds=12),
+        power_w=1100,
+        scheduler_stabilizing=False,
+        battery_signature=(),
+    ) is None
+    assert model.observe(
+        timestamp=timestamp + timedelta(seconds=20),
+        power_w=1120,
+        scheduler_stabilizing=False,
+        battery_signature=(),
+    ) is not None
+
+    after = controller._calculate_decision(snapshot, 50, -40)
+
+    assert after == before
 
 
 async def test_takeover_establishes_a_reference_before_first_production_decision(hass) -> None:

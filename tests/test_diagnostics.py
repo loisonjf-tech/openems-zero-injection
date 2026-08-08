@@ -79,6 +79,10 @@ async def test_diagnostics_include_connection_state(hass) -> None:
     assert diagnostics["trace_recorder"]["schema_version"] == 3
     assert diagnostics["trace_recorder"]["detailed_trace_capacity"] == 100
     assert diagnostics["controller"]["dtu_limit_power_observation"] is None
+    adaptive = diagnostics["controller"]["predictive"]["adaptive_limit_model"]
+    assert adaptive["mode"] == "passive"
+    assert adaptive["gain_nominal_w_per_percent"] == 30
+    assert adaptive["gain_used_w_per_percent"] == 30
     sync = diagnostics["controller"]["measurement_synchronization"]
     assert sync["tolerance_seconds"] == 25
 

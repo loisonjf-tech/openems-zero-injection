@@ -78,6 +78,16 @@ Pour chaque commande déjà décidée, il relie la décision, la politique, le c
 
 Les traces et diagnostics conservent aussi une observation DTU/limite corrélée : puissance nominale configurée, limite demandée, puissance maximale théorique, puissance active réellement lue, limites temporaires des trois ports, âge de leur confirmation et état du Scheduler. Cette instrumentation réutilise exclusivement le cycle existant : elle n’ajoute ni lecture Modbus, ni écriture, ni temporisation.
 
+Le [modèle adaptatif de limite DTU](docs/Modele-adaptatif-limite-DTU.md) observe
+également, de manière strictement passive, le gain local réellement constaté
+après une commande confirmée. Il compare les profils `W/%` par plages de limite
+et publie une limite candidate pour analyse. La consigne réellement utilisée
+reste le modèle nominal configuré : aucune décision, commande, lecture Modbus
+ou protection du Scheduler n'est modifiée par cet observateur.
+Chaque prédiction adaptative est figée avant le résultat de la commande puis
+comparée hors échantillon au modèle nominal après stabilisation ; les métriques
+restent donc exploitables pour décider ultérieurement d'une activation.
+
 Les statistiques de session sont agrégées pendant toute la session, indépendamment du buffer des 100 chronologies : elles ne sont donc pas tronquées lorsqu’une session comporte davantage de commandes. Les médianes utilisent un échantillon borné ; les compteurs, moyennes, maximums et couverture pondérée restent complets. Une absence de mesures ou une télémétrie trop espacée ne peut jamais conclure à une commande inefficace : le résultat est alors **indéterminé**.
 
 Le mode diagnostic détaillé, le polling accéléré et les exports CSV/JSON restent volontairement hors périmètre. Les identifiants enregistrés (`policy_id`, stratégie, contexte et résultats) sont stables et indépendants de la langue ; l’interface Home Assistant les présente via ses traductions.

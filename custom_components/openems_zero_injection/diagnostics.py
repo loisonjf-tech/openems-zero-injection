@@ -218,6 +218,7 @@ async def async_get_config_entry_diagnostics(
                     "accepted_samples": controller.calibration_manager.profile.accepted_samples,
                     "rejected_samples": controller.calibration_manager.profile.rejected_samples,
                 },
+                "adaptive_limit_model": controller.adaptive_limit_model.diagnostics(),
             },
             "measurement_synchronization": {
                 "grid_source_timestamp": (

@@ -2,7 +2,7 @@
 
 Toutes les évolutions notables sont documentées dans ce fichier.
 
-## [Unreleased] — Persistent History Recorder
+## [Unreleased] — Observabilité persistante et modèle adaptatif passif
 
 ### Added
 
@@ -18,6 +18,17 @@ Toutes les évolutions notables sont documentées dans ce fichier.
   SolarFlow signée, `gridInputPower` et les métadonnées de chaque source
   batterie (entité, horodatage, âge et fraîcheur), sans modifier la stratégie
   énergétique.
+- Modèle adaptatif passif des limites DTU : gains locaux `W/%` par plages
+  `2–10`, `11–25`, `26–50`, `51–75` et `76–100 %`, médiane robuste,
+  dispersion, âge et confiance. Il observe uniquement les commandes
+  automatiques confirmées après stabilisation et n'influence aucune consigne.
+- Diagnostics et historique persistant : gain nominal, gain observé, estimation
+  adaptative, confiance, observation acceptée ou indéterminée, motif de rejet
+  et limite candidate adaptative.
+- Validation prédictive hors échantillon : avant chaque observation, le gain
+  adaptatif déjà acquis prédit passivement la variation de puissance. Les
+  erreurs nominale/adaptative, signées et absolues, ainsi que le pourcentage de
+  prédictions améliorées, sont agrégés globalement et par plage de limite.
 
 ### Safety
 
@@ -31,6 +42,8 @@ Toutes les évolutions notables sont documentées dans ce fichier.
 - Les transitions batterie déterminantes pour Capacity Release demandent une
   nouvelle évaluation cohérente même si la puissance réseau reste dans sa zone
   morte. Elles ne contournent jamais la stabilisation ni les gardes du Scheduler.
+- Le gain utilisé pour toute décision reste explicitement le gain nominal : le
+  modèle adaptatif est purement observateur dans ce premier incrément.
 
 ## [0.8.0-alpha.1] - 2026-07-31 — Battery capacity release
 
