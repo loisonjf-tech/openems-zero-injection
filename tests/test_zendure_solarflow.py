@@ -59,7 +59,8 @@ def _adapter_with_states(states: dict[str, State], **changes) -> ZendureSolarFlo
 
 
 def test_bat_in_out_negative_value_is_charge_without_unknown_sign(hass) -> None:
-    _set_fresh_required_states(hass, "-291")
+    """A signed SolarFlow charge value stays signed in the normalized resource."""
+    _set_fresh_required_states(hass, "-388")
     hass.states.async_set("sensor.grid_input", "292", {ATTR_UNIT_OF_MEASUREMENT: "W"})
     adapter = _adapter(hass)
     _make_fresh(adapter)
@@ -67,15 +68,16 @@ def test_bat_in_out_negative_value_is_charge_without_unknown_sign(hass) -> None:
     resource = adapter.read_resource()
 
     assert resource.health is BatteryHealth.HEALTHY
-    assert resource.directional_power_w == -291
-    assert resource.charge_power_w == 291
+    assert resource.directional_power_w == -388
+    assert resource.charge_power_w == 388
     assert resource.discharge_power_w == 0
     assert resource.grid_input_power_w == 292
     assert BatteryReasonCode.POWER_SIGN_UNKNOWN not in resource.anomalies
 
 
 def test_bat_in_out_positive_value_is_discharge(hass) -> None:
-    _set_fresh_required_states(hass, "58")
+    """A signed SolarFlow discharge value is never filtered to zero."""
+    _set_fresh_required_states(hass, "388")
     hass.states.async_set("sensor.grid_input", "0", {ATTR_UNIT_OF_MEASUREMENT: "W"})
     adapter = _adapter(hass)
     _make_fresh(adapter)
@@ -83,9 +85,9 @@ def test_bat_in_out_positive_value_is_discharge(hass) -> None:
     resource = adapter.read_resource()
 
     assert resource.health is BatteryHealth.HEALTHY
-    assert resource.directional_power_w == 58
+    assert resource.directional_power_w == 388
     assert resource.charge_power_w == 0
-    assert resource.discharge_power_w == 58
+    assert resource.discharge_power_w == 388
     assert resource.grid_input_power_w == 0
 
 
@@ -276,6 +278,11 @@ def test_stale_directional_power_keeps_the_existing_safety_fallback(hass) -> Non
     resource = adapter.read_resource(now)
 
     assert resource.health is BatteryHealth.STALE
+    # Staleness is a safety qualification, never a conversion of a known
+    # signed directional measurement into an artificial 0 W value.
+    assert resource.directional_power_w == -291
+    assert resource.charge_power_w == 291
+    assert resource.discharge_power_w == 0
     assert resource.source_freshness["directional_power_w"] == "stale"
 
 
