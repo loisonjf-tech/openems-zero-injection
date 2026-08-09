@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 import json
 
 from custom_components.openems_zero_injection.trace import (
+    BatteryStrategyInputTrace,
     CommandOutcome,
     DataQuality,
     TraceRecorder,
@@ -264,13 +265,84 @@ def test_battery_priority_comparison_is_bounded_and_passive() -> None:
             reason_code="battery_priority_simulation",
             fallback_used=False,
             eligible_resource_ids=("battery-1",),
+            observed_discharge_power_w=0,
+            battery_inputs=(
+                BatteryStrategyInputTrace(
+                    resource_id="battery-1",
+                    source_entity_id="sensor.solarflow_800_plus_bat_in_out",
+                    raw_directional_power_value="-101",
+                    raw_directional_power_unit="W",
+                    directional_power_w=-101,
+                    charge_power_w=101,
+                    discharge_power_w=0,
+                    health="healthy",
+                    directional_freshness="fresh",
+                    directional_source_timestamp=datetime.now(UTC),
+                ),
+            ),
         )
 
     assert len(recorder.strategy_comparisons) == 2
     assert recorder.strategy_comparisons[0].input_snapshot_id == "snapshot-1"
     diagnostics = recorder.diagnostics()["battery_priority_comparisons"]
     assert diagnostics[-1]["candidate_expected_storage_gain_w"] == 25
+    battery_input = diagnostics[-1]["battery_inputs"][0]
+    assert battery_input["raw_directional_power_value"] == "-101"
+    assert battery_input["directional_power_w"] == -101
+    assert battery_input["charge_power_w"] == 101
+    assert battery_input["discharge_power_w"] == 0
+    assert battery_input["health"] == "healthy"
+    assert battery_input["directional_freshness"] == "fresh"
     assert not hasattr(recorder, "async_write_temporary_power_limit")
+
+
+def test_energy_strategy_timeline_keeps_tick_and_decision_timestamps_separate() -> None:
+    """A retained old decision remains explicitly identifiable on a new tick."""
+    recorder = TraceRecorder(max_traces=2)
+    battery_input = BatteryStrategyInputTrace(
+        resource_id="battery-1",
+        source_entity_id="sensor.solarflow_800_plus_bat_in_out",
+        raw_directional_power_value="-100",
+        raw_directional_power_unit="W",
+        directional_power_w=-100,
+        charge_power_w=100,
+        discharge_power_w=0,
+        health="healthy",
+        directional_freshness="fresh",
+        directional_source_timestamp=datetime(2026, 8, 9, 10, 0, tzinfo=UTC),
+    )
+    decision_time = datetime(2026, 8, 9, 10, 0, tzinfo=UTC)
+    later_tick = datetime(2026, 8, 9, 10, 0, 3, tzinfo=UTC)
+
+    recorder.record_energy_strategy_tick(
+        input_snapshot_id="snapshot-charge",
+        controller_mode="Production",
+        decision_evaluated=True,
+        decision_timestamp=decision_time,
+        decision_input_snapshot_id="snapshot-charge",
+        reason_code="battery_capacity_release_active",
+        dtu_control_directive="release_dtu_to_maximum",
+        battery_inputs=(battery_input,),
+        tick_timestamp=decision_time,
+    )
+    recorder.record_energy_strategy_tick(
+        input_snapshot_id="snapshot-stable",
+        controller_mode="Production",
+        decision_evaluated=False,
+        decision_timestamp=decision_time,
+        decision_input_snapshot_id="snapshot-charge",
+        reason_code="battery_capacity_release_active",
+        dtu_control_directive="release_dtu_to_maximum",
+        battery_inputs=(battery_input,),
+        tick_timestamp=later_tick,
+    )
+
+    timeline = recorder.diagnostics()["energy_strategy_timeline"]
+    assert timeline[-1]["decision_evaluated"] is False
+    assert timeline[-1]["timestamp_utc"] == later_tick.isoformat()
+    assert timeline[-1]["decision_timestamp"] == decision_time.isoformat()
+    assert timeline[-1]["battery_inputs"][0]["directional_power_w"] == -100
+    assert timeline[-1]["battery_inputs"][0]["discharge_power_w"] == 0
 
 
 def test_session_aggregates_are_not_truncated_by_detailed_trace_buffer() -> None:
@@ -323,7 +395,7 @@ def test_timeline_is_serializable_and_keeps_explainability_inputs() -> None:
 
     assert trace is not None
     timeline = trace.as_dict()
-    assert timeline["schema_version"] == 3
+    assert timeline["schema_version"] == 4
     assert timeline["policy_id"] == "zero_injection"
     assert timeline["context_kind"] == "stable"
     assert timeline["pre_decision_inputs"]["grid_power_w"] == -500

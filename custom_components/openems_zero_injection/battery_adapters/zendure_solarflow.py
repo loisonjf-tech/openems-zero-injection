@@ -60,7 +60,13 @@ class ZendureSolarFlowAdapter:
         now = now or datetime.now(UTC)
         anomalies: list[BatteryReasonCode] = []
         soc, soc_time, soc_issue = self._read_soc()
-        power, power_time, power_issue = self._read_power()
+        (
+            power,
+            power_time,
+            power_issue,
+            power_raw_value,
+            power_raw_unit,
+        ) = self._read_power()
         charge_limit, charge_limit_time, charge_limit_issue = (
             self._read_charge_limit()
         )
@@ -186,6 +192,8 @@ class ZendureSolarFlowAdapter:
             soc_percent=soc,
             # Preserve the signed, normalized source value for diagnostics and
             # passive history. Control still uses charge/discharge values.
+            directional_power_raw_value=power_raw_value,
+            directional_power_raw_unit=power_raw_unit,
             directional_power_w=power,
             charge_power_w=charge_power,
             discharge_power_w=discharge_power,
@@ -245,15 +253,35 @@ class ZendureSolarFlowAdapter:
             return None, timestamp, BatteryReasonCode.SOC_OUT_OF_RANGE
         return value, timestamp, None
 
-    def _read_power(self) -> tuple[float | None, datetime | None, BatteryReasonCode | None]:
+    def _read_power(
+        self,
+    ) -> tuple[
+        float | None,
+        datetime | None,
+        BatteryReasonCode | None,
+        str | None,
+        str | None,
+    ]:
+        """Read the signed source plus raw Home Assistant evidence."""
         state = self._hass.states.get(self._power_entity_id)
+        raw_value = state.state if state is not None else None
+        raw_unit = (
+            state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+            if state is not None
+            else None
+        )
         value, timestamp, issue = _numeric_state(
             state, expected_units={"W", "kW"}
         )
         if issue is not None or value is None:
-            return value, timestamp, issue
-        unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT) if state else None
-        return (value * 1000 if unit == "kW" else value), timestamp, None
+            return value, timestamp, issue, raw_value, raw_unit
+        return (
+            value * 1000 if raw_unit == "kW" else value,
+            timestamp,
+            None,
+            raw_value,
+            raw_unit,
+        )
 
     def _read_grid_input_power(
         self,

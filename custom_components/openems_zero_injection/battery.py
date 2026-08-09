@@ -86,6 +86,10 @@ class BatteryResource:
     source_ages_seconds: dict[str, float | None] = field(default_factory=dict)
     source_max_age_seconds: dict[str, int] = field(default_factory=dict)
     source_freshness: dict[str, str] = field(default_factory=dict)
+    # Raw Home Assistant source evidence is retained only for observability.
+    # Control always uses ``directional_power_w`` after explicit normalization.
+    directional_power_raw_value: str | None = None
+    directional_power_raw_unit: str | None = None
     directional_power_w: float | None = None
 
 

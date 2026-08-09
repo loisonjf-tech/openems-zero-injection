@@ -16,6 +16,12 @@ from custom_components.openems_zero_injection.battery_adapters.zendure_solarflow
     ZendureSolarFlowAdapter,
 )
 from custom_components.openems_zero_injection.energy_manager import EnergyManager
+from custom_components.openems_zero_injection.energy_strategy import (
+    BatteryPriorityContext,
+    BatteryPriorityReasonCode,
+    DtuControlDirective,
+    EnergyStrategyEngine,
+)
 
 
 def _adapter(hass, **changes):
@@ -68,6 +74,8 @@ def test_bat_in_out_negative_value_is_charge_without_unknown_sign(hass) -> None:
     resource = adapter.read_resource()
 
     assert resource.health is BatteryHealth.HEALTHY
+    assert resource.directional_power_raw_value == "-388"
+    assert resource.directional_power_raw_unit == "W"
     assert resource.directional_power_w == -388
     assert resource.charge_power_w == 388
     assert resource.discharge_power_w == 0
@@ -85,6 +93,8 @@ def test_bat_in_out_positive_value_is_discharge(hass) -> None:
     resource = adapter.read_resource()
 
     assert resource.health is BatteryHealth.HEALTHY
+    assert resource.directional_power_raw_value == "388"
+    assert resource.directional_power_raw_unit == "W"
     assert resource.directional_power_w == 388
     assert resource.charge_power_w == 0
     assert resource.discharge_power_w == 388
@@ -102,6 +112,72 @@ def test_bat_in_out_zero_is_inactive(hass) -> None:
     assert resource.directional_power_w == 0
     assert resource.charge_power_w == 0
     assert resource.discharge_power_w == 0
+
+
+def test_fresh_charge_transition_never_becomes_a_discharging_capacity_release(
+    hass,
+) -> None:
+    """One normalized snapshot cannot label a negative source as discharge."""
+    stale = BatteryResource(
+        resource_id="solarflow-1",
+        name="SolarFlow",
+        adapter_id="zendure_solarflow",
+        adapter_version="test",
+        available=True,
+        health=BatteryHealth.STALE,
+        last_updated=datetime.now(UTC),
+        data_age_seconds=31,
+        soc_percent=49,
+        charge_power_w=0,
+        discharge_power_w=0,
+        max_charge_power_w=1000,
+        remaining_charge_power_w=1000,
+        source_freshness={
+            "soc_percent": "fresh",
+            "directional_power_w": "stale",
+            "max_charge_power_w": "cached",
+        },
+    )
+    context = [BatteryPriorityContext((stale,), None, "none")]
+    engine = EnergyStrategyEngine(battery_context_provider=lambda: context[0])
+    engine.configure_battery_priority(
+        mode="capacity_release",
+        margin_w=25,
+        charge_threshold_w=50,
+        confirmation_samples=3,
+    )
+
+    before = engine.decide(-40, activate_battery_priority=True)
+    assert before.comparison is not None
+    assert (
+        before.comparison.reason_code
+        is BatteryPriorityReasonCode.BATTERY_DATA_STALE
+    )
+
+    _set_fresh_required_states(hass, "-101")
+    hass.states.async_set("sensor.limit", "1000", {ATTR_UNIT_OF_MEASUREMENT: "W"})
+    adapter = _adapter(hass, charge_limit_verified=True)
+    _make_fresh(adapter)
+    fresh = adapter.read_resource()
+
+    assert fresh.health is BatteryHealth.HEALTHY
+    assert fresh.directional_power_w == -101
+    assert fresh.charge_power_w == 101
+    assert fresh.discharge_power_w == 0
+
+    context[0] = BatteryPriorityContext((fresh,), None, "none")
+    after = engine.decide(-40, activate_battery_priority=True)
+
+    assert after.dtu_control_directive is DtuControlDirective.RELEASE_DTU_TO_MAXIMUM
+    assert after.comparison is not None
+    assert (
+        after.comparison.reason_code
+        is BatteryPriorityReasonCode.CAPACITY_RELEASE_ACTIVE
+    )
+    assert (
+        after.comparison.reason_code
+        is not BatteryPriorityReasonCode.CAPACITY_RELEASE_DISCHARGING
+    )
 
 
 def test_unknown_directional_power_is_unavailable(hass) -> None:

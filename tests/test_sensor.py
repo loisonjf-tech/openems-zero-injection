@@ -15,6 +15,9 @@ from custom_components.openems_zero_injection.const import (
 )
 from custom_components.openems_zero_injection.battery import BatteryHealth, BatteryResource
 from custom_components.openems_zero_injection.energy_strategy import (
+    BatteryPriorityComparison,
+    BatteryPriorityMode,
+    BatteryPriorityReasonCode,
     DtuControlDirective,
     EnergyStrategyDecision,
     EnergyStrategyReasonCode,
@@ -207,7 +210,9 @@ async def test_dashboard_entities_read_cached_state_without_control_io(hass) -> 
 
     assert state_for("energy_strategy_effective").state == "zero_injection"
     assert state_for("energy_strategy_directive").state == "normal_regulation"
-    assert state_for("energy_strategy_reason").state == "configured_zero_injection_target"
+    reason_state = state_for("energy_strategy_reason")
+    assert reason_state.state == "configured_zero_injection_target"
+    assert reason_state.attributes["input_snapshot_id"] == "test-snapshot"
     assert state_for("solarflow_soc_percent").state == "62"
     directional = state_for("solarflow_directional_power_w")
     assert directional.state == "-348"
@@ -216,6 +221,44 @@ async def test_dashboard_entities_read_cached_state_without_control_io(hass) -> 
     candidate = state_for("adaptive_candidate_limit")
     assert candidate.state == "unknown"
     assert candidate.attributes["applied"] is False
+
+    # The strategy sensor is a projection of the most recently evaluated
+    # decision, including its own snapshot identifier; it must not retain a
+    # prior reason after the controller publishes the next decision.
+    next_timestamp = datetime.now(UTC)
+    controller._last_energy_strategy_decision = EnergyStrategyDecision(
+        target_grid_power_w=-40,
+        policy_id="battery_capacity_release",
+        reason=BatteryPriorityReasonCode.CAPACITY_RELEASE_ACTIVE.value,
+        confidence=0.8,
+        fallback_used=False,
+        decision_timestamp=next_timestamp,
+        input_snapshot_id="fresh-charge-snapshot",
+        reason_code=EnergyStrategyReasonCode.CONFIGURED_ZERO_INJECTION_TARGET,
+        comparison=BatteryPriorityComparison(
+            effective_target_grid_power_w=-40,
+            candidate_target_grid_power_w=-40,
+            target_delta_w=0,
+            candidate_expected_storage_gain_w=899,
+            reason_code=BatteryPriorityReasonCode.CAPACITY_RELEASE_ACTIVE,
+            fallback_used=False,
+            eligible_resource_ids=("solarflow-1",),
+            mode=BatteryPriorityMode.CAPACITY_RELEASE,
+            observed_charge_power_w=101,
+            observed_discharge_power_w=0,
+            max_charge_power_w=1000,
+            remaining_charge_power_w=899,
+            dtu_control_directive=DtuControlDirective.RELEASE_DTU_TO_MAXIMUM,
+        ),
+        dtu_control_directive=DtuControlDirective.RELEASE_DTU_TO_MAXIMUM,
+        requested_dtu_limit_percent=100,
+    )
+    coordinator.async_update_listeners()
+    await hass.async_block_till_done()
+    reason_state = state_for("energy_strategy_reason")
+    assert reason_state.state == "battery_capacity_release_active"
+    assert reason_state.attributes["input_snapshot_id"] == "fresh-charge-snapshot"
+    assert reason_state.attributes["decision_timestamp"] == next_timestamp.isoformat()
 
     controller.energy_policy_engine.decide.assert_not_called()
     client.async_read_input_registers.assert_not_awaited()

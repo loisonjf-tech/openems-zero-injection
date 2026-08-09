@@ -508,6 +508,55 @@ def test_capacity_release_allows_a_discharging_battery_when_capacity_is_availabl
     )
 
 
+def test_capacity_release_reason_tracks_stale_discharge_then_charge_sequence() -> None:
+    """A discharge reason cannot survive the next signed charging snapshot."""
+    stale = _capacity_context(charge_w=0, second=0).resources[0]
+    stale = replace(
+        stale,
+        health=BatteryHealth.STALE,
+        directional_power_w=0,
+        source_freshness={
+            "soc_percent": "fresh",
+            "directional_power_w": "stale",
+            "max_charge_power_w": "cached",
+        },
+    )
+    contexts = [BatteryPriorityContext((stale,), None, "none")]
+    engine = _capacity_engine(contexts)
+
+    t0 = engine.decide(-40, activate_battery_priority=True)
+
+    discharging = replace(
+        _capacity_context(charge_w=0, discharge_w=300, second=1).resources[0],
+        directional_power_w=300,
+    )
+    contexts[0] = BatteryPriorityContext((discharging,), None, "none")
+    t1 = engine.decide(-40, activate_battery_priority=True)
+
+    charging = replace(
+        _capacity_context(charge_w=100, second=2).resources[0],
+        directional_power_w=-100,
+    )
+    contexts[0] = BatteryPriorityContext((charging,), None, "none")
+    t2 = engine.decide(-40, activate_battery_priority=True)
+    t3 = engine.decide(-40, activate_battery_priority=True)
+
+    assert t0.comparison is not None
+    assert t0.comparison.reason_code is BatteryPriorityReasonCode.BATTERY_DATA_STALE
+    assert t1.comparison is not None
+    assert (
+        t1.comparison.reason_code
+        is BatteryPriorityReasonCode.CAPACITY_RELEASE_DISCHARGING
+    )
+    for decision in (t2, t3):
+        assert decision.comparison is not None
+        assert (
+            decision.comparison.reason_code
+            is BatteryPriorityReasonCode.CAPACITY_RELEASE_ACTIVE
+        )
+        assert decision.dtu_control_directive is DtuControlDirective.RELEASE_DTU_TO_MAXIMUM
+
+
 def test_capacity_release_does_not_prioritize_discharge_at_or_below_five_w() -> None:
     """The 5 W boundary filters noise; it is not a special release priority."""
     contexts = [_capacity_context(charge_w=950, discharge_w=5, soc_percent=60)]

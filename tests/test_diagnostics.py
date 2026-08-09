@@ -76,7 +76,7 @@ async def test_diagnostics_include_connection_state(hass) -> None:
     assert energy_manager["batteries"] == []
     assert diagnostics["trace_recorder"]["mode"] == "normal"
     assert diagnostics["trace_recorder"]["session_active"] is False
-    assert diagnostics["trace_recorder"]["schema_version"] == 3
+    assert diagnostics["trace_recorder"]["schema_version"] == 4
     assert diagnostics["trace_recorder"]["detailed_trace_capacity"] == 100
     assert diagnostics["controller"]["dtu_limit_power_observation"] is None
     adaptive = diagnostics["controller"]["predictive"]["adaptive_limit_model"]

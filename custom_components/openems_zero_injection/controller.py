@@ -50,7 +50,7 @@ from .energy_strategy import DtuControlDirective, EnergyStrategyDecision
 from .history import DecisionHistory, DecisionRecord
 from .learning import LearningSample, PassiveLearningEngine
 from .scheduler import SafetyScheduler
-from .trace import TraceRecorder
+from .trace import BatteryStrategyInputTrace, TraceRecorder
 from .persistent_history import HistoryEventType, PersistentHistoryRecorder
 
 if TYPE_CHECKING:
@@ -728,6 +728,9 @@ class ZeroInjectionController:
             self._observe_adaptive_limit_model(snapshot, current_limit)
             self._record_periodic_history(snapshot, current_limit)
             if not self._requires_new_decision(snapshot):
+                self._record_energy_strategy_tick(
+                    snapshot, decision_evaluated=False
+                )
                 if (
                     self._mode is ControllerMode.PRODUCTION
                     and self.scheduler_display_state == "Monitoring"
@@ -746,6 +749,7 @@ class ZeroInjectionController:
                 activate_battery_priority=self._mode is ControllerMode.PRODUCTION,
             )
             self._last_energy_strategy_decision = policy
+            self._record_energy_strategy_tick(snapshot, decision_evaluated=True)
             if policy.comparison is not None:
                 comparison = policy.comparison
                 self._trace_recorder.record_strategy_comparison(
@@ -767,7 +771,10 @@ class ZeroInjectionController:
                     dtu_control_directive=comparison.dtu_control_directive.value,
                     max_charge_power_w=comparison.max_charge_power_w,
                     observed_charge_power_w=comparison.observed_charge_power_w,
+                    observed_discharge_power_w=comparison.observed_discharge_power_w,
                     remaining_charge_power_w=comparison.remaining_charge_power_w,
+                    battery_inputs=self._battery_strategy_trace_inputs(),
+                    decision_timestamp=policy.decision_timestamp,
                 )
             context = self._context_analyzer.classify()
             decision = self._calculate_decision(
@@ -1682,6 +1689,12 @@ class ZeroInjectionController:
                 "resource_id": battery.resource_id if battery else None,
                 "health": battery.health.value if battery else None,
                 "soc_percent": battery.soc_percent if battery else None,
+                "directional_power_raw_value": (
+                    battery.directional_power_raw_value if battery else None
+                ),
+                "directional_power_raw_unit": (
+                    battery.directional_power_raw_unit if battery else None
+                ),
                 "directional_power_w": battery.directional_power_w if battery else None,
                 "charge_power_w": battery.charge_power_w if battery else None,
                 "discharge_power_w": battery.discharge_power_w if battery else None,
@@ -1699,6 +1712,59 @@ class ZeroInjectionController:
             "total_remaining_charge_power_w": energy.total_remaining_charge_power_w,
             "battery_aggregate_coverage": energy.remaining_charge_coverage.status,
         }
+
+    def _battery_strategy_trace_inputs(self) -> tuple[BatteryStrategyInputTrace, ...]:
+        """Capture cached battery evidence used at one strategy boundary.
+
+        This has no I/O: the coordinator acquired these values before the
+        Controller tick.  Retaining the source and its timestamp makes a
+        later dashboard comparison unambiguous.
+        """
+        return tuple(
+            BatteryStrategyInputTrace(
+                resource_id=battery.resource_id,
+                source_entity_id=battery.source_entities.get(
+                    "directional_power_w"
+                ),
+                raw_directional_power_value=battery.directional_power_raw_value,
+                raw_directional_power_unit=battery.directional_power_raw_unit,
+                directional_power_w=battery.directional_power_w,
+                charge_power_w=battery.charge_power_w,
+                discharge_power_w=battery.discharge_power_w,
+                health=battery.health.value,
+                directional_freshness=battery.source_freshness.get(
+                    "directional_power_w"
+                ),
+                directional_source_timestamp=battery.source_timestamps.get(
+                    "directional_power_w"
+                ),
+            )
+            for battery in self._coordinator.energy_manager.snapshot().resources
+        )
+
+    def _record_energy_strategy_tick(
+        self, snapshot: DecisionSnapshot, *, decision_evaluated: bool
+    ) -> None:
+        """Record one cached strategy timeline row without changing control."""
+        decision = self._last_energy_strategy_decision
+        comparison = decision.comparison if decision else None
+        self._trace_recorder.record_energy_strategy_tick(
+            input_snapshot_id=snapshot.created_at.isoformat(),
+            controller_mode=self._mode.value,
+            decision_evaluated=decision_evaluated,
+            decision_timestamp=decision.decision_timestamp if decision else None,
+            decision_input_snapshot_id=decision.input_snapshot_id if decision else None,
+            reason_code=(
+                comparison.reason_code.value
+                if comparison is not None
+                else (decision.reason_code.value if decision else None)
+            ),
+            dtu_control_directive=(
+                decision.dtu_control_directive.value if decision else None
+            ),
+            battery_inputs=self._battery_strategy_trace_inputs(),
+            tick_timestamp=snapshot.created_at,
+        )
 
     def _set_status(self, **changes: object) -> None:
         updated = replace(self._status, **{**changes, "mode": self._mode})

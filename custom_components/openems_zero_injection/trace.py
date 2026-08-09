@@ -20,9 +20,9 @@ from typing import Any
 from uuid import uuid4
 
 
-# Version 3 adds the correlated DTU-limit/power evidence to traces.  It is
-# additive, primitive-only and therefore remains safe for a future exporter.
-TRACE_SCHEMA_VERSION = 3
+# Version 4 adds the exact cached SolarFlow inputs consumed by each energy
+# strategy evaluation. It is additive, primitive-only and replay-safe.
+TRACE_SCHEMA_VERSION = 4
 TRACE_BUFFER_SIZE = 100
 TRACE_MAX_EVENTS_PER_COMMAND = 64
 TRACE_OBSERVATION_WINDOW_SECONDS = 60.0
@@ -58,6 +58,22 @@ class DataQuality(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class BatteryStrategyInputTrace:
+    """Battery facts consumed by one already-evaluated policy decision."""
+
+    resource_id: str
+    source_entity_id: str | None
+    raw_directional_power_value: str | None
+    raw_directional_power_unit: str | None
+    directional_power_w: float | None
+    charge_power_w: float | None
+    discharge_power_w: float | None
+    health: str
+    directional_freshness: str | None
+    directional_source_timestamp: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
 class StrategyComparisonTrace:
     """One passive Battery Priority comparison from an existing snapshot."""
 
@@ -75,7 +91,25 @@ class StrategyComparisonTrace:
     dtu_control_directive: str = "normal_regulation"
     max_charge_power_w: float | None = None
     observed_charge_power_w: float | None = None
+    observed_discharge_power_w: float | None = None
     remaining_charge_power_w: float | None = None
+    battery_inputs: tuple[BatteryStrategyInputTrace, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class EnergyStrategyTickTrace:
+    """One valid Controller tick, whether or not it required a decision."""
+
+    timestamp_utc: datetime
+    monotonic_ms: float
+    input_snapshot_id: str
+    controller_mode: str
+    decision_evaluated: bool
+    decision_timestamp: datetime | None
+    decision_input_snapshot_id: str | None
+    reason_code: str | None
+    dtu_control_directive: str | None
+    battery_inputs: tuple[BatteryStrategyInputTrace, ...] = ()
 
 
 @dataclass(slots=True)
@@ -365,6 +399,9 @@ class TraceRecorder:
         self._strategy_comparisons: deque[StrategyComparisonTrace] = deque(
             maxlen=max_traces
         )
+        self._energy_strategy_ticks: deque[EnergyStrategyTickTrace] = deque(
+            maxlen=max_traces
+        )
         self._active: _ActiveSession | None = None
         self._last_report: SessionReport | None = None
 
@@ -393,6 +430,40 @@ class TraceRecorder:
         """Return the bounded comparison history without creating I/O."""
         return tuple(self._strategy_comparisons)
 
+    @property
+    def energy_strategy_ticks(self) -> tuple[EnergyStrategyTickTrace, ...]:
+        """Return a bounded chronology of existing Controller tick facts."""
+        return tuple(self._energy_strategy_ticks)
+
+    def record_energy_strategy_tick(
+        self,
+        *,
+        input_snapshot_id: str,
+        controller_mode: str,
+        decision_evaluated: bool,
+        decision_timestamp: datetime | None,
+        decision_input_snapshot_id: str | None,
+        reason_code: str | None,
+        dtu_control_directive: str | None,
+        battery_inputs: tuple[BatteryStrategyInputTrace, ...] = (),
+        tick_timestamp: datetime | None = None,
+    ) -> None:
+        """Append cached decision evidence without reading any source."""
+        self._energy_strategy_ticks.append(
+            EnergyStrategyTickTrace(
+                timestamp_utc=tick_timestamp or _utc_now(),
+                monotonic_ms=_monotonic_ms(),
+                input_snapshot_id=input_snapshot_id,
+                controller_mode=controller_mode,
+                decision_evaluated=decision_evaluated,
+                decision_timestamp=decision_timestamp,
+                decision_input_snapshot_id=decision_input_snapshot_id,
+                reason_code=reason_code,
+                dtu_control_directive=dtu_control_directive,
+                battery_inputs=battery_inputs,
+            )
+        )
+
     def record_strategy_comparison(
         self,
         *,
@@ -408,12 +479,15 @@ class TraceRecorder:
         dtu_control_directive: str = "normal_regulation",
         max_charge_power_w: float | None = None,
         observed_charge_power_w: float | None = None,
+        observed_discharge_power_w: float | None = None,
         remaining_charge_power_w: float | None = None,
+        battery_inputs: tuple[BatteryStrategyInputTrace, ...] = (),
+        decision_timestamp: datetime | None = None,
     ) -> None:
         """Record a Simulation-only policy comparison from existing data."""
         self._strategy_comparisons.append(
             StrategyComparisonTrace(
-                timestamp_utc=_utc_now(),
+                timestamp_utc=decision_timestamp or _utc_now(),
                 monotonic_ms=_monotonic_ms(),
                 input_snapshot_id=input_snapshot_id,
                 controller_mode=controller_mode,
@@ -427,7 +501,9 @@ class TraceRecorder:
                 dtu_control_directive=dtu_control_directive,
                 max_charge_power_w=max_charge_power_w,
                 observed_charge_power_w=observed_charge_power_w,
+                observed_discharge_power_w=observed_discharge_power_w,
                 remaining_charge_power_w=remaining_charge_power_w,
+                battery_inputs=battery_inputs,
             )
         )
 
@@ -734,6 +810,10 @@ class TraceRecorder:
                 "battery_priority_comparisons": [
                     asdict(comparison)
                     for comparison in list(self._strategy_comparisons)[-10:]
+                ],
+                "energy_strategy_timeline": [
+                    asdict(tick)
+                    for tick in list(self._energy_strategy_ticks)[-20:]
                 ],
             }
         )

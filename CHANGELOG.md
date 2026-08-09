@@ -27,6 +27,15 @@ Toutes les évolutions notables sont documentées dans ce fichier.
   SolarFlow signée, `gridInputPower` et les métadonnées de chaque source
   batterie (entité, horodatage, âge et fraîcheur), sans modifier la stratégie
   énergétique.
+- Les comparaisons Battery Priority du Trace Recorder conservent maintenant
+  l’instantané exact ayant servi à chaque décision : valeur brute et unité de
+  `bat_in_out`, puissance directionnelle normalisée, charge, décharge, santé,
+  fraîcheur, source et horodatage. Cela permet de reconstituer une transition
+  repos → décharge → charge sans mélanger plusieurs cycles.
+- La timeline énergétique bornée distingue chaque tick valide d’une décision
+  réellement recalculée et conserve l’horodatage de la dernière décision. Elle
+  rend explicite tout décalage entre une mesure batterie récente et un motif
+  de décision plus ancien.
 - Modèle adaptatif passif des limites DTU : gains locaux `W/%` par plages
   `2–10`, `11–25`, `26–50`, `51–75` et `76–100 %`, médiane robuste,
   dispersion, âge et confiance. Il observe uniquement les commandes
