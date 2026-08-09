@@ -10,6 +10,7 @@ from custom_components.openems_zero_injection.battery import (
     BatteryHealth,
     BatteryPowerSign,
     BatteryReasonCode,
+    BatteryResource,
 )
 from custom_components.openems_zero_injection.battery_adapters.zendure_solarflow import (
     BAT_IN_OUT_ENTITY_ID,
