@@ -24,6 +24,7 @@ from custom_components.openems_zero_injection.controller import (
 )
 from custom_components.openems_zero_injection.energy_strategy import (
     BatteryPriorityContext,
+    BatteryPriorityReasonCode,
 )
 
 
@@ -337,6 +338,81 @@ async def test_capacity_release_requests_verified_dtu_maximum_through_scheduler(
 
     coordinator.async_set_all_temporary_power_limits.assert_awaited_once_with(100)
     assert controller.status.predictive_strategy == "battery_capacity_release"
+
+
+async def test_capacity_release_yields_to_zero_injection_after_confirmed_saturation(
+    hass,
+) -> None:
+    """The Scheduler receives 100% for capacity, then a normal correction."""
+    hass.states.async_set("sensor.grid", "-500")
+    coordinator = fake_coordinator(temporary_limit_percent=20)
+    controller = ZeroInjectionController(
+        hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
+    )
+    timestamp = datetime.now(UTC)
+    battery = [
+        BatteryResource(
+            resource_id="battery-1",
+            name="Test battery",
+            adapter_id="test",
+            adapter_version="test",
+            available=True,
+            health=BatteryHealth.HEALTHY,
+            last_updated=timestamp,
+            data_age_seconds=1,
+            soc_percent=50,
+            charge_power_w=400,
+            discharge_power_w=0,
+            max_charge_power_w=1000,
+            remaining_charge_power_w=600,
+            source_freshness={
+                "soc_percent": "fresh",
+                "max_charge_power_w": "fresh",
+            },
+        )
+    ]
+    controller.energy_policy_engine.set_battery_context_provider(
+        lambda: BatteryPriorityContext((battery[0],), None, "none")
+    )
+    controller.energy_policy_engine.configure_battery_priority(
+        mode="capacity_release",
+        margin_w=25,
+        charge_threshold_w=50,
+        confirmation_samples=3,
+    )
+    await controller.async_set_mode(ControllerMode.PRODUCTION.value)
+
+    for _ in range(3):
+        await controller.async_tick()
+
+    coordinator.async_set_all_temporary_power_limits.assert_awaited_once_with(100)
+
+    # Model the confirmed DTU readback that a real coordinator publishes after
+    # the all-port 100% command. The following saturation samples must not
+    # request another release command.
+    coordinator.data.port_1_temporary_power_limit_percent = 100
+    coordinator.data.port_2_temporary_power_limit_percent = 100
+    coordinator.data.port_3_temporary_power_limit_percent = 100
+    controller.scheduler._next_allowed_at = datetime.now(UTC) - timedelta(seconds=1)
+
+    for second in range(1, 4):
+        battery[0] = replace(
+            battery[0],
+            last_updated=timestamp + timedelta(seconds=second),
+            charge_power_w=980,
+            remaining_charge_power_w=20,
+        )
+        await controller.async_tick()
+
+    comparison = controller.energy_policy_engine.last_comparison
+    assert comparison is not None
+    assert (
+        comparison.reason_code
+        is BatteryPriorityReasonCode.CAPACITY_RELEASE_SATURATED
+    )
+    assert comparison.dtu_control_directive.value == "normal_regulation"
+    assert coordinator.async_set_all_temporary_power_limits.await_args_list[0].args == (100,)
+    assert coordinator.async_set_all_temporary_power_limits.await_args_list[-1].args[0] < 100
 
 
 async def test_capacity_release_immediately_releases_a_discharging_battery(hass) -> None:

@@ -54,6 +54,12 @@ Toutes les évolutions notables sont documentées dans ce fichier.
 
 ### Changed
 
+- Capacity Release applique désormais une hiérarchie explicite : batterie non
+  pleine et sous la zone de saturation = DTU libéré à `100 %` ; batterie pleine
+  ou saturation confirmée = reprise de Zero Injection. Une ancienne observation
+  de décharge ne peut plus contourner ces deux conditions.
+- Les sources directionnelles SolarFlow personnalisées appliquent strictement
+  leur convention de signe configurée avant la normalisation charge/décharge.
 - Les entités de tableau de bord possèdent désormais un nom traduit propre et
   un identifiant lisible `sensor.openems_*`. Une migration ciblée renomme
   uniquement les identifiants génériques générés par Home Assistant, tout en

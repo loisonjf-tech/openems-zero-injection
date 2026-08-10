@@ -102,6 +102,39 @@ def test_bat_in_out_positive_value_is_discharge(hass) -> None:
     assert resource.grid_input_power_w == 0
 
 
+def test_custom_positive_charging_source_applies_its_configured_sign(hass) -> None:
+    """A non-Zendure-derived source follows its explicit user configuration."""
+    hass.states.async_set("sensor.soc", "50", {ATTR_UNIT_OF_MEASUREMENT: "%"})
+    hass.states.async_set(
+        "sensor.puissance_batterie_fiable_2",
+        "101",
+        {ATTR_UNIT_OF_MEASUREMENT: "W"},
+    )
+    adapter = _adapter(
+        hass,
+        power_entity_id="sensor.puissance_batterie_fiable_2",
+        power_sign=BatteryPowerSign.POSITIVE_CHARGING,
+    )
+    _make_fresh(adapter)
+
+    resource = adapter.read_resource()
+
+    assert resource.directional_power_w == 101
+    assert resource.charge_power_w == 101
+    assert resource.discharge_power_w == 0
+
+    hass.states.async_set(
+        "sensor.puissance_batterie_fiable_2",
+        "-101",
+        {ATTR_UNIT_OF_MEASUREMENT: "W"},
+    )
+    resource = adapter.read_resource()
+
+    assert resource.directional_power_w == -101
+    assert resource.charge_power_w == 0
+    assert resource.discharge_power_w == 101
+
+
 def test_bat_in_out_zero_is_inactive(hass) -> None:
     _set_fresh_required_states(hass, "0")
     adapter = _adapter(hass)

@@ -356,10 +356,22 @@ class BatteryPriorityStrategy:
             or (resource.soc_percent is not None and resource.soc_percent >= 100)
             for resource in context.resources
         )
-        # A confirmed discharge means PV production is insufficient for the
-        # site at that moment.  It takes precedence over full/saturation
-        # checks and immediately releases the DTU, after all data-safety
-        # conditions above have been satisfied.
+        # A full or confirmed-saturated battery has no usable headroom. Those
+        # two safety facts are absolute: an old discharge observation must not
+        # leave the DTU released while excess PV is injected to the grid.
+        if full:
+            return self._capacity_fallback(
+                target, BatteryPriorityReasonCode.CAPACITY_RELEASE_FULL, mode, charge,
+                discharge, max_charge, remaining,
+            )
+        if release_active and consecutive_saturation_samples >= confirmation_samples:
+            return self._capacity_fallback(
+                target, BatteryPriorityReasonCode.CAPACITY_RELEASE_SATURATED, mode,
+                charge, discharge, max_charge, remaining,
+            )
+        # Below the saturation boundary, a confirmed discharge is evidence
+        # that the site needs available PV. It immediately releases the DTU,
+        # but can never override the two conditions above.
         if discharge > self._CAPACITY_RELEASE_DISCHARGE_THRESHOLD_W:
             return BatteryPriorityComparison(
                 effective_target_grid_power_w=target,
@@ -377,16 +389,6 @@ class BatteryPriorityStrategy:
                 max_charge_power_w=max_charge,
                 remaining_charge_power_w=remaining,
                 dtu_control_directive=DtuControlDirective.RELEASE_DTU_TO_MAXIMUM,
-            )
-        if full:
-            return self._capacity_fallback(
-                target, BatteryPriorityReasonCode.CAPACITY_RELEASE_FULL, mode, charge,
-                discharge, max_charge, remaining,
-            )
-        if release_active and consecutive_saturation_samples >= confirmation_samples:
-            return self._capacity_fallback(
-                target, BatteryPriorityReasonCode.CAPACITY_RELEASE_SATURATED, mode,
-                charge, discharge, max_charge, remaining,
             )
         # Releasing an under-used battery capacity must not depend on the
         # SolarFlow publishing a changing zero-W state.  The lower hysteresis
