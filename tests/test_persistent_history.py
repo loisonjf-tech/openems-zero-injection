@@ -29,24 +29,54 @@ class _Hass:
 
     def __init__(self, root: Path) -> None:
         self.config = _Config(root)
+        self.bootstrap_task_names: list[str] = []
+        self.background_task_names: list[str] = []
 
     async def async_add_executor_job(self, target, *args):
         return target(*args)
 
-    def async_create_task(self, coroutine):
+    def async_create_task(self, coroutine, name: str | None = None, eager_start: bool = True):
+        """Model Home Assistant's startup-tracked task bucket."""
+        assert eager_start is True
+        self.bootstrap_task_names.append(name or "unnamed")
+        return asyncio.create_task(coroutine)
+
+    def async_create_background_task(self, coroutine, name: str, eager_start: bool = True):
+        assert eager_start is True
+        self.background_task_names.append(name)
         return asyncio.create_task(coroutine)
 
 
 @pytest.mark.asyncio
 async def test_disabled_history_never_creates_storage(tmp_path: Path) -> None:
+    hass = _Hass(tmp_path)
     recorder = PersistentHistoryRecorder(
-        _Hass(tmp_path), enabled=False, retention_days=30,
+        hass, enabled=False, retention_days=30,
         integration_version="test", algorithm_version="algorithm",
     )
     await recorder.async_start()
     recorder.record(HistoryEventType.DECISION, {"grid_power_w": -40})
     await recorder.async_stop()
     assert not (tmp_path / "openems_zero_injection").exists()
+    assert hass.background_task_names == []
+
+
+@pytest.mark.asyncio
+async def test_enabled_history_uses_a_non_blocking_background_worker(tmp_path: Path) -> None:
+    """The long-lived writer must not be tracked as a bootstrap task."""
+    hass = _Hass(tmp_path)
+    recorder = PersistentHistoryRecorder(
+        hass, enabled=True, retention_days=30,
+        integration_version="test", algorithm_version="algorithm",
+    )
+
+    await recorder.async_start()
+
+    assert recorder.is_running
+    assert hass.bootstrap_task_names == []
+    assert hass.background_task_names == ["openems_zero_injection_persistent_history"]
+    await recorder.async_stop()
+    assert not recorder.is_running
 
 
 @pytest.mark.asyncio

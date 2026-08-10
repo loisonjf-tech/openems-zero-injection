@@ -111,7 +111,13 @@ class PersistentHistoryRecorder:
             self._record_write_error(err)
             return
         self._stopping = False
-        self._worker = self._hass.async_create_task(self._async_worker())
+        # The recorder is an optional, integration-lifetime observer.  It must
+        # not become a bootstrap task merely because it remains idle waiting
+        # for the next history event.
+        self._worker = self._hass.async_create_background_task(
+            self._async_worker(),
+            "openems_zero_injection_persistent_history",
+        )
         _LOGGER.debug(
             "Persistent history startup: directory_create_ms=%.1f retention_scan_purge_ms=%.1f "
             "files_scanned=%s files_deleted=%s worker_started=true total_ms=%.1f",

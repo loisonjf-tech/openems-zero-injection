@@ -54,6 +54,9 @@ Toutes les évolutions notables sont documentées dans ce fichier.
 
 ### Changed
 
+- Le worker de l’historique persistant est désormais une tâche de fond Home
+  Assistant. Il n’est plus attendu durant le bootstrap et ne peut donc plus
+  retarder l’initialisation de Home Assistant.
 - Capacity Release applique désormais une hiérarchie explicite : batterie non
   pleine et sous la zone de saturation = DTU libéré à `100 %` ; batterie pleine
   ou saturation confirmée = reprise de Zero Injection. Une ancienne observation
