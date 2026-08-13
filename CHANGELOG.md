@@ -54,6 +54,11 @@ Toutes les évolutions notables sont documentées dans ce fichier.
 
 ### Changed
 
+- Capacity Release dispose désormais de trois états explicites : libération du
+  DTU à `100 %` lorsque la batterie peut charger, surveillance à cible réseau
+  `-100 W` après trois exports persistants sans charge, puis zéro injection à
+  `-40 W` lorsque la batterie est pleine ou sa charge est confirmée saturée.
+  Scheduler, confirmations d’écriture et Modbus restent inchangés.
 - Le worker de l’historique persistant est désormais une tâche de fond Home
   Assistant. Il n’est plus attendu durant le bootstrap et ne peut donc plus
   retarder l’initialisation de Home Assistant.

@@ -747,6 +747,8 @@ class ZeroInjectionController:
                 decision_timestamp=snapshot.created_at,
                 compare_battery_priority=self._mode is ControllerMode.SIMULATION,
                 activate_battery_priority=self._mode is ControllerMode.PRODUCTION,
+                grid_power_w=snapshot.grid_power_w,
+                grid_source_timestamp=snapshot.grid_power_timestamp,
             )
             self._last_energy_strategy_decision = policy
             self._record_energy_strategy_tick(snapshot, decision_evaluated=True)
@@ -1322,7 +1324,10 @@ class ZeroInjectionController:
         """
         if (
             self._mode is ControllerMode.PRODUCTION
-            and self._energy_policy_engine.battery_priority_input_changed()
+            and self._energy_policy_engine.battery_priority_input_changed(
+                grid_power_w=snapshot.grid_power_w,
+                grid_source_timestamp=snapshot.grid_power_timestamp,
+            )
         ):
             return True
         previous = self._last_evaluated_snapshot

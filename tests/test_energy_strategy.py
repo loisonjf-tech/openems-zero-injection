@@ -12,6 +12,7 @@ from custom_components.openems_zero_injection.energy_strategy import (
     BatteryPriorityContext,
     BatteryPriorityReasonCode,
     BatteryPriorityStrategy,
+    CapacityReleaseState,
     DtuControlDirective,
     EnergyStrategyEngine,
     EnergyStrategyInput,
@@ -237,6 +238,7 @@ def _capacity_context(
         ),
         last_updated=datetime(2026, 7, 25, 0, 0, second, tzinfo=UTC),
         source_freshness={
+            "directional_power_w": freshness,
             "soc_percent": freshness,
             "max_charge_power_w": freshness,
         },
@@ -487,6 +489,141 @@ def test_capacity_release_changes_to_normal_only_after_three_saturated_samples()
     ]
     assert outcomes[-1].comparison is not None
     assert outcomes[-1].comparison.reason_code is BatteryPriorityReasonCode.CAPACITY_RELEASE_SATURATED
+    assert outcomes[-1].target_grid_power_w == -40
+
+
+def test_capacity_release_enters_probe_after_persistent_export_without_charge() -> None:
+    """Three distinct coherent exports turn an idle released battery into a probe."""
+    contexts = [_capacity_context(charge_w=0, soc_percent=50, second=0)]
+    engine = _capacity_engine(contexts)
+
+    decisions = [
+        engine.decide(
+            -40,
+            input_snapshot_id=f"grid-{sample}",
+            decision_timestamp=datetime(2026, 7, 25, 0, 0, sample, tzinfo=UTC),
+            grid_power_w=-500,
+            activate_battery_priority=True,
+        )
+        for sample in range(3)
+    ]
+
+    assert (
+        decisions[0].dtu_control_directive
+        is DtuControlDirective.RELEASE_DTU_TO_MAXIMUM
+    )
+    assert (
+        decisions[1].dtu_control_directive
+        is DtuControlDirective.RELEASE_DTU_TO_MAXIMUM
+    )
+    probe = decisions[2]
+    assert probe.dtu_control_directive is DtuControlDirective.NORMAL_REGULATION
+    assert probe.target_grid_power_w == -100
+    assert probe.comparison is not None
+    assert (
+        probe.comparison.reason_code
+        is BatteryPriorityReasonCode.CAPACITY_PROBE_ACTIVE
+    )
+    assert probe.comparison.capacity_release_state is CapacityReleaseState.PROBE
+    assert (
+        engine.battery_priority_diagnostics["capacity_release_state"]
+        == "capacity_probe"
+    )
+
+
+def test_capacity_release_rechecks_each_fresh_persistent_export_sample() -> None:
+    """A stable export publication can advance Probe without crossing 30 W."""
+    contexts = [_capacity_context(charge_w=0, soc_percent=50, second=0)]
+    engine = _capacity_engine(contexts)
+    first_timestamp = datetime(2026, 7, 25, 0, 0, tzinfo=UTC)
+    engine.decide(
+        -40,
+        input_snapshot_id="grid-0",
+        grid_power_w=-500,
+        grid_source_timestamp=first_timestamp,
+        activate_battery_priority=True,
+    )
+
+    assert engine.battery_priority_input_changed(
+        grid_power_w=-500,
+        grid_source_timestamp=first_timestamp.replace(second=1),
+    )
+
+
+def test_capacity_probe_returns_to_release_after_three_fresh_charge_samples() -> None:
+    """A genuine charge recovery restores the 100% DTU directive immediately."""
+    sample = [0]
+    contexts = [_capacity_context(charge_w=0, soc_percent=50, second=sample[0])]
+    engine = _capacity_engine(contexts)
+    for _ in range(3):
+        engine.decide(
+            -40,
+            input_snapshot_id=f"grid-{sample[0]}",
+            grid_power_w=-500,
+            activate_battery_priority=True,
+        )
+        sample[0] += 1
+
+    outcomes = []
+    for _ in range(3):
+        contexts[0] = _capacity_context(charge_w=75, soc_percent=50, second=sample[0])
+        outcomes.append(
+            engine.decide(
+                -40,
+                input_snapshot_id=f"grid-{sample[0]}",
+                grid_power_w=-500,
+                activate_battery_priority=True,
+            )
+        )
+        sample[0] += 1
+
+    assert all(outcome.target_grid_power_w == -100 for outcome in outcomes[:2])
+    assert (
+        outcomes[-1].dtu_control_directive
+        is DtuControlDirective.RELEASE_DTU_TO_MAXIMUM
+    )
+    assert outcomes[-1].requested_dtu_limit_percent == 100
+    assert outcomes[-1].comparison is not None
+    assert (
+        outcomes[-1].comparison.capacity_release_state
+        is CapacityReleaseState.RELEASE
+    )
+
+
+def test_capacity_probe_yields_to_zero_injection_after_confirmed_saturation() -> None:
+    """Saturation remains an absolute safety priority while the probe is active."""
+    sample = [0]
+    contexts = [_capacity_context(charge_w=0, soc_percent=50, second=sample[0])]
+    engine = _capacity_engine(contexts)
+    for _ in range(3):
+        engine.decide(
+            -40,
+            input_snapshot_id=f"grid-{sample[0]}",
+            grid_power_w=-500,
+            activate_battery_priority=True,
+        )
+        sample[0] += 1
+
+    outcomes = []
+    for _ in range(3):
+        contexts[0] = _capacity_context(charge_w=980, soc_percent=50, second=sample[0])
+        outcomes.append(
+            engine.decide(
+                -40,
+                input_snapshot_id=f"grid-{sample[0]}",
+                grid_power_w=-500,
+                activate_battery_priority=True,
+            )
+        )
+        sample[0] += 1
+
+    assert outcomes[-1].target_grid_power_w == -40
+    assert outcomes[-1].dtu_control_directive is DtuControlDirective.NORMAL_REGULATION
+    assert outcomes[-1].comparison is not None
+    assert (
+        outcomes[-1].comparison.reason_code
+        is BatteryPriorityReasonCode.CAPACITY_RELEASE_SATURATED
+    )
 
 
 def test_capacity_release_allows_a_discharging_battery_when_capacity_is_available() -> None:

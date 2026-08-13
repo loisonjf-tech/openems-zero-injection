@@ -415,6 +415,70 @@ async def test_capacity_release_yields_to_zero_injection_after_confirmed_saturat
     assert coordinator.async_set_all_temporary_power_limits.await_args_list[-1].args[0] < 100
 
 
+async def test_capacity_probe_uses_minus_100_target_through_existing_scheduler(
+    hass,
+) -> None:
+    """Persistent export without battery charge switches from release to probe."""
+    coordinator = fake_coordinator(temporary_limit_percent=20)
+    controller = ZeroInjectionController(
+        hass, coordinator, AcquisitionEngine(hass, "sensor.grid", False)
+    )
+    timestamp = datetime.now(UTC)
+    battery = [
+        BatteryResource(
+            resource_id="battery-1",
+            name="Test battery",
+            adapter_id="test",
+            adapter_version="test",
+            available=True,
+            health=BatteryHealth.HEALTHY,
+            last_updated=timestamp,
+            data_age_seconds=1,
+            soc_percent=50,
+            charge_power_w=0,
+            discharge_power_w=0,
+            max_charge_power_w=1000,
+            remaining_charge_power_w=1000,
+            source_freshness={
+                "soc_percent": "fresh",
+                "max_charge_power_w": "fresh",
+            },
+        )
+    ]
+    controller.energy_policy_engine.set_battery_context_provider(
+        lambda: BatteryPriorityContext((battery[0],), None, "none")
+    )
+    controller.energy_policy_engine.configure_battery_priority(
+        mode="capacity_release",
+        margin_w=25,
+        charge_threshold_w=50,
+        confirmation_samples=3,
+    )
+    await controller.async_set_mode(ControllerMode.PRODUCTION.value)
+
+    for power in (-500, -540):
+        hass.states.async_set("sensor.grid", str(power))
+        await controller.async_tick()
+
+    # The first release is protected by the unchanged scheduler stabilization.
+    controller.scheduler._next_allowed_at = datetime.now(UTC) - timedelta(seconds=1)
+    hass.states.async_set("sensor.grid", "-580")
+    await controller.async_tick()
+
+    decision = controller.last_energy_strategy_decision
+    assert decision is not None
+    assert decision.target_grid_power_w == -100
+    assert decision.dtu_control_directive.value == "normal_regulation"
+    assert decision.comparison is not None
+    assert (
+        decision.comparison.reason_code
+        is BatteryPriorityReasonCode.CAPACITY_PROBE_ACTIVE
+    )
+    calls = coordinator.async_set_all_temporary_power_limits.await_args_list
+    assert calls[0].args == (100,)
+    assert calls[-1].args[0] < 100
+
+
 async def test_capacity_release_immediately_releases_a_discharging_battery(hass) -> None:
     """A fresh 300 W discharge releases a DTU currently limited to 8%."""
     hass.states.async_set("sensor.grid", "-100")
