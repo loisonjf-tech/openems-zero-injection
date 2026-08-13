@@ -458,14 +458,19 @@ async def test_capacity_probe_uses_minus_100_target_through_existing_scheduler(
     )
     await controller.async_set_mode(ControllerMode.PRODUCTION.value)
 
-    for power in (-500, -540):
+    # The controller first requires three valid grid measurements before it
+    # can evaluate any energy strategy. The final warm-up tick starts the
+    # initial Capacity Release command at 100%.
+    for power in (-500, -500, -500):
         hass.states.async_set("sensor.grid", str(power))
         await controller.async_tick()
 
-    # The first release is protected by the unchanged scheduler stabilization.
-    controller.scheduler._next_allowed_at = datetime.now(UTC) - timedelta(seconds=1)
-    hass.states.async_set("sensor.grid", "-580")
-    await controller.async_tick()
+    # Three subsequently evaluated, fresh export samples with no battery
+    # charge activate Capacity Probe. The Scheduler still owns its existing
+    # stabilization delay during those evaluations.
+    for power in (-540, -580, -620):
+        hass.states.async_set("sensor.grid", str(power))
+        await controller.async_tick()
 
     decision = controller.last_energy_strategy_decision
     assert decision is not None
@@ -476,6 +481,13 @@ async def test_capacity_probe_uses_minus_100_target_through_existing_scheduler(
         decision.comparison.reason_code
         is BatteryPriorityReasonCode.CAPACITY_PROBE_ACTIVE
     )
+
+    # Once the existing stabilization delay expires, the same Scheduler path
+    # executes the first normal-regulation correction from the -100 W target.
+    controller.scheduler._next_allowed_at = datetime.now(UTC) - timedelta(seconds=1)
+    hass.states.async_set("sensor.grid", "-660")
+    await controller.async_tick()
+
     calls = coordinator.async_set_all_temporary_power_limits.await_args_list
     assert calls[0].args == (100,)
     assert calls[-1].args[0] < 100
