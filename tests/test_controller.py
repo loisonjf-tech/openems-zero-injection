@@ -366,6 +366,7 @@ async def test_capacity_release_yields_to_zero_injection_after_confirmed_saturat
             max_charge_power_w=1000,
             remaining_charge_power_w=600,
             source_freshness={
+                "directional_power_w": "fresh",
                 "soc_percent": "fresh",
                 "max_charge_power_w": "fresh",
             },
@@ -440,6 +441,7 @@ async def test_capacity_probe_uses_minus_100_target_through_existing_scheduler(
             max_charge_power_w=1000,
             remaining_charge_power_w=1000,
             source_freshness={
+                "directional_power_w": "fresh",
                 "soc_percent": "fresh",
                 "max_charge_power_w": "fresh",
             },
